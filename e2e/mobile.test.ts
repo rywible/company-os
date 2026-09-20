@@ -427,7 +427,10 @@ for (const backend of backends) {
           `!!document.querySelector('.document-preview strong')`,
         );
         await button(view, "Save", "dialog");
-        await wait(view, `!document.querySelector('dialog')`);
+        await wait(
+          view,
+          `document.querySelectorAll('dialog[open]').length === 1 && !!document.querySelector('dialog[aria-label="Library"]')`,
+        );
         expect(repo.document("architecture")!.version).toBe(2);
         expect(repo.document("architecture")!.indexed_version).toBe(2);
         await click(view, ".context-contract > summary");
@@ -439,9 +442,20 @@ for (const backend of backends) {
             `document.querySelector('.context-view').textContent.includes('Included')`,
           ),
         ).toBe(true);
-        await button(view, "Close dialog");
-        await wait(view, `!document.querySelector('dialog')`);
-        await button(view, "← Library");
+        await button(
+          view,
+          "Close dialog",
+          'dialog[aria-label="Context preview"]',
+        );
+        await wait(
+          view,
+          `document.querySelectorAll('dialog[open]').length === 1 && !!document.querySelector('dialog[aria-label="Library"]')`,
+        );
+        await button(
+          view,
+          "Close dialog",
+          'dialog[aria-label="Library"]',
+        );
         // All non-constitution documents share the library.
         expect(
           await view.evaluate<number>(
@@ -463,7 +477,10 @@ for (const backend of backends) {
           "!!document.querySelector('.document-preview .markdown p')",
         );
         await button(view, "Save", "dialog");
-        await wait(view, "!document.querySelector('dialog')");
+        await wait(
+          view,
+          `document.querySelectorAll('dialog[open]').length === 1 && !!document.querySelector('dialog[aria-label="Library"]')`,
+        );
         const subject = repo
           .documents()
           .find((d) => d.title === "Editor behavior")!;
@@ -514,7 +531,10 @@ for (const backend of backends) {
           "The founder can revise this subject. Drafts persist on mobile.",
         );
         await button(view, "Save", "dialog");
-        await wait(view, "!document.querySelector('dialog')");
+        await wait(
+          view,
+          `document.querySelectorAll('dialog[open]').length === 1 && !!document.querySelector('dialog[aria-label="Library"]')`,
+        );
         expect(repo.document(subject.id)?.version).toBe(2);
         expect(repo.state().policies[subject.id]).toEqual({
           inclusion: "reference",
@@ -537,7 +557,11 @@ for (const backend of backends) {
           `.artifacts/library-reader-${size.name}.png`,
           await view.screenshot(),
         );
-        await button(view, "← Library");
+        await button(
+          view,
+          "Close dialog",
+          'dialog[aria-label="Library"]',
+        );
         await fill(view, '[aria-label="Search knowledge"]', "Editor behavior");
         await button(view, "Search");
         await wait(
@@ -597,7 +621,11 @@ for (const backend of backends) {
           view,
           "document.querySelector('.library-reader')?.textContent.includes('Updated deployment architecture')",
         );
-        await button(view, "← Subject");
+        await button(
+          view,
+          "Close dialog",
+          'dialog[aria-label="Source revision"]',
+        );
         await click(view, ".library-review > summary");
         await button(view, "Confirm current sources");
         await wait(view, "!document.querySelector('.library-freshness')");
@@ -730,6 +758,17 @@ for (const backend of backends) {
         await button(view, "Product direction", ".thread-list", false);
         await button(view, "Move to inbox");
         await button(view, "Unread", ".filters");
+        await button(view, "Product direction", ".thread-list", false);
+        await wait(
+          view,
+          `!!document.querySelector('.conversation-header .actions button:not(:disabled)')`,
+        );
+        expect(
+          repo.state().threads.find((t) => t.subject === "Product direction")!
+            .unread,
+        ).toBe(false);
+        await button(view, "← Inbox");
+        await button(view, "Read", ".filters");
         await button(view, "Product direction", ".thread-list", false);
         await button(view, "Archive");
         await wait(view, "!!document.querySelector('.thread-list')");
@@ -949,7 +988,10 @@ test("empty workspace: author the constitution without starter documents or inve
   await fill(view, '[aria-label="Document title"]', "Rehearsal timing");
   await fill(view, "dialog textarea", "Leave ten minutes between rehearsals.");
   await button(view, "Save", "dialog");
-  await wait(view, `!document.querySelector('dialog')`);
+  await wait(
+    view,
+    `document.querySelectorAll('dialog[open]').length === 1 && !!document.querySelector('dialog[aria-label="Library"]')`,
+  );
   const entry = repo.documents().find((d) => d.title === "Rehearsal timing")!;
   expect(entry.level).toBe("knowledge");
   expect(entry.indexed_version).toBe(1);
@@ -957,7 +999,11 @@ test("empty workspace: author the constitution without starter documents or inve
     view,
     `document.querySelector('.library-reader')?.textContent.includes('ten minutes')`,
   );
-  await button(view, "← Library");
+  await button(
+    view,
+    "Close dialog",
+    'dialog[aria-label="Library"]',
+  );
   await fill(view, '[aria-label="Search knowledge"]', "Rehearsal timing");
   await button(view, "Search");
   await wait(view, `document.querySelectorAll('.library-row').length === 1`);
@@ -1061,6 +1107,11 @@ test("constitution and knowledge have distinct homes, with searchable editable d
   await wait(view, `document.querySelectorAll('.library-row').length === 1`);
   await button(view, "System architecture", ".library-index", false);
   await wait(view, `!!document.querySelector('.library-reader')`);
+  await button(
+    view,
+    "Close dialog",
+    'dialog[aria-label="Library"]',
+  );
   await button(view, "New document");
   expect(
     await view.evaluate<any>(
@@ -1072,7 +1123,7 @@ test("constitution and knowledge have distinct homes, with searchable editable d
   await button(view, "Save", "dialog");
   await wait(
     view,
-    `!document.querySelector('dialog') && document.querySelector('.library-reader')?.textContent.includes('Approved product plan')`,
+    `document.querySelectorAll('dialog[open]').length === 1 && document.querySelector('dialog[aria-label="Library"] .library-reader')?.textContent.includes('Approved product plan')`,
   );
   const product = repo
     .documents()
@@ -1089,7 +1140,10 @@ test("constitution and knowledge have distinct homes, with searchable editable d
     "Ship the rehearsal planner with calendar export.",
   );
   await button(view, "Save", "dialog");
-  await wait(view, `!document.querySelector('dialog')`);
+  await wait(
+    view,
+    `document.querySelectorAll('dialog[open]').length === 1 && !!document.querySelector('dialog[aria-label="Library"]')`,
+  );
   expect(repo.document(product.id)!.version).toBe(2);
   await view.evaluate<any>(`location.hash = 'Documents'`);
   await view.reload();
@@ -1190,10 +1244,14 @@ test("library maintenance produces browsable subjects with versioned sources", a
   await button(view, repo.document(sourceId)!.title, ".library-support", false);
   await wait(
     view,
-    "document.querySelector('.library-reader')?.textContent.includes('Source revision 1')",
+    `document.querySelector('dialog[aria-label="Source revision"] .library-reader')?.textContent.includes('Revision 1')`,
   );
   await fits(view);
-  await button(view, "← Subject");
+  await button(
+    view,
+    "Close dialog",
+    'dialog[aria-label="Source revision"]',
+  );
   await button(view, "Discuss with Foreman");
   await fill(
     view,

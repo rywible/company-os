@@ -5,7 +5,7 @@ import { parseDocumentRef, type LibraryPage } from "../domain/library";
 import { libraryFreshness } from "../domain/freshness";
 import { documentRef } from "../domain/library";
 import { Modal } from "./modal";
-import { MessageCircle, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, MessageCircle, Pencil, Trash2 } from "lucide-react";
 import "./library.css";
 type Props = {
   state: CompanyState & { documents: Document[] };
@@ -110,72 +110,88 @@ export function KnowledgeLibrary({
       setError(String(e instanceof Error ? e.message : e));
     }
   }
-  const rows = (docs: Document[]) =>
-    docs.map((d) => (
-      <button className="library-row" key={d.id} onClick={() => open(d.id)}>
-        <span>
-          <strong>{d.title}</strong>
-          <span>{d.content.replace(/[#*_`]/g, "").slice(0, 145)}</span>
-        </span>
-        <small>
-          {freshness[d.id]?.status === "needs_review"
-            ? "Needs review"
-            : freshness[d.id]?.status === "withdrawn" ||
-                state.policies[d.id]?.status === "retired"
-              ? "Withdrawn"
-              : `v${d.version}`}
-        </small>
-      </button>
-    ));
-  if (source)
-    return (
-      <article className="library-reader">
-        <button className="back" onClick={() => setSource(null)}>
-          ← Subject
+  const rows = (docs: Document[]) => (
+    <div className="library-card-grid">
+      {docs.map((d) => (
+        <button className="library-row" key={d.id} onClick={() => open(d.id)}>
+          <span className="library-row-copy">
+            <strong>{d.title}</strong>
+            <span>{d.content.replace(/[#*_`]/g, "").slice(0, 220)}</span>
+          </span>
+          <span className="library-row-footer">
+            <small>
+              {freshness[d.id]?.status === "needs_review"
+                ? "Needs review"
+                : freshness[d.id]?.status === "withdrawn" ||
+                    state.policies[d.id]?.status === "retired"
+                  ? "Withdrawn"
+                  : `Version ${d.version}`}
+            </small>
+            <ChevronRight size={16} aria-hidden="true" />
+          </span>
         </button>
-        <p className="muted">Source revision {source.version} · read only</p>
-        <h2>{source.title}</h2>
-        {markdown(source.content)}
-      </article>
-    );
-  if (document && !isEvidence)
-    return (
-      <article className="library-reader">
-        <button className="back" onClick={() => setSelected(null)}>
-          ← {evidence ? "Evidence" : "Library"}
-        </button>
-        {error && <p role="alert">{error}</p>}
-        {meta && (
-          <p className="library-path">
-            {meta.collection}
-            {meta.parentId && (
-              <>
-                {" "}
-                /{" "}
-                <button onClick={() => open(meta.parentId!)}>
-                  {state.documents.find((d) => d.id === meta.parentId)?.title}
-                </button>
-              </>
-            )}
-          </p>
-        )}
+      ))}
+    </div>
+  );
+  const sourceDialog = source ? (
+    <Modal
+      className="knowledge-entry-dialog"
+      title="Source revision"
+      close={() => setSource(null)}
+    >
+      <article className="library-reader source-reader">
         <div className="library-title">
-          <h2>{document.title}</h2>
+          <h2>{source.title}</h2>
+        </div>
+        <p className="library-meta">Revision {source.version} · Read only</p>
+        <div className="library-body">{markdown(source.content)}</div>
+      </article>
+    </Modal>
+  ) : null;
+  const libraryDialog = document && !isEvidence && !source ? (
+    <Modal
+      className="knowledge-entry-dialog"
+      title="Library"
+      close={() => setSelected(null)}
+    >
+      <article className="library-reader">
+        {error && <p role="alert">{error}</p>}
+        <div className="evidence-heading">
+          <div>
+            {meta && (
+              <p className="library-path">
+                {meta.collection}
+                {meta.parentId && (
+                  <>
+                    {" "}
+                    /{" "}
+                    <button onClick={() => open(meta.parentId!)}>
+                      {
+                        state.documents.find((d) => d.id === meta.parentId)
+                          ?.title
+                      }
+                    </button>
+                  </>
+                )}
+              </p>
+            )}
+            <h2>{document.title}</h2>
+            <p className="library-meta">
+              Revision {document.version} ·{" "}
+              {new Date(document.updated_at).toLocaleDateString()} ·{" "}
+              {meta?.managed
+                ? "Maintained by Foreman"
+                : meta
+                  ? "Human edited"
+                  : document.level === "knowledge"
+                    ? "Source evidence"
+                    : "Human-governed document"}
+            </p>
+          </div>
           <button disabled={disabled} onClick={() => edit(document)}>
-            Edit
+            <Pencil size={15} /> Edit
           </button>
         </div>
-        <p className="library-meta">
-          Revision {document.version} ·{" "}
-          {new Date(document.updated_at).toLocaleDateString()} ·{" "}
-          {meta?.managed
-            ? "Maintained by Foreman"
-            : meta
-              ? "Human edited"
-              : document.level === "knowledge"
-                ? "Source evidence"
-                : "Human-governed document"}
-        </p>
         {freshness[document.id] &&
           freshness[document.id]!.status !== "current" && (
             <aside className="library-freshness" aria-label="Subject status">
@@ -192,6 +208,7 @@ export function KnowledgeLibrary({
               </ul>
             </aside>
           )}
+        <div className="library-body">{markdown(document.content)}</div>
         <details className="context-contract">
           <summary>Context & usage</summary>
           <p>
@@ -215,7 +232,6 @@ export function KnowledgeLibrary({
             <button onClick={() => inspect(document)}>Records & usage</button>
           </div>
         </details>
-        <div className="library-body">{markdown(document.content)}</div>
         {meta?.sources.length ? (
           <details className="library-support">
             <summary>Sources ({meta.sources.length})</summary>
@@ -384,33 +400,6 @@ export function KnowledgeLibrary({
             </div>
           </details>
         )}
-        {!meta && (
-          <div className="library-review-actions">
-            <button
-              disabled={disabled}
-              onClick={() =>
-                void command({
-                  type: "SetEvidenceStatus",
-                  documentId: document.id,
-                  expectedVersion: document.version,
-                  status:
-                    state.policies[document.id]?.status === "retired"
-                      ? "active"
-                      : "retired",
-                })
-              }
-            >
-              {state.policies[document.id]?.status === "retired"
-                ? "Restore evidence"
-                : "Withdraw evidence"}
-            </button>
-            {state.policies[document.id]?.status === "retired" && (
-              <p className="muted">
-                Withdrawn evidence is retained as history.
-              </p>
-            )}
-          </div>
-        )}
         {pages.some(
           (d) => state.library.pages[d.id]?.parentId === document.id,
         ) && (
@@ -456,9 +445,9 @@ export function KnowledgeLibrary({
             </details>
           ))}
         </details>
-        <div className="library-footer">
+        <footer className="evidence-modal-actions library-footer">
           <button onClick={() => discuss(document)}>
-            Discuss with Foreman
+            <MessageCircle size={15} /> Discuss with Foreman
           </button>
           {meta && (
             <button
@@ -468,7 +457,7 @@ export function KnowledgeLibrary({
               Organize
             </button>
           )}
-        </div>
+        </footer>
         {location && (
           <form
             className="library-organize"
@@ -551,7 +540,8 @@ export function KnowledgeLibrary({
           </form>
         )}
       </article>
-    );
+    </Modal>
+  ) : null;
   const candidates = evidence
     ? state.documents.filter(
         (d) => d.level === "knowledge" && !state.library.pages[d.id],
@@ -564,6 +554,8 @@ export function KnowledgeLibrary({
     : candidates;
   return (
     <section className="library-index" aria-label="Knowledge library">
+      {sourceDialog}
+      {libraryDialog}
       {document && isEvidence && (
         <EvidenceDialog
           document={document}
@@ -703,7 +695,7 @@ function EvidenceDialog({
     setContent(document.content);
   }, [document.id, document.version]);
   return (
-    <Modal className="evidence-dialog" title="Evidence" close={close}>
+    <Modal className="knowledge-entry-dialog" title="Evidence" close={close}>
       {editing ? (
         <form
           className="editor evidence-editor"

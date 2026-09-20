@@ -740,61 +740,76 @@ function App() {
                   <section className="thread-list" aria-label="Inbox threads">
                     {page === "Inbox" && (
                       <div className="filters">
-                        {["unread", "resolved"].map((f) => (
+                        {["unread", "read", "resolved"].map((f) => (
                           <button
                             key={f}
                             className={inboxFilter === f ? "active" : ""}
                             onClick={() => setInboxFilter(f)}
                           >
-                            {f === "unread" ? "Unread" : "Archived"}
+                            {f === "resolved"
+                              ? "Archived"
+                              : f === "unread"
+                                ? "Unread"
+                                : "Read"}
                           </button>
                         ))}
                       </div>
                     )}
-                    {state.threads
-                      .filter(
-                        (t) =>
-                          (inboxFilter === "unread"
-                            ? t.unread && t.status !== "resolved"
-                            : t.status === "resolved"),
-                      )
-                      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-                      .map((t) => (
-                        <button
-                          className={
-                            "thread-row " + (t.unread ? "is-unread" : "")
-                          }
-                          key={t.id}
-                          onClick={() => openThread(t)}
-                        >
-                          <div>
-                            <strong>{t.subject}</strong>
-                            {t.unread && (
-                              <span className="unread" aria-label="Unread" />
-                            )}
-                          </div>
-                          <p>
-                            {t.reason ||
-                              t.messages.at(-1)?.content.slice(0, 95)}
-                          </p>
-                          <small>{date(t.updatedAt)}</small>
-                        </button>
-                      ))}
-                    {!state.threads.some(
-                      (t) =>
-                        (inboxFilter === "unread"
-                          ? t.unread && t.status !== "resolved"
-                          : t.status === "resolved"),
-                    ) && (
-                      <Empty
-                        title={
+                    <div className="thread-card-grid">
+                      {state.threads
+                        .filter((t) =>
                           inboxFilter === "resolved"
-                            ? "No archived messages"
-                            : "Inbox empty"
-                        }
-                        text=""
-                      />
-                    )}
+                            ? t.status === "resolved"
+                            : t.status !== "resolved" &&
+                              t.unread === (inboxFilter === "unread"),
+                        )
+                        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                        .map((t) => (
+                          <button
+                            className={
+                              "thread-row " + (t.unread ? "is-unread" : "")
+                            }
+                            key={t.id}
+                            onClick={() => openThread(t)}
+                          >
+                            <div>
+                              <strong>{t.subject}</strong>
+                            </div>
+                            <p>
+                              {t.reason || t.messages.at(-1)?.content}
+                            </p>
+                            <span className="thread-row-footer">
+                              <small>
+                                {inboxFilter === "resolved"
+                                  ? "Archived"
+                                  : t.unread
+                                    ? "Unread"
+                                    : "Read"}
+                                {" · "}
+                                {date(t.updatedAt)}
+                              </small>
+                              <ChevronRight size={16} aria-hidden="true" />
+                            </span>
+                          </button>
+                        ))}
+                      {!state.threads.some((t) =>
+                        inboxFilter === "resolved"
+                          ? t.status === "resolved"
+                          : t.status !== "resolved" &&
+                            t.unread === (inboxFilter === "unread"),
+                      ) && (
+                        <Empty
+                          title={
+                            inboxFilter === "resolved"
+                              ? "No archived messages"
+                              : inboxFilter === "read"
+                                ? "No read messages"
+                                : "Inbox empty"
+                          }
+                          text=""
+                        />
+                      )}
+                    </div>
                   </section>
                 )}
                 {currentThread && (

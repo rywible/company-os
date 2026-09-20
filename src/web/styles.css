@@ -288,15 +288,23 @@ kbd {
 .thread-layout { min-width: 0; }
 .thread-layout.inbox { display: block; height: auto; min-height: 0; overflow: visible; border: 0; border-radius: 0; }
 .inbox .thread-list { background: transparent; border: 0; max-height: none; overflow: visible; min-width: 0; }
-.inbox .thread-row {
+.thread-card-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 20px;
-  padding: 15px 16px 15px 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.thread-card-grid > .empty { grid-column: 1 / -1; }
+.inbox .thread-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 158px;
+  padding: 18px;
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  margin-bottom: 8px;
+  border-radius: 12px;
   box-shadow: var(--shadow-sm);
   text-align: left;
   width: 100%;
@@ -305,36 +313,27 @@ kbd {
 }
 .inbox .thread-row:hover { border-color: var(--line-strong); box-shadow: var(--shadow-md); transform: translateY(-1px); }
 .inbox .thread-row.is-unread { border-color: var(--ink); }
-.inbox .thread-row.is-unread::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 14px;
-  bottom: 14px;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--accent);
-}
 .thread-row { min-width: 0; }
 .thread-row > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.thread-row strong { font-size: 14px; font-weight: 500; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-row strong { font-size: 16px; font-weight: 600; line-height: 1.35; letter-spacing: -0.015em; overflow-wrap: anywhere; }
 .inbox .thread-row.is-unread strong { font-weight: 750; }
 .thread-row p {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
-  margin: 5px 0 0;
+  margin: 0;
   display: -webkit-box;
-  -webkit-line-clamp: 1;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  grid-column: 1;
-  line-height: 1.5;
+  line-height: 1.6;
   overflow-wrap: anywhere;
+  white-space: normal;
   min-width: 0;
 }
 .thread-row small { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
-.inbox .thread-row small { grid-column: 2; grid-row: 1; white-space: nowrap; padding-top: 3px; }
-.unread { width: 8px; height: 8px; background: var(--accent); border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 3px var(--accent-wash); }
+.thread-row-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); }
+.thread-row-footer svg { flex-shrink: 0; }
+.inbox .thread-row small { white-space: nowrap; }
 .thread-row.selected { background: var(--wash); }
 
 .inbox .conversation { width: 100%; max-width: none; margin: 0; min-width: 0; }
@@ -713,7 +712,8 @@ details[open] > summary { margin-bottom: 10px; }
   .work-detail { padding: 18px; border-radius: 14px; }
   .discovery-layout { grid-template-columns: minmax(0, 1fr); }
   .discovery-detail { padding: 18px; }
-  .inbox .thread-row { padding: 14px 12px 14px 16px; column-gap: 12px; }
+  .thread-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .inbox .thread-row { min-height: 138px; padding: 16px; gap: 12px; }
   .inbox .conversation-header { gap: 12px; flex-wrap: wrap; }
   .composer { padding: 10px; border-radius: 14px; }
   dialog { width: 100%; max-width: none; height: var(--viewport-height, 100dvh); max-height: var(--viewport-height, 100dvh); margin: 0; inset: var(--viewport-top, 0px) 0 auto; border: 0; border-radius: 0; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
