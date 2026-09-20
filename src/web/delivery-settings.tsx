@@ -85,8 +85,8 @@ export function DeliverySettings({
         Automatically merge accepted work
       </label>
       <p className="field-help">
-        Automated checks run in GitHub CI and are maintained in the repository.
-        Work merges only after review and CI pass.
+        Each managed repository owns its CI checks. Company OS waits for review
+        and those checks to pass before merging work.
       </p>
       <h3>Milestone acceptance</h3>
       <label>
