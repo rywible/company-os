@@ -4,12 +4,16 @@ import type { Lens } from "../domain/discovery";
 import { taskBlocker, taskDueAt, taskUsage } from "../domain/automation";
 import type { CommandHandler } from "./settings";
 import { Modal } from "./modal";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import {
   AgentConfigurationFields,
   agentConfigurationSummary,
 } from "./agent-configuration";
-import { defaultAgentConfiguration } from "../domain/agents";
+import {
+  defaultAgentConfiguration,
+  type AgentCatalog,
+  type AgentProvider,
+} from "../domain/agents";
 const stamp = (at: string) =>
   new Date(at).toLocaleString(undefined, {
     month: "short",
@@ -20,12 +24,16 @@ const stamp = (at: string) =>
   });
 export function AutomationPage({
   state,
+  agentCatalog,
+  availableAgentProviders,
   disabled,
   command,
   configured,
   hasConstitution,
 }: {
   state: CompanyState;
+  agentCatalog: AgentCatalog;
+  availableAgentProviders: AgentProvider[];
   disabled: boolean;
   command: CommandHandler;
   configured: boolean;
@@ -102,6 +110,8 @@ export function AutomationPage({
         </div>
         <AgentConfigurationFields
           value={lens.agent}
+          catalog={agentCatalog}
+          availableProviders={availableAgentProviders}
           onChange={(agent) => setEditing({ ...lens, agent })}
         />
         <div className="form-grid">
@@ -190,9 +200,9 @@ export function AutomationPage({
           {editor(editing)}
         </Modal>
       )}
-      <div className="task-toolbar">
+      <div className="page-actions">
         <button className="primary" disabled={disabled} onClick={create}>
-          Add automation
+          <Plus size={16} /> Add automation
         </button>
       </div>
       <div className="task-list">
