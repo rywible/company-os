@@ -37,6 +37,10 @@ const answer = (partial: Partial<AgentResult> = {}) =>
 beforeEach(() => {
   store = new Store(":memory:");
   repo = new SQLiteRepository(store, now);
+  // These suites exercise their own automation clocks; milestone planning is covered separately.
+  const planningState = repo.state();
+  planningState.planning.enabled = false;
+  repo.save(planningState);
   contexts = [];
   outputs = [];
   execute = undefined;

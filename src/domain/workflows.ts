@@ -6,9 +6,12 @@ export function workflows(event: DomainEvent): Effect[] {
     case "DiscoveryEvaluationRequested":
     case "DiscoveryIdentified":
       return [{ type: "InvestigateDiscovery", ideaId: event.payload.ideaId }];
+    case "RoleConfigured":
+    case "MilestoneChanged":
+      return [{ type: "ReconcileMilestones" }];
     case "WorkStatusChanged":
     case "RunFailed":
-      return [{ type: "ObserveDiscovery" }];
+      return [{ type: "ObserveDiscovery" }, { type: "ReconcileMilestones" }];
     case "LibraryMaintenanceRequested":
     case "DiscoveryScoutRequested":
     case "ConversationStarted":
@@ -64,6 +67,16 @@ export function workflows(event: DomainEvent): Effect[] {
   }
 }
 export const workflowDefinitions = [
+  {
+    name: "Milestone coordination",
+    steps: [
+      "Planning schedule → bounded milestone proposals → Inbox",
+      "Human approval → dependency DAG → ready assignments",
+      "Worker result → independent role review → accepted outputs",
+      "Accepted dependencies → parallel streams; blocked descendants wait",
+      "Completed milestone → replenish planning pipeline",
+    ],
+  },
   {
     name: "Knowledge library",
     steps: [

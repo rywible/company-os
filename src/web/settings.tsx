@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import type { Command, Settings } from "../domain/model";
+import { RolesSettings, AvailabilitySettings } from "./work-settings";
 import { InstallCard } from "./platform";
 import { AgentConfigurationFields } from "./agent-configuration";
 import type { AgentCatalog, AgentProvider } from "../domain/agents";
@@ -25,19 +26,27 @@ export function SettingsPage({
   const [saved, setSaved] = useState(false);
   return (
     <div className="settings-page">
-      <div className="section-tabs" role="group" aria-label="Settings sections">
-        {["Workspace", "Foreman", "Reviews"].map((name) => (
-          <button
-            key={name}
-            aria-pressed={tab === name}
-            onClick={() => {
-              setTab(name);
-              setSaved(false);
-            }}
-          >
-            {name}
-          </button>
-        ))}
+      <div
+        className="section-tabs"
+        role="tablist"
+        aria-label="Settings sections"
+      >
+        {["Workspace", "Foreman", "Roles", "Availability", "Reviews"].map(
+          (name) => (
+            <button
+              key={name}
+              type="button"
+              role="tab"
+              aria-selected={tab === name}
+              onClick={() => {
+                setTab(name);
+                setSaved(false);
+              }}
+            >
+              {name}
+            </button>
+          ),
+        )}
       </div>
       {tab === "Workspace" ? (
         <InstallCard />
@@ -56,9 +65,9 @@ export function SettingsPage({
           <div>
             <h2>Foreman model</h2>
             <p className="muted">
-              The default used for conversations, reviews and work that does
-              not belong to an automation. Runs already queued keep their
-              original selection.
+              The default used for conversations and planning. Assignments use
+              their role; other automation runs use their configured profile.
+              Runs already queued keep their original selection.
             </p>
           </div>
           <AgentConfigurationFields
@@ -78,6 +87,20 @@ export function SettingsPage({
             {saved && <span role="status">Saved</span>}
           </div>
         </form>
+      ) : tab === "Roles" ? (
+        <RolesSettings
+          settings={settings}
+          catalog={agentCatalog}
+          providers={availableAgentProviders}
+          disabled={disabled}
+          command={command}
+        />
+      ) : tab === "Availability" ? (
+        <AvailabilitySettings
+          settings={settings}
+          disabled={disabled}
+          command={command}
+        />
       ) : (
         <form
           className="preference-section editor"
@@ -133,8 +156,8 @@ export function SettingsPage({
               New commits restart review. The original worker receives the
               combined findings; three unsuccessful rounds reach your inbox.
               Reviews use separate agent runs with the owning automation’s
-              profile or the Foreman default. They share one GitHub account,
-              so they do not count as independent GitHub account approvals.
+              profile or the Foreman default. They share one GitHub account, so
+              they do not count as independent GitHub account approvals.
             </p>
           </details>
         </form>

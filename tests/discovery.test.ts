@@ -63,6 +63,10 @@ beforeEach(() => {
   now = new Date("2026-09-20T12:00:00Z");
   store = seedFixture(new Store(":memory:"));
   repo = new SQLiteRepository(store, now.toISOString());
+  // These suites exercise their own automation clocks; milestone planning is covered separately.
+  const planningState = repo.state();
+  planningState.planning.enabled = false;
+  repo.save(planningState);
   outputs = [];
   contexts = [];
   company = new Company(

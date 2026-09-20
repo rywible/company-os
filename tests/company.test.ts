@@ -35,6 +35,10 @@ const answer = (overrides: Partial<AgentResult> = {}): AgentResult => ({
 beforeEach(() => {
   store = seedFixture(new Store(":memory:"));
   repo = new SQLiteRepository(store, now.toISOString());
+  // These suites exercise their own automation clocks; milestone planning is covered separately.
+  const planningState = repo.state();
+  planningState.planning.enabled = false;
+  repo.save(planningState);
   outputs = [];
   contexts = [];
   calls = 0;

@@ -100,7 +100,7 @@ export function fixture(empty = false) {
               },
             }
           : {}),
-        review: c.review?.reviewId
+        review: c.review?.reviewId || c.assignmentReview
           ? {
               verdict: "approve",
               summary: "Boundary cases checked.",

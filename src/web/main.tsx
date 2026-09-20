@@ -1,6 +1,12 @@
 import { KnowledgeLibrary, ContextUsed } from "./library";
 import { MarkdownEditor } from "./markdown-editor";
 import { SettingsPage } from "./settings";
+import {
+  MilestonesPage,
+  MilestoneActions,
+  AvailabilityNote,
+} from "./milestones";
+import { PlanningSettings } from "./work-settings";
 import { AutomationPage } from "./automation";
 import { DiscoveryPage } from "./discovery";
 import { Modal } from "./modal";
@@ -251,13 +257,47 @@ const pages = [
   { name: "Inbox", icon: Inbox },
   { name: "Constitution", icon: BookOpen },
   { name: "Knowledge", icon: Brain },
-  { name: "Automation", icon: Activity },
+  { name: "Work", icon: Briefcase },
   { name: "Settings", icon: Settings2, bottom: true },
 ];
 const freshPolicy: Policy = {
   inclusion: "relevant",
   status: "active",
 };
+function route(name: string) {
+  const workViews: Record<string, string> = {
+    Work: "milestones",
+    Assignments: "work",
+    Automation: "automations",
+    Discovery: "ideas",
+    "Work/assignments": "work",
+    "Work/automations": "automations",
+    "Work/ideas": "ideas",
+  };
+  const view = workViews[name];
+  if (view)
+    return {
+      page: "Work",
+      view,
+      hash:
+        view === "milestones"
+          ? "Work"
+          : "Work/" +
+            (
+              {
+                work: "assignments",
+                automations: "automations",
+                ideas: "ideas",
+              } as Record<string, string>
+            )[view],
+    };
+  const page = ["Understanding", "Documents"].includes(name)
+    ? "Knowledge"
+    : name === "Foreman" || !name
+      ? "Inbox"
+      : name;
+  return { page, view: "requests", hash: page };
+}
 function App() {
   useMobileViewport();
   const online = useConnection();
@@ -265,24 +305,12 @@ function App() {
     [readOnly, setReadOnly] = useState(false),
     [password, setPassword] = useState("");
   const [state, setState] = useState<Workspace | null>(null),
-    [page, setPage] = useState(
-      ["Work", "Discovery"].includes(location.hash.slice(1))
-        ? "Automation"
-        : location.hash === "#Foreman"
-          ? "Inbox"
-          : ["Understanding", "Documents"].includes(location.hash.slice(1))
-            ? "Knowledge"
-            : location.hash.slice(1) || "Inbox",
-    ),
+    [page, setPage] = useState(route(location.hash.slice(1)).page),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [stale, setStale] = useState(false);
   const [inboxView, setInboxView] = useState(
-    location.hash === "#Work"
-      ? "work"
-      : location.hash === "#Discovery"
-        ? "ideas"
-        : "requests",
+    route(location.hash.slice(1)).view,
   );
   const [threadId, setThreadId] = useState<string | null>(null),
     [docId, setDocId] = useState<string | null>(null),
@@ -299,6 +327,9 @@ function App() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [draftSubject, setDraftSubject] = useState("");
   const [proposalId, setProposalId] = useState<string | null>(null);
+  const [selectedMilestone, setSelectedMilestone] = useState<string | null>(
+    null,
+  );
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
   const [workForm, setWorkForm] = useState(false),
     [selectedWork, setSelectedWork] = useState<string | null>(null),
@@ -350,34 +381,19 @@ function App() {
   }, [session]);
   useEffect(() => {
     const sync = () => {
-      const p = location.hash.slice(1);
-      if (p === "Foreman" || p === "Work" || p === "Discovery") {
-        setPage(p === "Foreman" ? "Inbox" : "Automation");
-        setInboxView(
-          p === "Work" ? "work" : p === "Discovery" ? "ideas" : "requests",
-        );
-      } else if (p === "Understanding" || p === "Documents")
-        setPage("Knowledge");
-      else if (p === "Settings" || pages.some((x) => x.name === p)) setPage(p);
+      const next = route(location.hash.slice(1));
+      setPage(next.page);
+      setInboxView(next.view);
     };
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
   function navigate(name: string) {
-    const target =
-      name === "Work" || name === "Discovery"
-        ? "Automation"
-        : name === "Foreman"
-          ? "Inbox"
-          : name === "Understanding" || name === "Documents"
-            ? "Knowledge"
-            : name;
-    setInboxView(
-      name === "Work" ? "work" : name === "Discovery" ? "ideas" : "requests",
-    );
-    setPage(target);
+    const next = route(name);
+    setInboxView(next.view);
+    setPage(next.page);
     setDocId(null);
-    location.hash = target;
+    location.hash = next.hash;
     setThreadId(null);
     setSelectedWork(null);
     setError("");
@@ -488,7 +504,7 @@ function App() {
         select={setSelectedIdea}
         command={command}
         openWork={(id) => {
-          navigate("Work");
+          navigate("Assignments");
           setSelectedWork(id);
         }}
         openThread={(id) => {
@@ -550,7 +566,7 @@ function App() {
           <Plus size={16} /> New document
         </button>
       </div>
-    ) : page === "Automation" && inboxView === "work" ? (
+    ) : page === "Work" && inboxView === "work" ? (
       <div className="page-actions">
         <button
           className="primary"
@@ -656,18 +672,72 @@ function App() {
         ) : (
           <main>
             {pageActions}
-            {page === "Automation" && inboxView !== "requests" && (
-              <div className="inbox-drilldown">
-                <button onClick={() => navigate("Automation")}>
-                  ← Automation
-                </button>
-                <h2>
-                  {inboxView === "work"
-                    ? "Work in progress"
-                    : "Ideas and experiments"}
-                </h2>
+            {page === "Work" && (
+              <div
+                className="section-tabs work-tabs"
+                role="tablist"
+                aria-label="Work sections"
+              >
+                {[
+                  ["Milestones", "milestones", "Work"],
+                  ["Assignments", "work", "Assignments"],
+                  ["Automations", "automations", "Automation"],
+                ].map(([label, view, target]) => (
+                  <button
+                    key={view}
+                    type="button"
+                    role="tab"
+                    aria-selected={inboxView === view}
+                    onClick={() => navigate(target!)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             )}
+            {page === "Work" && inboxView === "milestones" && (
+              <MilestonesPage
+                state={state}
+                documents={state.documents}
+                selected={selectedMilestone}
+                select={setSelectedMilestone}
+                command={command}
+                disabled={disabled}
+                markdown={(text) => <Markdown>{text}</Markdown>}
+                openWork={(id) => {
+                  navigate("Assignments");
+                  setSelectedWork(id);
+                }}
+                openThread={(id) => {
+                  const t = state.threads.find((t) => t.id === id);
+                  if (t) openThread(t);
+                }}
+                openKnowledge={(id) => {
+                  navigate(
+                    state.documents.find((d) => d.id === id)?.level ===
+                      "constitution"
+                      ? "Constitution"
+                      : "Knowledge",
+                  );
+                  setDocId(id);
+                }}
+                requestBrief={async (subject, content) => {
+                  let ok = false;
+                  await perform(async () => {
+                    const result = await act({
+                      type: "StartConversation",
+                      subject,
+                      content,
+                    });
+                    navigate("Inbox");
+                    setThreadId(result.threadId);
+                    ok = true;
+                  });
+                  return ok;
+                }}
+              />
+            )}
+            {page === "Inbox" && <AvailabilityNote state={state} />}
             {page === "Inbox" && inboxView === "requests" && (
               <div
                 className={
@@ -800,6 +870,37 @@ function App() {
                             )}
                           />
                         ))}
+                      {currentThread.milestoneId &&
+                        (() => {
+                          const m = state.planning.milestones.find(
+                            (m) => m.id === currentThread.milestoneId,
+                          );
+                          return (
+                            m && (
+                              <section className="milestone-inbox">
+                                <h3>Milestone decision · {m.status}</h3>
+                                <p>
+                                  {m.assignments.length} assignments ·{" "}
+                                  {m.maxRuns} runs · up to {m.maxParallel} in
+                                  parallel
+                                </p>
+                                <button
+                                  onClick={() => {
+                                    navigate("Work");
+                                    setSelectedMilestone(m.id);
+                                  }}
+                                >
+                                  Review milestone and dependencies
+                                </button>
+                                <MilestoneActions
+                                  milestone={m}
+                                  command={command}
+                                  disabled={disabled}
+                                />
+                              </section>
+                            )
+                          );
+                        })()}
                       {currentThread?.reason && (
                         <article className="message email-original foreman">
                           <div className="message-meta">
@@ -1000,10 +1101,10 @@ function App() {
                 )}
               </div>
             )}
-            {page === "Automation" &&
+            {page === "Work" &&
               inboxView === "ideas" &&
               renderDiscovery("archive")}
-            {page === "Automation" && inboxView === "work" && (
+            {page === "Work" && inboxView === "work" && (
               <>
                 <div className="filters">
                   {["all", "research", "bug", "feature"].map((t) => (
@@ -1044,6 +1145,86 @@ function App() {
                         : "Investigation"}{" "}
                       · {work.origin} · attempt {work.attempts}
                     </p>
+                    {work.milestoneId && (
+                      <section className="milestone-inbox">
+                        <button
+                          onClick={() => {
+                            navigate("Work");
+                            setSelectedMilestone(work.milestoneId!);
+                          }}
+                        >
+                          {
+                            state.planning.milestones.find(
+                              (m) => m.id === work.milestoneId,
+                            )?.title
+                          }{" "}
+                          ↗
+                        </button>
+                        <p>
+                          Assigned to{" "}
+                          {state.settings.roles.find(
+                            (r) => r.id === work.roleId,
+                          )?.name || work.roleId}
+                        </p>
+                        {!!work.dependsOn?.length && (
+                          <>
+                            <h3>Dependencies</h3>
+                            {work.dependsOn.map((id) => (
+                              <button
+                                key={id}
+                                onClick={() => setSelectedWork(id)}
+                              >
+                                {state.work.find((w) => w.id === id)?.title} ·{" "}
+                                {state.work.find((w) => w.id === id)?.status}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                        {!!work.expectedOutputs?.length && (
+                          <>
+                            <h3>Expected outputs</h3>
+                            <ul>
+                              {work.expectedOutputs.map((output) => (
+                                <li key={output}>{output}</li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+                        {!!work.outputDocumentIds?.length && (
+                          <>
+                            <h3>Created knowledge</h3>
+                            {work.outputDocumentIds.map((id) => (
+                              <button
+                                key={id}
+                                onClick={() => {
+                                  navigate("Knowledge");
+                                  setDocId(id);
+                                }}
+                              >
+                                {state.documents.find((d) => d.id === id)
+                                  ?.title || id}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                        {work.reviews?.map((review) => (
+                          <details key={review.runId}>
+                            <summary>
+                              Assignment review ·{" "}
+                              {review.verdict === "approve"
+                                ? "Accepted"
+                                : "Changes requested"}
+                            </summary>
+                            <Markdown>{review.summary}</Markdown>
+                            <ul>
+                              {review.findings.map((f) => (
+                                <li key={f}>{f}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        ))}
+                      </section>
+                    )}
                     <h3>Assignment</h3>
                     <Markdown>{work.instruction}</Markdown>
                     <h3>Completion criteria</h3>
@@ -1132,6 +1313,7 @@ function App() {
                             Run again
                           </button>
                           <button
+                            hidden={!!work.milestoneId}
                             disabled={disabled}
                             onClick={() =>
                               void perform(async () => {
@@ -1398,18 +1580,30 @@ function App() {
                 api={api}
               />
             )}
-            {page === "Automation" && inboxView === "requests" && (
-              <AutomationPage
-                state={state}
-                agentCatalog={state.agentCatalog}
-                availableAgentProviders={state.availableAgentProviders}
-                disabled={disabled}
-                command={command}
-                configured={state.configured}
-                hasConstitution={state.documents.some(
-                  (d) => d.level === "constitution" && !!d.content.trim(),
-                )}
-              />
+            {page === "Work" && inboxView === "automations" && (
+              <>
+                <PlanningSettings
+                  planning={state.planning}
+                  command={command}
+                  disabled={disabled}
+                />
+                <div className="actions">
+                  <button onClick={() => navigate("Discovery")}>
+                    Ideas and experiments
+                  </button>
+                </div>
+                <AutomationPage
+                  state={state}
+                  agentCatalog={state.agentCatalog}
+                  availableAgentProviders={state.availableAgentProviders}
+                  disabled={disabled}
+                  command={command}
+                  configured={state.configured}
+                  hasConstitution={state.documents.some(
+                    (d) => d.level === "constitution" && !!d.content.trim(),
+                  )}
+                />
+              </>
             )}
             {page === "Settings" && (
               <SettingsPage
@@ -1499,8 +1693,18 @@ function App() {
               close={() => setProposalId(null)}
             >
               <Markdown>{proposal.reason}</Markdown>
-              {libraryProposal?.disposition === "withdrawn" && <p>This withdraws the subject from automatic conversation context. Its text and source history remain available.</p>}
-              {libraryProposal?.reviewAfter && <p>Review again by {new Date(libraryProposal.reviewAfter).toLocaleDateString()}.</p>}
+              {libraryProposal?.disposition === "withdrawn" && (
+                <p>
+                  This withdraws the subject from automatic conversation
+                  context. Its text and source history remain available.
+                </p>
+              )}
+              {libraryProposal?.reviewAfter && (
+                <p>
+                  Review again by{" "}
+                  {new Date(libraryProposal.reviewAfter).toLocaleDateString()}.
+                </p>
+              )}
               <Markdown>{proposal.content}</Markdown>
               {proposal.status === "pending" ? (
                 <div className="actions">

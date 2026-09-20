@@ -47,7 +47,12 @@ export function taskDueAt(state: CompanyState, lens: Lens) {
   ).toISOString();
 }
 export function runCanProceed(state: CompanyState, run: Run) {
-  if (!run.automatic) return true;
+  if (run.trigger === "planning") return run.manual || state.planning.enabled;
+  if (
+    !run.automatic ||
+    state.work.some((w) => w.id === run.workId && w.milestoneId)
+  )
+    return true;
   const lens = taskForRun(state, run);
   return lens
     ? lens.enabled || !!run.manual

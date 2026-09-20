@@ -75,6 +75,16 @@ export async function assembleContext(
   }
   const thread = state.threads.find((t) => t.id === run?.threadId),
     work = state.work.find((w) => w.id === run?.workId);
+  const milestone = state.planning.milestones.find(
+    (m) => m.id === work?.milestoneId,
+  );
+  const sharedDocuments = new Set([
+    ...(milestone?.documentIds || []),
+    ...(work?.dependsOn || []).flatMap(
+      (id) => state.work.find((w) => w.id === id)?.outputDocumentIds || [],
+    ),
+    ...(run?.trigger === "assessment" ? work?.outputDocumentIds || [] : []),
+  ]);
   const documents = repo.documents(),
     attachment = thread?.attachment;
   const freshness = libraryFreshness(state, documents, now);
@@ -138,7 +148,7 @@ export async function assembleContext(
   const priority = (d: (typeof documents)[number]) =>
     d.level === "constitution"
       ? -100
-      : d.id === attachment?.id
+      : d.id === attachment?.id || sharedDocuments.has(d.id)
         ? -90
         : (state.policies[d.id] || defaultPolicy(d)).inclusion === "always"
           ? -80
@@ -207,6 +217,15 @@ export async function assembleContext(
           `${d.title} is pinned to v${d.version}; the current revision is v${current.version}. Use the attachment as historical context.`,
         );
       }
+    } else if (sharedDocuments.has(d.id) && policy.status === "active") {
+      included = true;
+      reason = "Approved milestone knowledge or assignment output";
+      if (freshness[d.id] && freshness[d.id]!.status !== "current") {
+        reason += "; historical or unreviewed material, not current guidance";
+        context.gaps!.push(
+          d.title + " needs review before it can substantiate completion.",
+        );
+      }
     } else if (
       freshness[d.id] &&
       freshness[d.id]!.status !== "current" &&
@@ -257,6 +276,13 @@ export async function assembleContext(
       indexedVersion: current.indexed_version,
     });
   }
+  for (const id of sharedDocuments)
+    if (!context.documents.some((d) => d.id === id))
+      context.gaps!.push(
+        "Milestone knowledge or output " +
+          id +
+          " is unavailable or was withheld.",
+      );
   if (input.excerpted)
     context.gaps!.push(
       "Conversation excerpts include the opening and recent exchanges. Use the running summary for earlier decisions; excerpts may be shortened.",

@@ -213,9 +213,24 @@ async function choose(view: Bun.WebView, selector: string, value: string) {
 }
 
 async function nav(view: Bun.WebView, name: string) {
-  if (name === "Work" || name === "Discovery") {
-    await view.evaluate(`location.hash = ${JSON.stringify("#" + name)}`);
-    await wait(view, `!!document.querySelector('.inbox-drilldown')`);
+  if (["Automation", "Assignments", "Discovery"].includes(name)) {
+    await button(view, "Open Work");
+    if (name === "Discovery") {
+      await view.evaluate('location.hash = "#Work/ideas"');
+      await wait(view, 'location.hash === "#Work/ideas"');
+    } else {
+      await button(
+        view,
+        name === "Automation" ? "Automations" : "Assignments",
+        ".work-tabs",
+      );
+      await wait(
+        view,
+        name === "Automation"
+          ? "!!document.querySelector('.automation-page')"
+          : "!!document.querySelector('.work-list, .work-detail')",
+      );
+    }
     return;
   }
   await button(view, "Open " + name);
@@ -254,7 +269,7 @@ for (const backend of backends) {
           "Open Inbox",
           "Open Constitution",
           "Open Knowledge",
-          "Open Automation",
+          "Open Work",
           "Open Settings",
         ]);
         await button(view, "Run Users & workflows now");
@@ -773,7 +788,7 @@ for (const backend of backends) {
         await button(view, "Save review policy");
         await wait(view, `!document.querySelector('button.primary:disabled')`);
         expect(repo.state().settings.requiredReviews).toBe(3);
-        await nav(view, "Work");
+        await nav(view, "Assignments");
         await button(view, "New work");
         await fill(view, "dialog input", "Investigate responsive layout");
         await fill(view, "dialog textarea", "Inspect the layout boundaries");
@@ -855,7 +870,7 @@ test("empty workspace: author the constitution without starter documents or inve
   await nav(view, "Automation");
   expect(
     await view.evaluate<boolean>(
-      `document.querySelector('.page-actions button')?.classList.contains('primary') === true && ![...document.querySelectorAll('.automation-page button')].some((b) => ['Work in progress', 'Ideas and experiments'].includes(b.textContent?.trim() || ''))`,
+      `document.querySelector('.work-tabs') !== null && ![...document.querySelectorAll('.automation-page button')].some((b) => ['Work in progress', 'Ideas and experiments'].includes(b.textContent?.trim() || ''))`,
     ),
   ).toBe(true);
   expect(
@@ -1108,7 +1123,7 @@ test("browser inspection uses the real accessible names at desktop and phone wid
     const evidence = await browser.inspect("browser-contract-ui-v2");
     expect(evidence.steps).toHaveLength(10);
     expect(evidence.errors).toEqual([]);
-    for (const label of ["Inbox", "Constitution", "Knowledge", "Automation"]) {
+    for (const label of ["Inbox", "Constitution", "Knowledge", "Work"]) {
       expect(
         evidence.steps.some(
           (s) => s.action === "Phone: click " + label && s.title === label,
@@ -1165,3 +1180,127 @@ test("library maintenance produces browsable subjects with versioned sources", a
   await fits(view);
   expect(errors).toEqual([]);
 }, 30000);
+
+for (const size of [widths[0]!, widths[1]!, widths[4]!])
+  test(`milestones, role routing and availability at ${size.name}`, async () => {
+    const { view, company, repo, drain, origin, errors } = await setup(
+      "chrome",
+      size,
+    );
+    company.execute({
+      type: "ProposeMilestone",
+      plan: {
+        title: "A complete architecture",
+        objective: "Define contracts before parallel product verticals.",
+        criteria: "Each vertical agrees with the shared contract.",
+        boundaries: "Architecture and documentation only.",
+        maxRuns: 8,
+        maxParallel: 2,
+        documentIds: [],
+        assignments: [
+          {
+            key: "contract",
+            title: "Shared interface contract",
+            roleId: "architect",
+            mode: "analysis",
+            instruction: "Establish the full interface.",
+            criteria: "Contract is explicit.",
+            outputs: ["Interface specification"],
+            dependsOn: [],
+          },
+          {
+            key: "frontend",
+            title: "Frontend vertical",
+            roleId: "implementer",
+            mode: "analysis",
+            instruction: "Design the complete frontend.",
+            criteria: "Matches the contract.",
+            outputs: ["Frontend architecture"],
+            dependsOn: ["contract"],
+          },
+          {
+            key: "backend",
+            title: "Backend vertical",
+            roleId: "implementer",
+            mode: "analysis",
+            instruction: "Design the complete backend.",
+            criteria: "Matches the contract.",
+            outputs: ["Backend architecture"],
+            dependsOn: ["contract"],
+          },
+        ],
+      },
+    });
+    await drain();
+    await view.reload();
+    await wait(
+      view,
+      "!!document.querySelector('[data-workspace-ready=\"true\"]')",
+    );
+    await nav(view, "Work");
+    await wait(view, "!!document.querySelector('.milestone-row')");
+    await fits(view);
+    await Bun.write(
+      `.artifacts/milestones-${size.name}.png`,
+      await view.screenshot(),
+    );
+    await click(view, ".milestone-row");
+    await click(view, ".milestone-graph > summary");
+    await wait(
+      view,
+      "!!document.querySelector('.milestone-graph .diagram svg')",
+    );
+    await fits(view);
+    await Bun.write(
+      `.artifacts/milestone-detail-${size.name}.png`,
+      await view.screenshot(),
+    );
+    await button(view, "Revise proposal");
+    await fill(view, "dialog input", "Architecture ready for parallel work");
+    await button(view, "Save proposal", "dialog");
+    await wait(
+      view,
+      "!document.querySelector('dialog') && document.querySelector('.milestone-heading h2')?.textContent === 'Architecture ready for parallel work'",
+    );
+    await button(view, "Decision thread");
+    await wait(view, "!!document.querySelector('.milestone-inbox')");
+    await button(view, "Approve milestone", ".milestone-inbox");
+    await wait(
+      view,
+      "document.querySelector('.milestone-inbox h3')?.textContent.includes('completed')",
+    );
+    expect(repo.state().work.every((w) => w.status === "done")).toBe(true);
+    await button(view, "Review milestone and dependencies");
+    await button(view, "Frontend vertical", ".assignment-list");
+    await wait(view, "!!document.querySelector('.work-detail')");
+    expect(
+      await view.evaluate<boolean>(
+        "document.querySelector('.work-detail')?.textContent.includes('Assigned to Implementer')",
+      ),
+    ).toBe(true);
+    await fits(view);
+    await nav(view, "Settings");
+    await button(view, "Roles", ".section-tabs");
+    await click(view, ".role-form > summary");
+    await wait(view, "!!document.querySelector('.role-form[open] select')");
+    await button(view, "Save Architect", ".role-form[open]");
+    await wait(
+      view,
+      "!!document.querySelector('.role-form[open] [role=status]')",
+    );
+    await fits(view);
+    await Bun.write(
+      `.artifacts/roles-${size.name}.png`,
+      await view.screenshot(),
+    );
+    await button(view, "Availability", ".section-tabs");
+    expect(
+      await view.evaluate<string>(
+        "document.querySelector('input[placeholder=\"America/Denver\"]')?.value",
+      ),
+    ).toBe("America/Denver");
+    await button(view, "Save availability");
+    await wait(view, "!!document.querySelector('[role=status]')");
+    await fits(view);
+    expect(errors).toEqual([]);
+  }, 30000);

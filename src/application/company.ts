@@ -1,3 +1,4 @@
+import { Planning } from "./planning";
 import { Library } from "./library";
 import { documentRef } from "../domain/library";
 import {
@@ -40,6 +41,7 @@ import { defaultAgentConfiguration } from "../domain/agents";
 export class Company {
   private discovery: Discovery;
   private library: Library;
+  private planning: Planning;
   constructor(
     readonly repo: Repository,
     readonly agent: AgentPort,
@@ -50,6 +52,14 @@ export class Company {
     readonly pullRequests?: PullRequestPort,
     readonly researchSources?: ResearchSourcesPort,
   ) {
+    this.planning = new Planning({
+      repo: this.repo,
+      now: () => this.now(),
+      id: () => this.ids.next(),
+      emit: (...args) => this.emit(...args),
+      run: (state, input) => this.run(state, input),
+      inbox: (state, input, cause) => this.inbox(state, input, cause),
+    });
     this.library = new Library({
       repo: this.repo,
       now: () => this.now(),
@@ -103,15 +113,42 @@ export class Company {
       )
     )
       throw new DomainError("This thread already has a pending response.");
+    const assignedWork = state.work.find((w) => w.id === input.workId);
+    const milestone = state.planning.milestones.find(
+      (m) => m.id === assignedWork?.milestoneId,
+    );
+    if (
+      milestone &&
+      state.runs.filter((r) => r.workId && milestone.workIds.includes(r.workId))
+        .length >= milestone.maxRuns
+    )
+      throw new DomainError(
+        "This milestone has reached its approved run allowance.",
+      );
+    const role = state.settings.roles.find(
+      (r) =>
+        r.enabled &&
+        r.id ===
+          (["assessment", "review"].includes(input.trigger) &&
+          assignedWork?.milestoneId
+            ? "reviewer"
+            : assignedWork?.roleId),
+    );
+    if (assignedWork?.roleId && !role)
+      throw new DomainError("The assigned role is paused or unavailable.");
     const run: Run = {
       id: this.ids.next(),
       automatic: input.trigger !== "message",
       ...input,
       agent: structuredClone(
-        taskForRun(state, input)?.agent ||
+        role?.agent ||
+          taskForRun(state, input)?.agent ||
           state.settings.foremanAgent ||
           defaultAgentConfiguration(),
       ),
+      role: role
+        ? { id: role.id, name: role.name, purpose: role.purpose }
+        : undefined,
       status: "queued",
       context: null,
       error: null,
@@ -176,11 +213,36 @@ export class Company {
     return this.repo.transaction(() => {
       const state = this.repo.state();
       let result: unknown = { ok: true };
-      if (this.discovery.configure(state, cmd)) {
+      if (
+        this.planning.configure(state, cmd) ||
+        this.discovery.configure(state, cmd)
+      ) {
         this.repo.save(state);
         return result;
       }
       switch (cmd.type) {
+        case "RequestPlanning":
+          result = this.planning.request(state, true);
+          break;
+        case "ProposeMilestone":
+          result = this.planning.propose(
+            state,
+            cmd.plan,
+            this.ids.next(),
+            "human",
+          );
+          break;
+        case "ReviseMilestone":
+          this.planning.revise(
+            state,
+            cmd.milestoneId,
+            cmd.expectedVersion,
+            cmd.plan,
+          );
+          break;
+        case "DecideMilestone":
+          this.planning.decide(state, cmd);
+          break;
         case "ExploreDiscovery":
           result = this.heartbeatIn(state, true, cmd.lensId);
           break;
@@ -303,6 +365,10 @@ export class Company {
           const work = state.work.find((w) => w.id === cmd.workId);
           if (!work) throw new DomainError("Work not found.");
           requireTransition(work.status, cmd.status);
+          if (work.milestoneId && cmd.status === "done")
+            throw new DomainError(
+              "Milestone assignments must pass independent review before completion.",
+            );
           if (
             cmd.status === "done" &&
             work.pullRequest &&
@@ -647,6 +713,33 @@ export class Company {
             )
           )
             throw new DomainError("A response is already pending.");
+          const retryWork = state.work.find((w) => w.id === run.workId);
+          if (retryWork?.milestoneId) {
+            if (
+              !this.planning.ready(state, retryWork) ||
+              !this.planning.canQueue(state, retryWork)
+            )
+              throw new DomainError(
+                "This milestone is paused, waiting on dependencies, or has reached its run allowance.",
+              );
+            const retry = this.run(state, {
+              trigger: run.trigger,
+              workId: run.workId,
+              threadId: run.threadId,
+            });
+            retry.agent = structuredClone(run.agent);
+            retry.role = structuredClone(run.role);
+            retry.context = structuredClone(run.context);
+            retry.reviewRoundId = run.reviewRoundId;
+            retry.reviewId = run.reviewId;
+            this.emit(
+              { type: "RunRequested", payload: { runId: retry.id } },
+              "human",
+              retryWork.id,
+            );
+            result = { runId: retry.id };
+            break;
+          }
           run.status = "queued";
           run.error = null;
           this.emit(
@@ -791,6 +884,7 @@ export class Company {
   heartbeat() {
     this.repo.transaction(() => {
       const state = this.repo.state();
+      this.planning.request(state);
       this.heartbeatIn(state);
       this.repo.save(state);
     });
@@ -822,6 +916,14 @@ export class Company {
         this.repo.save(state);
       });
     }
+    if (effect.type === "ReconcileMilestones") {
+      this.repo.transaction(() => {
+        const state = this.repo.state();
+        this.planning.reconcile(state);
+        this.repo.save(state);
+      });
+      return;
+    }
     if (effect.type === "StartReview")
       return this.startReview(effect.workId, delivery.event.id);
     if (effect.type === "SignalWorker")
@@ -845,6 +947,16 @@ export class Company {
           )
         )
           return;
+        if (
+          !this.planning.ready(state, work) ||
+          !this.planning.canQueue(state, work)
+        )
+          return;
+        if (
+          work.roleId &&
+          !state.settings.roles.some((r) => r.id === work.roleId && r.enabled)
+        )
+          throw new Deferred("The assigned role is paused.");
         const task = taskForRun(state, { workId: work.id });
         if (
           task &&
@@ -854,6 +966,7 @@ export class Company {
           throw new Deferred("Task paused or daily run limit reached.");
         if (
           !task &&
+          !work.milestoneId &&
           work.origin === "foreman" &&
           (!state.settings.enabled || !this.budgetAvailable(state))
         )
@@ -919,6 +1032,12 @@ export class Company {
       this.repo.save(state);
     }
     const work = state.work.find((w) => w.id === run!.workId);
+    if (work?.milestoneId && !this.planning.ready(state, work))
+      throw new Deferred(
+        "Waiting for milestone approval or accepted dependencies.",
+      );
+    if (run.trigger === "planning" && !state.planning.enabled && !run.manual)
+      throw new Deferred("Planning is paused.");
     if (work && ["done", "cancelled"].includes(work.status)) {
       this.repo.transaction(() => {
         const s = this.repo.state(),
@@ -961,6 +1080,7 @@ export class Company {
       );
       if (run.trigger === "maintenance") this.library.prepare(state, context);
       else this.discovery.context(state, run, context);
+      this.planning.context(state, run, context);
       if (context.discovery?.lens.sources?.length && this.researchSources) {
         context.externalSources = await this.researchSources.read(
           context.discovery.lens.sources,
@@ -1033,11 +1153,30 @@ export class Company {
     this.repo.transaction(() => {
       state = this.repo.state();
       run = state.runs.find((r) => r.id === effect.runId)!;
+      const activeMilestone = state.planning.milestones.find((m) =>
+        m.workIds.includes(run!.workId || ""),
+      );
+      if (
+        activeMilestone &&
+        state.runs.filter(
+          (r) =>
+            r.id !== run!.id &&
+            r.status === "running" &&
+            activeMilestone.workIds.includes(r.workId || ""),
+        ).length >= activeMilestone.maxParallel
+      )
+        throw new Deferred(
+          "This milestone is using its parallel run allowance.",
+        );
       run.context = context;
       run.status = "running";
       run.error = null;
       const w = state.work.find((w) => w.id === run!.workId);
-      if (w && run!.trigger !== "review" && w.status !== "running") {
+      if (
+        w &&
+        !["review", "assessment"].includes(run!.trigger) &&
+        w.status !== "running"
+      ) {
         w.status = "running";
         w.attempts++;
         w.updatedAt = this.now();
@@ -1054,6 +1193,7 @@ export class Company {
       (work?.mode === "ui-inspection" ||
         (run!.discoveryLensId && context.discovery?.lens.inspectUI)) &&
       !run!.reviewRoundId &&
+      run!.trigger !== "assessment" &&
       !context.browser
     ) {
       context.browser = await this.browser.inspect(run!.id, run!.agent);
@@ -1131,7 +1271,9 @@ export class Company {
         run!.id + "-context-1",
         context,
         run!.trigger === "heartbeat",
-        run!.agent || state.settings.foremanAgent || defaultAgentConfiguration(),
+        run!.agent ||
+          state.settings.foremanAgent ||
+          defaultAgentConfiguration(),
       );
       if (output.contextRequests?.length) {
         if (run!.trigger === "review")
@@ -1142,6 +1284,8 @@ export class Company {
         output.changes = [];
         output.proposals = [];
         output.libraryUpdates = [];
+        output.milestones = [];
+        output.milestoneRevisions = [];
         output.discoveries = [];
         output.discoveryAssessment = null;
         output.discoveryOutcome = null;
@@ -1174,7 +1318,11 @@ export class Company {
       });
       return;
     }
-    if (output.libraryUpdates?.length && run!.trigger !== "message")
+    if (
+      output.libraryUpdates?.length &&
+      run!.trigger !== "message" &&
+      !(work?.milestoneId && run!.trigger === "work")
+    )
       throw new DomainError(
         "Only conversations and library maintenance can write knowledge documents.",
       );
@@ -1240,10 +1388,137 @@ export class Company {
         this.repo.save(state);
         return;
       }
+      if (
+        output.work.length &&
+        (run.trigger === "planning" ||
+          run.trigger === "message" ||
+          work?.milestoneId)
+      )
+        throw new DomainError(
+          "Propose delegated work as a milestone with approval boundaries.",
+        );
+      if (output.milestoneRevisions?.length) {
+        for (const revision of output.milestoneRevisions) {
+          const milestone = state.planning.milestones.find(
+            (m) => m.id === revision.milestoneId,
+          );
+          if (
+            run.trigger !== "message" ||
+            work ||
+            milestone?.threadId !== run.threadId
+          )
+            throw new DomainError(
+              "Revise a milestone from its own decision thread.",
+            );
+          this.planning.revise(
+            state,
+            revision.milestoneId,
+            revision.expectedVersion,
+            revision.plan,
+            "foreman",
+            run.id,
+          );
+        }
+      }
+      if (output.milestones?.length) {
+        if (
+          !["planning", "message"].includes(run.trigger) ||
+          context.discovery ||
+          context.review ||
+          work
+        )
+          throw new DomainError(
+            "Only Foreman planning and conversations may propose milestones.",
+          );
+        for (const plan of output.milestones)
+          this.planning.propose(state, plan, run.id);
+      }
       if (output.libraryUpdates?.length) {
-        if (run.trigger !== "message" || context.discovery || context.review)
+        if (
+          (run.trigger !== "message" &&
+            !(run.trigger === "work" && work?.milestoneId)) ||
+          context.discovery ||
+          context.review
+        )
           throw new DomainError("This run cannot write knowledge documents.");
-        this.library.applyUpdates(state, run, output);
+        const ids = this.library.applyUpdates(state, run, output);
+        if (work)
+          work.outputDocumentIds = [
+            ...new Set([...(work.outputDocumentIds || []), ...ids]),
+          ];
+      }
+      if (run.trigger === "assessment" && work?.milestoneId) {
+        if (!output.review || output.outcome !== "completed")
+          throw new DomainError(
+            "An assignment review must return a completed verdict.",
+          );
+        if (
+          work.pullRequest &&
+          !state.reviewRounds.some(
+            (r) =>
+              r.workId === work.id &&
+              r.pullRequest.head === work.pullRequest!.head &&
+              r.status === "approved",
+          )
+        )
+          throw new DomainError(
+            "The current PR commit must pass its required reviews first.",
+          );
+        work.reviews ||= [];
+        work.reviews.push({ ...output.review, runId, at: this.now() });
+        work.status =
+          output.review.verdict === "approve"
+            ? "done"
+            : work.attempts < 3
+              ? "queued"
+              : "blocked";
+        if (work.status === "blocked") {
+          const t = this.inbox(
+            state,
+            {
+              subject: `Review needs a decision: ${work.title}`,
+              reason: output.review.summary,
+              recommendation:
+                "Review the findings and revise the assignment before retrying.",
+              evidence: work.evidence,
+              workId: work.id,
+            },
+            run.id,
+          );
+          work.threadId = t.id;
+        }
+        if (work.status === "done")
+          for (const thread of state.threads.filter(
+            (t) => t.workId === work.id,
+          )) {
+            if (
+              !thread.proposals.some((p) => p.status === "pending") &&
+              !thread.libraryProposals?.some((p) => p.status === "pending")
+            )
+              thread.status = "resolved";
+          }
+        work.updatedAt = this.now();
+        run.status = "completed";
+        run.result = output;
+        run.finishedAt = this.now();
+        run.error = null;
+        this.emit(
+          {
+            type: "WorkStatusChanged",
+            payload: { workId: work.id, status: work.status },
+          },
+          "foreman",
+          work.id,
+          run.id,
+        );
+        this.emit(
+          { type: "RunCompleted", payload: { runId, workId: work.id } },
+          "foreman",
+          work.id,
+          cause,
+        );
+        this.repo.save(state);
+        return;
       }
       let thread = state.threads.find((t) => t.id === run.threadId);
       if (thread) {
@@ -1322,9 +1597,17 @@ export class Company {
           output.outcome === "needs_input"
             ? "blocked"
             : output.outcome === "needs_execution"
-              ? "review"
-              : "done";
-        if (work.status !== "done" && !work.threadId) {
+              ? work.milestoneId
+                ? "blocked"
+                : "review"
+              : work.milestoneId
+                ? "review"
+                : "done";
+        if (
+          work.status !== "done" &&
+          !(work.milestoneId && output.outcome === "completed") &&
+          !work.threadId
+        ) {
           const inbox = this.inbox(
             state,
             {
@@ -1447,7 +1730,11 @@ export class Company {
         );
       }
       this.discovery.complete(state, run, output);
-      for (const next of context.discovery ? [] : output.work) {
+      for (const next of context.discovery ||
+      run.trigger === "planning" ||
+      work?.milestoneId
+        ? []
+        : output.work) {
         if (
           state.work.filter((w) => !["done", "cancelled"].includes(w.status))
             .length >= state.settings.maxOpenWork

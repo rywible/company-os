@@ -25,6 +25,14 @@ export function renderBriefing(context: Context): string {
         content: d.content,
       }));
   return [
+    "# Work coordination\n" +
+      JSON.stringify({
+        role: context.role,
+        coordination: context.coordination,
+        milestone: context.milestone,
+        dependencies: context.dependencies,
+        assignmentReview: context.assignmentReview,
+      }),
     "# 1. Constitution\n" + JSON.stringify(pages(true), null, 2),
     "# 2. Relevant knowledge\n" +
       JSON.stringify(

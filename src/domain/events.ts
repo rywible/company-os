@@ -2,6 +2,10 @@ import { z } from "zod";
 const id = z.string().min(1),
   version = z.number().int().positive();
 export const eventPayloads = {
+  MilestoneChanged: z.object({ milestoneId: id }),
+  PlanningConfigured: z.object({}),
+  RoleConfigured: z.object({ roleId: id }),
+  AvailabilityConfigured: z.object({}),
   DiscoveryScoutRequested: z.object({ runId: id, lensId: id }),
   DiscoveryEvaluationRequested: z.object({ ideaId: id }),
   DiscoveryIdentified: z.object({ ideaId: id }),
@@ -90,6 +94,7 @@ export type EventInput = {
   [K in EventType]: { type: K; payload: z.infer<(typeof eventPayloads)[K]> };
 }[EventType];
 export type Effect =
+  | { type: "ReconcileMilestones" }
   | { type: "QueueLibrarySource"; documentId: string; version: number }
   | { type: "ObserveDiscovery" }
   | { type: "InvestigateDiscovery"; ideaId: string }

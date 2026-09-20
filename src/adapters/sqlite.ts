@@ -1,3 +1,8 @@
+import {
+  initialPlanning,
+  initialRoles,
+  initialAvailability,
+} from "../domain/planning";
 import { importLibrary, libraryTask } from "../domain/library";
 import type { Document } from "../contracts";
 import { initialDiscovery } from "../domain/discovery";
@@ -112,6 +117,9 @@ export class SQLiteRepository implements Repository {
       ]),
     );
     delete s.settings.scope;
+    s.planning ||= initialPlanning();
+    s.settings.roles ||= initialRoles();
+    s.settings.availability ||= initialAvailability();
     s.discovery ||= initialDiscovery();
     if (!s.library) {
       s.library = importLibrary(this.documents());

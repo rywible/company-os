@@ -28,7 +28,7 @@ flowchart TD
 ```
 
 1. In **Settings**, set 1–5 required reviews. Each round snapshots the configured count. A later policy edit applies to the next round.
-2. In **Inbox → Background activity → Work in progress**, open a completed investigation and link its GitHub PR. `LinkPullRequest` verifies the current open PR and emits `WorkCompleted`. Agents do not invent a completion event or a PR URL from prose.
+2. In **Work → Assignments**, open a completed investigation and link its GitHub PR. `LinkPullRequest` verifies the current open PR and emits `WorkCompleted`. Agents do not invent a completion event or a PR URL from prose.
 3. `StartReview` reads the current PR head and creates N distinct reviewer runs. Each sees the same pinned diff/source, PR description, assignment and company context, but not the other reviewers' findings.
 4. `ReviewSubmitted` requests publication. A review only counts after the GitHub comment is published. Failure cannot count as approval. Same-account reviews use GitHub's COMMENT event; the Company OS approve/changes-requested verdict is in the body. These do **not** satisfy GitHub branch-protection approval requirements.
 5. When every required review has published, `ReviewCompleted` contains the aggregate decision. Every reviewer must approve; there is no majority vote. `WorkerSignalled` resumes the original logical assignment with the original worker run ID/result plus combined findings. This is a new Codex invocation, not a resumed operating-system process or Codex session.
@@ -72,7 +72,7 @@ flowchart TD
   L -->|Harm or no benefit| Pushback[Inbox: reconsider this decision]
 ```
 
-Inbox contains developed recommendations and their Pursue action. **Automation** lists research tasks, with Schedule & limits, Pause/Resume and Run now on each task. Work and experiment history remain accessible there for auditing. The separate Overview and Feedback pages are removed; internal event signals still inform relevant tasks. Nine editable initial tasks cover direction, users/workflows, product possibilities, engineering health, correctness/operations, outside developments, business viability, organizational learning, and subtraction. The users/workflows task inspects the live interface before scouting by default.
+Inbox contains developed recommendations and their Pursue action. **Work → Automations** lists research tasks, with Schedule & limits, Pause/Resume and Run now on each task. Work and experiment history remain accessible there for auditing. The separate Overview and Feedback pages are removed; internal event signals still inform relevant tasks. Nine editable initial tasks cover direction, users/workflows, product possibilities, engineering health, correctness/operations, outside developments, business viability, organizational learning, and subtraction. The users/workflows task inspects the live interface before scouting by default.
 
 
 The scheduler chooses an enabled, due task with available capacity. Each task owns its cadence, daily run allowance (UTC), active idea limit, open-work limit and investigation count. All automatic research and follow-up runs charge that task. A run queued on an earlier UTC day reserves capacity again on the day it starts. New signals may bring a task forward after a 15-minute cooldown; overdue tasks get priority to avoid starvation. There are no reserved exploration slots or shared exploration budget. Run now bypasses cadence and permits one scout while a task is paused, without enabling its schedule; follow-up automated work remains paused. Budgets and constitution requirements still apply. Paused queued tasks do not block other tasks. A running invocation may finish after a pause. The UI shows blockers instead of labelling an obsolete timestamp as the next run; future eligibility uses the viewer's timezone.
@@ -123,3 +123,30 @@ Maintenance is a separate task in Automation, with Pause/Resume, interval, runs 
 ## Conversation context
 
 Before each run, the application retrieves eligible subjects using the assignment and conversation intent, expands parent/related guidance, and renders the constitution → knowledge → conversation → assignment briefing. The model can identify a missing subject in `contextRequests`; the application makes one additional retrieval pass and stores the expanded snapshot before a second invocation. Unresolved requests stop proposed actions and are reported explicitly. Review invocations cannot approve a PR with an unresolved context request. Inbox Context used displays the exact supplied pages, revisions, selection reasons, excerpts, summary and assignment. Previous replies retain their own context even after a page is edited and re-embedded.
+
+## Milestones and role assignments
+
+A scheduled or manually requested planning run can return up to two milestone proposals. Proposals are validated as acyclic graphs with unique assignment keys, enabled roles, known document references, and enough allowance for a worker and review per assignment. Proposals go to Inbox and Work; optimistic versions prevent stale edits or double approvals.
+
+```mermaid
+flowchart LR
+  Plan[Bounded planning] --> Proposal[Milestone proposal]
+  Proposal --> Approval[Human approval]
+  Approval --> Contract[Ready interface assignments]
+  Contract --> Review[Independent assignment review]
+  Review -->|Accepted| Frontend[Frontend vertical]
+  Review -->|Accepted| Backend[Backend vertical]
+  Review -->|Changes requested| Contract
+  Frontend --> Integration[Dependent integration work]
+  Backend --> Integration
+  Integration --> Complete[All assignments accepted]
+  Complete --> Plan
+```
+
+Approval creates durable Work assignments with dependency IDs and role IDs. Reconciliation prioritizes ready assignments with the most downstream dependents, observes the approved run allowance and concurrency limit, and queues independent reviewers. Review rejection returns the full assignment and findings to its role; three unsuccessful attempts produce an inbox blocker. Only reviewed results release dependencies. General implementation that the executor cannot perform returns an explicit blocker.
+
+Workers may create Knowledge artifacts within approved boundaries. Reviewers and downstream workers receive the actual produced documents, accepted dependency results and the approved shared documents. Context size limits and freshness warnings remain enforced; retired documents remain withheld.
+
+Pausing a milestone prevents further dispatch; already dispatched work may finish. Budget exhaustion pauses the milestone and opens a decision thread; a follow-up milestone needs new approval. Role/model changes apply to newly queued runs. Retrying a failed milestone run consumes a new run within its allowance while retaining the original role, model and briefing.
+
+The pipeline defaults to two unfinished milestones, a four-hour planning cadence and four planning runs per UTC day. Milestone completion clears the delay, and the next scheduler tick checks for replenishment. Foreman is instructed to avoid duplicates and low-value busywork. Unanswered decisions never authorize work. Triage availability defaults to weekdays 09:00–17:00 America/Denver and does not gate worker execution.

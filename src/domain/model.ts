@@ -1,4 +1,15 @@
 import {
+  planningCommands,
+  milestonePlanSchema,
+  initialPlanning,
+  initialRoles,
+  initialAvailability,
+  type PlanningState,
+  type AgentRole,
+  type Availability,
+  type Milestone,
+} from "./planning";
+import {
   libraryLocationSchema,
   libraryUpdateSchema,
   initialLibrary,
@@ -50,6 +61,7 @@ export type RevisionProposal = {
   status: "pending" | "accepted" | "dismissed";
 };
 export type Thread = {
+  milestoneId?: string;
   summary?: { content: string; runId: string; updatedAt: string };
   id: string;
   kind: "conversation" | "inbox";
@@ -69,6 +81,19 @@ export type Thread = {
   updatedAt: string;
 };
 export type Work = {
+  milestoneId?: string;
+  assignmentKey?: string;
+  roleId?: string;
+  dependsOn?: string[];
+  expectedOutputs?: string[];
+  outputDocumentIds?: string[];
+  reviews?: {
+    runId: string;
+    verdict: "approve" | "changes_requested";
+    summary: string;
+    findings: string[];
+    at: string;
+  }[];
   discoveryId?: string;
   discoveryPhase?: "investigation" | "delivery" | "outcome";
   id: string;
@@ -99,6 +124,31 @@ export type ContextEntry = {
   indexedVersion: number | null;
 };
 export type Context = {
+  role?: Pick<AgentRole, "id" | "name" | "purpose">;
+  coordination?: {
+    roles: Pick<AgentRole, "id" | "name" | "purpose">[];
+    milestones: Pick<
+      Milestone,
+      "id" | "version" | "title" | "objective" | "status"
+    >[];
+    availability: Availability;
+    availableNow: boolean;
+    planning: boolean;
+  };
+  milestone?: Milestone;
+  dependencies?: {
+    id: string;
+    title: string;
+    result: string;
+    evidence: string[];
+    documentIds: string[];
+  }[];
+  assignmentReview?: {
+    result: string;
+    criteria: string;
+    expectedOutputs: string[];
+    evidence: string[];
+  };
   subject?: string;
   conversationSummary?: string;
   assignment?: string;
@@ -179,6 +229,7 @@ export type BrowserEvidence = {
   errors: string[];
 };
 export type Run = {
+  role?: { id: string; name: string; purpose: string };
   manual?: boolean;
   agent?: AgentConfiguration;
   budgetDay?: string;
@@ -192,7 +243,9 @@ export type Run = {
     | "work"
     | "review"
     | "revision"
-    | "maintenance";
+    | "maintenance"
+    | "planning"
+    | "assessment";
   status: "queued" | "running" | "completed" | "failed";
   threadId?: string;
   workId?: string;
@@ -214,8 +267,11 @@ export type Settings = {
   requiredReviews: number;
   allowCodeChanges: boolean;
   foremanAgent: AgentConfiguration;
+  roles: AgentRole[];
+  availability: Availability;
 };
 export type CompanyState = {
+  planning: PlanningState;
   library: LibraryState;
   version: 1;
   discovery: DiscoveryState;
@@ -229,6 +285,7 @@ export type CompanyState = {
 export function initialState(now: string): CompanyState {
   return {
     version: 1,
+    planning: initialPlanning(),
     library: initialLibrary(),
     discovery: initialDiscovery(),
     reviewRounds: [],
@@ -244,6 +301,8 @@ export function initialState(now: string): CompanyState {
       requiredReviews: 2,
       allowCodeChanges: false,
       foremanAgent: defaultAgentConfiguration(),
+      roles: initialRoles(),
+      availability: initialAvailability(),
       nextHeartbeatAt: new Date(Date.parse(now) + 3600000).toISOString(),
     },
   };
@@ -251,6 +310,7 @@ export function initialState(now: string): CompanyState {
 const text = z.string().trim().min(1);
 export const commandSchema = z.discriminatedUnion("type", [
   ...discoveryCommands,
+  ...planningCommands,
   z.object({
     type: z.literal("SetEvidenceStatus"),
     documentId: text,
@@ -371,6 +431,17 @@ export const commandSchema = z.discriminatedUnion("type", [
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export const agentResultSchema = z.object({
+  milestones: z.array(milestonePlanSchema).max(2).optional(),
+  milestoneRevisions: z
+    .array(
+      z.object({
+        milestoneId: z.string().min(1),
+        expectedVersion: z.number().int().positive(),
+        plan: milestonePlanSchema,
+      }),
+    )
+    .max(1)
+    .optional(),
   conversationSummary: z.string().max(6000).optional(),
   libraryUpdates: z.array(libraryUpdateSchema).max(4).optional(),
   contextRequests: z
