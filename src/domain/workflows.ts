@@ -3,6 +3,13 @@ import type { DomainEvent, Effect } from "./events";
 // stored with its triggering event in the same database transaction.
 export function workflows(event: DomainEvent): Effect[] {
   switch (event.type) {
+    case "DiscoveryEvaluationRequested":
+    case "DiscoveryIdentified":
+      return [{ type: "InvestigateDiscovery", ideaId: event.payload.ideaId }];
+    case "WorkStatusChanged":
+    case "RunFailed":
+      return [{ type: "ObserveDiscovery" }];
+    case "DiscoveryScoutRequested":
     case "ConversationStarted":
     case "ReplyReceived":
     case "HeartbeatDue":
@@ -13,6 +20,9 @@ export function workflows(event: DomainEvent): Effect[] {
       return [{ type: "ScheduleWork", workId: event.payload.workId }];
     case "KnowledgeChanged":
       return [
+        ...(event.actor === "human"
+          ? [{ type: "ObserveDiscovery" as const }]
+          : []),
         {
           type: "IndexKnowledge",
           documentId: event.payload.documentId,
@@ -37,7 +47,10 @@ export function workflows(event: DomainEvent): Effect[] {
         },
       ];
     case "ReviewCompleted":
-      return [{ type: "SignalWorker", roundId: event.payload.roundId }];
+      return [
+        { type: "SignalWorker", roundId: event.payload.roundId },
+        { type: "ObserveDiscovery" },
+      ];
     case "WorkerSignalled":
       return [{ type: "RunAgent", runId: event.payload.runId }];
     default:
@@ -45,6 +58,17 @@ export function workflows(event: DomainEvent): Effect[] {
   }
 }
 export const workflowDefinitions = [
+  {
+    name: "Continuous discovery",
+    steps: [
+      "Signal / rotating heartbeat → DiscoveryScoutRequested",
+      "DiscoveryIdentified → bounded investigation",
+      "DiscoveryAssessed → inbox only when ready",
+      "DiscoveryDecided → delivery work",
+      "WorkStatusChanged (done) → outcome check",
+      "DiscoveryLearned → KnowledgeChanged → re-embed",
+    ],
+  },
   {
     name: "Pull request review",
     steps: [
@@ -63,18 +87,6 @@ export const workflowDefinitions = [
       "RunAgent",
       "RunCompleted / InputRequested",
       "ReplyReceived",
-    ],
-  },
-  {
-    name: "Autonomous work",
-    steps: [
-      "HeartbeatDue",
-      "RunAgent",
-      "WorkCreated",
-      "ScheduleWork",
-      "RunRequested",
-      "RunAgent",
-      "RunCompleted / InputRequested",
     ],
   },
   {

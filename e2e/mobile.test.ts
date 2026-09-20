@@ -4,7 +4,8 @@ import { fixture } from "./fixture";
 import { renderMarkdown } from "../src/server/markdown";
 import { commandSchema } from "../src/domain/model";
 const backends = (process.env.UI_BACKENDS || "chrome").split(",") as (
-  "chrome" | "webkit"
+  | "chrome"
+  | "webkit"
 )[];
 const widths = [
   { name: "small-phone", width: 320, height: 568 },
@@ -205,6 +206,82 @@ async function fits(view: Bun.WebView) {
 for (const backend of backends) {
   for (const size of widths)
     describe(`${backend} ${size.name}`, () => {
+      test("discovery: investigate, triage, learn, edit perspectives and record feedback", async () => {
+        const { view, repo, errors } = await setup(backend, size);
+        const state = repo.state();
+        state.settings.enabled = true;
+        repo.save(state);
+        await view.reload();
+        await wait(
+          view,
+          `!!document.querySelector('[data-workspace-ready="true"]')`,
+        );
+        await nav(view, "Discovery");
+        await fits(view);
+        await button(view, "Explore next");
+        await button(view, "Make navigation clearer", ".discovery-list", false);
+        await wait(
+          view,
+          `document.querySelector('.discovery-detail')?.textContent.includes('Proposed work')`,
+        );
+        expect(repo.state().discovery.ideas[0]!.status).toBe("ready");
+        expect(repo.state().threads.filter((t) => t.discoveryId)).toHaveLength(
+          1,
+        );
+        await fits(view);
+        await fill(
+          view,
+          '[aria-label="Discovery decision note"]',
+          "Worth a small experiment",
+        );
+        await button(view, "Pursue");
+        await wait(
+          view,
+          `document.querySelector('.discovery-detail')?.textContent.includes('Outcome · inconclusive')`,
+        );
+        expect(repo.state().discovery.ideas[0]!.status).toBe("learned");
+        await fits(view);
+        await button(view, "Perspectives");
+        await fits(view);
+        await button(view, "Edit Users & workflows");
+        await fill(
+          view,
+          '[aria-label="Perspective question"]',
+          "Where does the mobile workflow confuse me?",
+        );
+        await button(view, "Save perspective");
+        await wait(
+          view,
+          `!document.querySelector('[aria-label="Edit perspective"]')`,
+        );
+        expect(
+          repo.state().discovery.lenses.find((l) => l.id === "users")!.question,
+        ).toContain("mobile workflow");
+        await button(view, "Signals");
+        await fill(
+          view,
+          '[aria-label="Discovery signal"]',
+          "I could not tell which navigation label to use on my phone.",
+        );
+        await button(view, "Add signal");
+        await wait(
+          view,
+          `document.querySelector('.discovery-signal')?.textContent.includes('navigation label')`,
+        );
+        expect(
+          repo
+            .state()
+            .discovery.signals.some((s) =>
+              s.detail.includes("navigation label"),
+            ),
+        ).toBe(true);
+        await fits(view);
+        await Bun.write(
+          `.artifacts/discovery-${size.name}.png`,
+          await view.screenshot(),
+        );
+        expect(errors).toEqual([]);
+      }, 30000);
       test("documents, editable understanding, context selection and Mermaid", async () => {
         const { view, repo, errors } = await setup(backend, size);
         await nav(view, "Documents");
@@ -392,13 +469,14 @@ test("browser inspection uses the real accessible names at desktop and phone wid
       "test-secret",
     );
     const evidence = await browser.inspect("browser-contract");
-    expect(evidence.steps).toHaveLength(12);
+    expect(evidence.steps).toHaveLength(14);
     expect(evidence.errors).toEqual([]);
     for (const label of [
       "Inbox",
       "Work",
       "Documents",
       "Understanding",
+      "Discovery",
       "Foreman",
     ]) {
       expect(

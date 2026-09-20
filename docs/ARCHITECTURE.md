@@ -6,18 +6,19 @@ Company OS separates decisions about company state from HTTP, SQLite, agents, Gi
 C4Container
   Person(ryan, "Ryan", "Direction, triage, review, auditing")
   System_Boundary(os, "Company OS") {
-    Container(ui, "Workspace", "React · Bun build", "Foreman, Inbox, Work, Documents, Understanding")
+    Container(ui, "Workspace", "React · Bun build", "Foreman, Inbox, Discovery, Work, Documents, Understanding")
     Container(app, "Application", "TypeScript · Bun", "Commands, context assembly, durable workflow runner")
     ContainerDb(db, "Company state", "SQLite · FTS5 · sqlite-vec", "State, ordered events, deliveries, revisions, vectors")
     Container(sprite, "Worker Sprite", "Bun · Codex CLI · Chrome", "Agent invocations, read-only browser inspection, correction verification")
   }
-  System_Ext(github, "GitHub", "Repository snapshots, PR reviews, branch updates")
+  System_Ext(github, "GitHub", "Repository snapshots, public release feeds, PR reviews, branch updates")
   System_Ext(google, "Google AI Studio", "768-dimensional embeddings")
   System_Ext(tigris, "Tigris", "Litestream recovery backups")
   Rel(ryan, ui, "Uses", "HTTPS")
   Rel(ui, app, "Commands and queries", "HTTP JSON")
   Rel(app, db, "Reads and commits", "Transactions")
   Rel(app, sprite, "Invokes adapters", "Sprites SDK")
+  Rel(app, github, "Public release snapshots", "HTTPS, no credentials")
   Rel(sprite, github, "Scoped connector")
   Rel(sprite, google, "Scoped connector")
   Rel(db, tigris, "Replicates WAL", "Litestream")
@@ -27,9 +28,9 @@ C4Container
 
 | Layer       | Files                                                               | Responsibilities                                                              |
 | ----------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Domain      | `src/domain/model.ts`, `events.ts`, `workflows.ts`, `reviews.ts`    | Valid commands, event payloads, event-to-effect mapping, review quorum rules  |
-| Application | `src/application/company.ts`, `context.ts`, `runner.ts`, `ports.ts` | Use cases, context selection, transactions, executing effects through ports   |
-| Adapters    | `src/adapters/sqlite.ts`, `agents.ts`, `github.ts`, `browser.ts`    | Persistence and external systems                                              |
+| Domain      | `src/domain/model.ts`, `events.ts`, `workflows.ts`, `reviews.ts`, `discovery.ts`    | Valid commands, event payloads, event-to-effect mapping, review quorum, perspective selection and idea deduplication  |
+| Application | `src/application/company.ts`, `context.ts`, `runner.ts`, `discovery.ts`, `ports.ts` | Use cases, context selection, transactions, executing effects through ports   |
+| Adapters    | `src/adapters/sqlite.ts`, `agents.ts`, `github.ts`, `browser.ts`, `research-sources.ts`    | Persistence and external systems                                              |
 | HTTP edge   | `src/server/index.ts`                                               | Authentication, read-only inspection sessions, parsing requests, wiring ports |
 | UI          | `src/web`                                                           | Views and human commands                                                      |
 
@@ -53,7 +54,9 @@ Saving an edit invalidates old vectors immediately and emits `KnowledgeChanged`.
 
 ## Execution boundaries
 
-Heartbeat work supports research, bug and feature tracks; its executors perform investigation or a bounded live UI inspection. Investigation can discover implementation work and escalate it. General feature implementation and PR creation are not yet executors.
+Discovery uses rotating perspectives and event signals to investigate hypotheses before asking for a decision. Assessments and outcome checks feed versioned understanding through the normal indexing workflow. Its scouts and investigations share the automatic run budget; idea capacity and experiment limits prevent unbounded growth. The deterministic lifecycle is in `src/application/discovery.ts`; selection and novelty rules are in `src/domain/discovery.ts`.
+
+Pursued work supports research, bug and feature tracks; its executors perform investigation or a bounded live UI inspection. Investigation can discover implementation work and escalate it. General feature implementation and PR creation are not yet executors.
 
 PR reviews are implemented for linked same-repository PRs, with separately authorized source corrections. See [WORKFLOWS.md](WORKFLOWS.md). No automatic merge or deployment exists. Reviewers are independent context-isolated invocations, currently on the same Codex model and GitHub identity—not independent human approvals.
 

@@ -2,6 +2,18 @@ import { z } from "zod";
 const id = z.string().min(1),
   version = z.number().int().positive();
 export const eventPayloads = {
+  DiscoveryScoutRequested: z.object({ runId: id, lensId: id }),
+  DiscoveryEvaluationRequested: z.object({ ideaId: id }),
+  DiscoveryIdentified: z.object({ ideaId: id }),
+  DiscoveryAssessed: z.object({ ideaId: id, verdict: z.string() }),
+  DiscoveryDecided: z.object({
+    ideaId: id,
+    action: z.string(),
+    reason: z.string(),
+  }),
+  DiscoveryLearned: z.object({ ideaId: id, verdict: z.string() }),
+  DiscoverySignalRecorded: z.object({ signalId: id }),
+  DiscoveryConfigured: z.object({ lensId: id.optional() }),
   ConversationStarted: z.object({ threadId: id, runId: id }),
   ReplyReceived: z.object({ threadId: id, runId: id, workId: id.optional() }),
   ThreadStatusChanged: z.object({ threadId: id, status: z.string() }),
@@ -61,6 +73,8 @@ export type EventInput = {
   [K in EventType]: { type: K; payload: z.infer<(typeof eventPayloads)[K]> };
 }[EventType];
 export type Effect =
+  | { type: "ObserveDiscovery" }
+  | { type: "InvestigateDiscovery"; ideaId: string }
   | { type: "StartReview"; workId: string }
   | { type: "SignalWorker"; roundId: string }
   | { type: "PublishReview"; roundId: string; reviewId: string }

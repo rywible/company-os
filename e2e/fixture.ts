@@ -11,6 +11,9 @@ export function fixture() {
     requests: [],
     proposals: [],
     work: [],
+    discoveries: [],
+    discoveryAssessment: null,
+    discoveryOutcome: null,
     observations: [],
     changes: [],
     review: null,
@@ -22,6 +25,55 @@ export function fixture() {
       repository: async () => ({ ref: "github:example@abc", head: "abc" }),
       execute: async (_id, c) => ({
         ...answer,
+        ...(c.discovery?.phase === "scout"
+          ? {
+              discoveries: [
+                {
+                  title: "Make navigation clearer",
+                  observation: "The source uses two names for one view",
+                  hypothesis: "Consistent naming will reduce confusion",
+                  impact: "Fewer wrong turns",
+                  uncertainty: "User benefit is not measured",
+                  evidence: ["github:example@abc"],
+                  experiment: {
+                    track: "research" as const,
+                    mode: "analysis" as const,
+                    title: "Investigate navigation names",
+                    instruction: "Compare the visible names",
+                    criteria: "An evidenced assessment",
+                  },
+                },
+              ],
+            }
+          : {}),
+        ...(c.discovery?.phase === "investigation"
+          ? {
+              discoveryAssessment: {
+                verdict: "recommend" as const,
+                finding:
+                  "The two labels are inconsistent; a small experiment is warranted.",
+                evidence: ["github:example@abc"],
+                proposedWork: {
+                  track: "research" as const,
+                  mode: "analysis" as const,
+                  title: "Propose one consistent name",
+                  instruction: "Write a naming recommendation",
+                  criteria: "One clear recommendation",
+                },
+                nextExperiment: null,
+              },
+            }
+          : {}),
+        ...(c.discovery?.phase === "outcome"
+          ? {
+              discoveryOutcome: {
+                verdict: "inconclusive" as const,
+                finding:
+                  "A recommendation exists; user benefit has not been measured.",
+                evidence: ["github:example@abc"],
+              },
+            }
+          : {}),
         review: c.review?.reviewId
           ? {
               verdict: "approve",

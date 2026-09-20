@@ -1,3 +1,4 @@
+import { DiscoveryPage } from "./discovery";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { MarkdownNode } from "../markdown-types";
@@ -254,6 +255,7 @@ const pages = [
   { name: "Foreman", icon: Terminal },
   { name: "Inbox", icon: Inbox },
   { name: "Work", icon: Briefcase },
+  { name: "Discovery", icon: Search },
   { name: "Documents", icon: BookOpen },
   { name: "Understanding", icon: Brain },
   { name: "Settings", icon: Settings2 },
@@ -287,6 +289,7 @@ function App() {
     [contextQuery, setContextQuery] = useState(""),
     [previewOpen, setPreviewOpen] = useState(false),
     [contextBusy, setContextBusy] = useState(false);
+  const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
   const [workForm, setWorkForm] = useState(false),
     [selectedWork, setSelectedWork] = useState<string | null>(null),
     [trackFilter, setTrackFilter] = useState("all"),
@@ -526,7 +529,13 @@ function App() {
               onClick={() => navigate(p.name)}
             >
               <p.icon size={19} />
-              <span>{p.name === "Understanding" ? "Memory" : p.name}</span>
+              <span>
+                {p.name === "Understanding"
+                  ? "Memory"
+                  : p.name === "Discovery"
+                    ? "Discover"
+                    : p.name}
+              </span>
               {p.name === "Inbox" &&
                 !!state?.threads.filter(
                   (t) =>
@@ -736,6 +745,16 @@ function App() {
                             navigate("Documents");
                           }}
                         />
+                        {currentThread.discoveryId && (
+                          <button
+                            onClick={() => {
+                              setSelectedIdea(currentThread.discoveryId!);
+                              navigate("Discovery");
+                            }}
+                          >
+                            Review discovery ↗
+                          </button>
+                        )}
                         {currentThread.workId && (
                           <button
                             onClick={() => {
@@ -964,6 +983,39 @@ function App() {
                 </section>
               </div>
             )}
+            {page === "Discovery" && (
+              <DiscoveryPage
+                state={state}
+                disabled={disabled}
+                selected={selectedIdea}
+                select={setSelectedIdea}
+                command={async (cmd) => {
+                  let ok = false;
+                  await perform(async () => {
+                    const result = await act(cmd);
+                    if (result.skipped) throw Error(result.skipped);
+                    ok = true;
+                  });
+                  return ok;
+                }}
+                openWork={(id) => {
+                  navigate("Work");
+                  setSelectedWork(id);
+                }}
+                openThread={(id) => {
+                  const t = state.threads.find((t) => t.id === id);
+                  if (t) openThread(t);
+                }}
+                inspect={setContext}
+                openKnowledge={(id) => {
+                  navigate("Understanding");
+                  setDocId(id);
+                  void perform(async () => {
+                    setAudit(await api("/knowledge/" + id));
+                  });
+                }}
+              />
+            )}
             {page === "Work" && (
               <>
                 <div className="autonomy-strip">
@@ -1018,6 +1070,16 @@ function App() {
                     </button>
                     <div className="detail-title">
                       <h2>{work.title}</h2>
+                      {work.discoveryId && (
+                        <button
+                          onClick={() => {
+                            setSelectedIdea(work.discoveryId!);
+                            navigate("Discovery");
+                          }}
+                        >
+                          Discovery · {work.discoveryPhase} ↗
+                        </button>
+                      )}
                       <span className="badge">
                         {work.track} · {work.status}
                       </span>
@@ -1776,6 +1838,52 @@ function ContextView({ context }: { context: Context }) {
         {total.toLocaleString()} characters in knowledge context. This shows
         supplied material, not model influence.
       </p>
+      {context.externalSources?.map((s) => (
+        <details key={s.repository}>
+          <summary>
+            External source · {s.repository} · {date(s.fetchedAt)}
+          </summary>
+          {s.error && <p>{s.error}</p>}
+          {!s.error && !s.releases.length && (
+            <p>No published releases returned.</p>
+          )}
+          {s.releases.map((r) => (
+            <section key={r.ref}>
+              <h3>
+                <a href={r.url} target="_blank" rel="noreferrer">
+                  {r.title}
+                </a>
+              </h3>
+              <p>
+                {r.publishedAt} · {r.ref}
+              </p>
+              <Markdown>{r.content}</Markdown>
+            </section>
+          ))}
+        </details>
+      ))}
+      {context.discovery && (
+        <details open>
+          <summary>
+            Discovery · {context.discovery.lens.name} ·{" "}
+            {context.discovery.phase}
+          </summary>
+          <p>{context.discovery.lens.question}</p>
+          <p>
+            {context.discovery.signals.length} signals ·{" "}
+            {context.discovery.previousIdeas.length} prior ideas checked for
+            duplication
+          </p>
+          {context.discovery.signals.map((s) => (
+            <p key={s.id}>
+              {s.title}: {s.detail}
+            </p>
+          ))}
+          {context.discovery.idea && (
+            <p>Hypothesis: {context.discovery.idea.hypothesis}</p>
+          )}
+        </details>
+      )}
       {context.entries.map((e) => (
         <details key={e.id} className={e.included ? "included" : "excluded"}>
           <summary>

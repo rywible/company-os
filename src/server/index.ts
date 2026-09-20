@@ -1,3 +1,4 @@
+import { GitHubResearchSources } from "../adapters/research-sources";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { join, resolve } from "node:path";
 import { z } from "zod";
@@ -45,6 +46,7 @@ const store = new Store(),
     undefined,
     undefined,
     new GitHubPullRequests(integrations),
+    new GitHubResearchSources(),
   ),
   worker = new Runner(company, () => !!process.env.SPRITES_TOKEN);
 const port = Number(process.env.PORT || 3000),

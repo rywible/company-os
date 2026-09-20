@@ -22,6 +22,9 @@ const answer = (overrides: Partial<AgentResult> = {}): AgentResult => ({
   requests: [],
   proposals: [],
   work: [],
+  discoveries: [],
+  discoveryAssessment: null,
+  discoveryOutcome: null,
   observations: [],
   review: null,
   changes: [],
@@ -306,13 +309,21 @@ test("heartbeat respects pause, active runs and daily budget; work generation is
   repo.save(s);
   outputs.push(
     answer({
-      work: [
+      discoveries: [
         {
-          track: "research",
-          mode: "analysis",
-          title: "Explore context policies",
-          instruction: "Audit inclusion",
-          criteria: "Evidence-based assessment",
+          title: "Context policy hypothesis",
+          observation: "Inclusion needs investigation",
+          hypothesis: "Clarifying inclusion may improve understanding",
+          impact: "Fewer mistakes",
+          uncertainty: "Unmeasured",
+          evidence: ["github:test@123"],
+          experiment: {
+            track: "research",
+            mode: "analysis",
+            title: "Explore context policies",
+            instruction: "Audit inclusion",
+            criteria: "Evidence-based assessment",
+          },
         },
       ],
     }),
@@ -338,11 +349,11 @@ test("heartbeat respects pause, active runs and daily budget; work generation is
     type: "CreateWork",
     track: "research",
     mode: "analysis",
-    title: "Explore context policies",
+    title: repo.state().work[0]!.title,
     instruction: "duplicate",
     criteria: "same",
   });
-  expect(repo.state().work).toHaveLength(1);
+  expect(repo.state().work).toHaveLength(2);
   company.execute({
     type: "ConfigureAutonomy",
     ...repo.state().settings,

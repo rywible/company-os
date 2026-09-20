@@ -96,3 +96,9 @@ export interface PullRequestPort {
     changes: { path: string; content: string }[],
   ): Promise<PullRequest>;
 }
+
+import type { ResearchSource } from "../domain/discovery";
+export type { ResearchSource } from "../domain/discovery";
+export interface ResearchSourcesPort {
+  read(repositories: string[]): Promise<ResearchSource[]>;
+}

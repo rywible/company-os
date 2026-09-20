@@ -1,4 +1,15 @@
 import { z } from "zod";
+import {
+  discoveryCommands,
+  initialDiscovery,
+  candidateSchema,
+  assessmentSchema,
+  outcomeSchema,
+  type DiscoveryState,
+  type Lens,
+  type Signal,
+  type Idea,
+} from "./discovery";
 import type { Document } from "../contracts";
 export const track = z.enum(["research", "bug", "feature"]);
 export const policySchema = z.object({
@@ -40,6 +51,7 @@ export type Thread = {
   recommendation: string;
   evidence: string[];
   workId?: string;
+  discoveryId?: string;
   attachment?: { id: string; version: number };
   messages: Note[];
   proposals: RevisionProposal[];
@@ -47,6 +59,8 @@ export type Thread = {
   updatedAt: string;
 };
 export type Work = {
+  discoveryId?: string;
+  discoveryPhase?: "investigation" | "delivery" | "outcome";
   id: string;
   track: z.infer<typeof track>;
   mode: "analysis" | "ui-inspection";
@@ -75,6 +89,17 @@ export type ContextEntry = {
   indexedVersion: number | null;
 };
 export type Context = {
+  externalSources?: import("./discovery").ResearchSource[];
+  discovery?: {
+    lens: Lens;
+    signals: Signal[];
+    previousIdeas: Pick<
+      Idea,
+      "id" | "title" | "hypothesis" | "status" | "decisionReason"
+    >[];
+    idea?: Idea;
+    phase: "scout" | "investigation" | "delivery" | "outcome";
+  };
   query: string;
   scope: string;
   assembledAt: string;
@@ -120,6 +145,8 @@ export type BrowserEvidence = {
   errors: string[];
 };
 export type Run = {
+  discoveryLensId?: string;
+  discoverySignalIds?: string[];
   id: string;
   automatic: boolean;
   trigger: "message" | "heartbeat" | "work" | "review" | "revision";
@@ -147,6 +174,7 @@ export type Settings = {
 };
 export type CompanyState = {
   version: 1;
+  discovery: DiscoveryState;
   reviewRounds: ReviewRound[];
   threads: Thread[];
   work: Work[];
@@ -157,6 +185,7 @@ export type CompanyState = {
 export function initialState(now: string): CompanyState {
   return {
     version: 1,
+    discovery: initialDiscovery(),
     reviewRounds: [],
     threads: [],
     work: [],
@@ -178,6 +207,7 @@ export function initialState(now: string): CompanyState {
 }
 const text = z.string().trim().min(1);
 export const commandSchema = z.discriminatedUnion("type", [
+  ...discoveryCommands,
   z.object({
     type: z.literal("StartConversation"),
     subject: text.max(160),
@@ -258,6 +288,9 @@ export const commandSchema = z.discriminatedUnion("type", [
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export const agentResultSchema = z.object({
+  discoveries: z.array(candidateSchema).max(2).default([]),
+  discoveryAssessment: assessmentSchema.nullable().default(null),
+  discoveryOutcome: outcomeSchema.nullable().default(null),
   message: z.string().min(1).max(16000),
   requests: z
     .array(

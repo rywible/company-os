@@ -46,13 +46,47 @@ The adapter rejects incomplete or oversized diffs instead of approving a partial
 
 Each conversation has its own history. Contextual document discussions pin a document revision. Foreman requests open a subject-specific inbox thread with reason, recommendation and evidence. A reply resumes its linked assignment. Document proposals live in the corresponding inbox thread; acceptance emits `KnowledgeChanged` with the new version.
 
-## Heartbeat and work
+## Continuous discovery
 
-`HeartbeatDue` → `RunAgent` → `WorkCreated` → `ScheduleWork` → `RunRequested` → `RunAgent`.
+```mermaid
+flowchart TD
+  S[Feedback / failed run / review findings / human knowledge edit / finished work] --> Signal[DiscoverySignalRecorded]
+  Signal --> H[Heartbeat: select due perspective]
+  H --> Scout[DiscoveryScoutRequested]
+  Scout --> C{New evidenced hypothesis?}
+  C -->|No| Quiet[Record scout result; no inbox]
+  C -->|Yes| Idea[DiscoveryIdentified]
+  Idea --> W[Bounded research or UI investigation]
+  W --> A[DiscoveryAssessed]
+  A -->|Weak idea| Discard[Discard; retain learning]
+  A -->|Inconclusive| Bound{Investigation allowance remains?}
+  Bound -->|Yes, cheap next experiment| Idea
+  Bound -->|No| Park[Park; retain uncertainty]
+  A -->|Worth pursuing| Inbox[Inbox: finding, proposal, evidence, tradeoffs]
+  Inbox --> D[Human DiscoveryDecided]
+  D -->|Pursue| Delivery[Research / bug / feature work]
+  Delivery -->|Actually done| E[DiscoveryEvaluationRequested]
+  E --> Check[Check original hypothesis against outcome]
+  Check --> L[DiscoveryLearned]
+  L --> K[KnowledgeChanged → re-embed]
+  L -->|Harm or no benefit| Pushback[Inbox: reconsider this decision]
+```
 
-Heartbeats assess an objective and the existing work/inbox. The application enforces enable/pause, interval, daily run budget, open-work limit and title deduplication. At most two new work suggestions are accepted from one result. The queue persists across restarts. Research and browser inspection return evidence, findings, proposals or focused questions. An agent cannot mark unperformed engineering implementation as completed by claiming it in prose; the executor's capability is explicitly included in its instructions, and implementation is handed off as `needs_execution`.
+**Discovery** exposes ideas, perspectives, signals, investigations and outcomes. Nine editable perspectives cover direction, users/workflows, product possibilities, engineering health, correctness/operations, outside developments, business viability, organizational learning, and subtraction. You can add or disable perspectives, change their question/cadence, and choose which count as exploratory.
 
-The last sentence is an instruction constraint, not a formal proof of an agent's claim. Human auditing and evidence review remain necessary.
+A heartbeat selects one due perspective. New signals can bring a check forward after a 15-minute cooldown. Overdue perspectives get priority to avoid starvation. By default, after three non-exploratory scouts, the next due exploratory perspective gets the reserved slot. This reservation is owed until an exploratory perspective is due; it does not consume an extra run. The master autonomy switch, daily run budget and open-work limit still apply. **Explore next** and per-perspective **Explore** consume the same daily budget. Discovery can be paused separately; committed delivery work continues under the master autonomy settings. Older queued `HeartbeatDue` events remain compatible.
+
+Scouts can create at most two hypotheses per result and cannot create direct work or inbox requests. Each hypothesis records the observation, expected impact, uncertainty, evidence, and a cheap falsifiable experiment. The default active-idea limit is six. Exact normalized titles and strongly overlapping hypotheses are deduplicated against all prior ideas, including discarded ideas. This is a deterministic heuristic, not semantic proof of novelty.
+
+An investigation produces a structured recommend/discard/inconclusive assessment. Recommendations require a concrete proposed work item and open an inbox thread. Inconclusive work can request another bounded experiment, up to two investigations per idea by default; then it parks. Human **Revisit** requires a reason and explicitly authorizes an additional investigation, retaining the history. **Pursue** queues the proposed work. **Park** and **Discard** cancel unfinished investigations and retain the decision. There is no model-controlled increase to budget, authority, perspectives or investigation limits.
+
+When pursued work becomes done, an outcome check compares the result with the original hypothesis. Improved, no benefit, harmful and inconclusive are separate outcomes. A finished task alone does not demonstrate deployment or user benefit. Negative outcomes push back through the inbox. Assessments, human decisions and outcomes revise an attributed Memory record and trigger re-embedding; unverified conclusions remain hypotheses. Existing accepted product/architecture documents are not rewritten automatically.
+
+Context includes the selected perspective, triggering signals, prior ideas, current hypothesis, prior investigation/delivery results, and ordinary repository/document/browser evidence. Historical runs retain their exact supplied context. Each perspective can additionally read the newest public GitHub releases from up to three human-configured `owner/repo` sources; the outside perspective initially follows `oven-sh/bun`. This adapter uses bounded, credential-free requests to a fixed GitHub API origin, rejects redirects and exposes source errors. Release notes are attributed claims. General web search, analytics and customer-feedback integrations are not connected. Manual signals can supply feedback and source excerpts; pasted links are retained but are not automatically fetched.
+
+Research and bounded Chrome inspection run autonomously. General code implementation, PR creation, merging and deployment remain outside this executor. Implementation handoffs return `needs_execution`; outcome checks begin only after work actually reaches done. Agent claims still require human auditing: capability instructions and evidence references are not formal verification of semantic truth.
+
+Signals coalesce pending repeats and retain the newest 200 entries. Scout contexts preserve consumed evidence; discovery-generated learning does not trigger another discovery loop. Delivery replay is guarded by event IDs (the last 2,000 observed signal events) and current lifecycle state. Ideas, decisions, run results and document revisions retain their full history.
 
 ## Knowledge
 

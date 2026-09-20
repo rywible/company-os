@@ -1,3 +1,4 @@
+import { initialDiscovery } from "../domain/discovery";
 import { Store } from "../server/store";
 import { initialState, type CompanyState } from "../domain/model";
 import {
@@ -97,6 +98,7 @@ export class SQLiteRepository implements Repository {
       ).json,
     );
     s.reviewRounds ||= [];
+    s.discovery ||= initialDiscovery();
     s.settings.requiredReviews ??= 2;
     s.settings.allowCodeChanges ??= false;
     return s;

@@ -1,3 +1,4 @@
+import { Discovery } from "./discovery";
 import {
   commandSchema,
   defaultPolicy,
@@ -21,11 +22,13 @@ import type {
   Ids,
   Repository,
   PullRequestPort,
+  ResearchSourcesPort,
 } from "./ports";
 import { assembleContext } from "./context";
 import { reviewOutcome } from "../domain/reviews";
 import { chunkDocument } from "../domain/knowledge";
 export class Company {
+  private discovery: Discovery;
   constructor(
     readonly repo: Repository,
     readonly agent: AgentPort,
@@ -34,7 +37,18 @@ export class Company {
     readonly clock: Clock = { now: () => new Date() },
     readonly ids: Ids = { next: () => crypto.randomUUID() },
     readonly pullRequests?: PullRequestPort,
-  ) {}
+    readonly researchSources?: ResearchSourcesPort,
+  ) {
+    this.discovery = new Discovery({
+      repo: this.repo,
+      now: () => this.now(),
+      id: () => this.ids.next(),
+      emit: (...args) => this.emit(...args),
+      work: (state, input, cause, key) =>
+        this.createWork(state, input, "foreman", cause, key),
+      inbox: (state, input, cause) => this.inbox(state, input, cause),
+    });
+  }
   now() {
     return this.clock.now().toISOString();
   }
@@ -138,7 +152,28 @@ export class Company {
     return this.repo.transaction(() => {
       const state = this.repo.state();
       let result: unknown = { ok: true };
+      if (this.discovery.configure(state, cmd)) {
+        this.repo.save(state);
+        return result;
+      }
       switch (cmd.type) {
+        case "ExploreDiscovery":
+          result = this.heartbeatIn(state, true, cmd.lensId);
+          break;
+        case "RecordDiscoverySignal":
+          if (!state.discovery.lenses.some((l) => l.id === cmd.lensId))
+            throw new DomainError("Perspective not found.");
+          result = this.discovery.signal(
+            state,
+            "Feedback from Ryan",
+            cmd.content,
+            [cmd.lensId],
+            this.ids.next(),
+          );
+          break;
+        case "DecideDiscovery":
+          this.discovery.decide(state, cmd.ideaId, cmd.action, cmd.reason);
+          break;
         case "StartConversation": {
           if (
             cmd.attachment &&
@@ -450,8 +485,9 @@ export class Company {
     },
     origin: Work["origin"],
     cause: string | null = null,
+    identity?: string,
   ) {
-    const key = workKey(input.title),
+    const key = identity || workKey(input.title),
       duplicate = state.work.find(
         (w) => w.key === key && w.status !== "cancelled",
       );
@@ -485,8 +521,8 @@ export class Company {
       ).length < state.settings.dailyBudget
     );
   }
-  private heartbeatIn(state: CompanyState, manual = false) {
-    if (!manual && !state.settings.enabled) return { skipped: "paused" };
+  private heartbeatIn(state: CompanyState, manual = false, lensId?: string) {
+    if (!state.settings.enabled) return { skipped: "paused" };
     if (
       !manual &&
       Date.parse(state.settings.nextHeartbeatAt) > this.clock.now().getTime()
@@ -499,9 +535,18 @@ export class Company {
     state.settings.nextHeartbeatAt = new Date(
       this.clock.now().getTime() + state.settings.intervalMinutes * 60000,
     ).toISOString();
-    const run = this.run(state, { trigger: "heartbeat", automatic: !manual });
+    const lens = this.discovery.scout(state, lensId);
+    if (!lens)
+      return {
+        skipped: "Discovery paused, at capacity, or no perspective due",
+      };
+    const run = this.run(state, { trigger: "heartbeat", automatic: true });
+    this.discovery.attach(state, run, lens);
     this.emit(
-      { type: "HeartbeatDue", payload: { runId: run.id } },
+      {
+        type: "DiscoveryScoutRequested",
+        payload: { runId: run.id, lensId: lens.id },
+      },
       manual ? "human" : "system",
       run.id,
     );
@@ -528,6 +573,19 @@ export class Company {
   }
   async deliver(delivery: Delivery) {
     const effect = delivery.effect;
+    if (
+      effect.type === "ObserveDiscovery" ||
+      effect.type === "InvestigateDiscovery"
+    ) {
+      return this.repo.transaction(() => {
+        const state = this.repo.state();
+        if (effect.type === "ObserveDiscovery")
+          this.discovery.observe(state, delivery.event);
+        else if (!this.discovery.investigate(state, effect.ideaId))
+          throw new Deferred("Discovery paused or work capacity reached.");
+        this.repo.save(state);
+      });
+    }
     if (effect.type === "StartReview")
       return this.startReview(effect.workId, delivery.event.id);
     if (effect.type === "SignalWorker")
@@ -556,6 +614,12 @@ export class Company {
           (!state.settings.enabled || !this.budgetAvailable(state))
         )
           throw new Deferred("Autonomy paused or daily budget reached.");
+        if (
+          work.discoveryId &&
+          work.discoveryPhase !== "delivery" &&
+          !state.discovery.enabled
+        )
+          throw new Deferred("Discovery paused.");
         const run = this.run(state, {
           trigger: "work",
           workId: work.id,
@@ -599,6 +663,12 @@ export class Company {
     if (run.automatic && !state.settings.enabled)
       throw new Deferred("Autonomy paused.");
     const work = state.work.find((w) => w.id === run!.workId);
+    if (
+      !state.discovery.enabled &&
+      (run.discoveryLensId ||
+        (work?.discoveryId && work.discoveryPhase !== "delivery"))
+    )
+      throw new Deferred("Discovery paused.");
     if (work && ["done", "cancelled"].includes(work.status)) {
       this.repo.transaction(() => {
         const s = this.repo.state(),
@@ -613,6 +683,10 @@ export class Company {
     const query =
       thread?.messages.at(-1)?.content ||
       work?.instruction ||
+      (run.discoveryLensId
+        ? state.discovery.lenses.find((l) => l.id === run!.discoveryLensId)
+            ?.question
+        : undefined) ||
       state.settings.objective;
     let context = run.context;
     if (!context) {
@@ -625,6 +699,17 @@ export class Company {
         this.now(),
         run,
       );
+      this.discovery.context(state, run, context);
+      if (context.discovery?.lens.sources?.length && this.researchSources) {
+        context.externalSources = await this.researchSources.read(
+          context.discovery.lens.sources,
+        );
+        context.evidenceRefs.push(
+          ...context.externalSources.flatMap((s) =>
+            s.releases.map((r) => r.ref),
+          ),
+        );
+      }
       try {
         context.repository = await this.agent.repository();
         const ref = (context.repository as { ref?: string })?.ref;
@@ -797,7 +882,9 @@ export class Company {
         thread.updatedAt = this.now();
         if (thread.status !== "resolved") thread.status = "open";
       }
-      for (const request of output.requests) {
+      for (const request of context.discovery?.phase === "scout"
+        ? []
+        : output.requests) {
         const inbox = this.inbox(
           state,
           { ...request, workId: work?.id },
@@ -812,7 +899,7 @@ export class Company {
         });
         if (work) work.threadId = inbox.id;
       }
-      if (output.proposals.length) {
+      if (output.proposals.length && context.discovery?.phase !== "scout") {
         const inbox =
           thread?.kind === "inbox"
             ? thread
@@ -873,7 +960,7 @@ export class Company {
           work.threadId = inbox.id;
         }
       }
-      for (const observation of output.observations) {
+      for (const observation of context.discovery ? [] : output.observations) {
         const duplicate = this.repo
           .documents()
           .some((d) => workKey(d.title) === workKey(observation.title));
@@ -973,7 +1060,8 @@ export class Company {
           runId,
         );
       }
-      for (const next of output.work) {
+      this.discovery.complete(state, run, output);
+      for (const next of context.discovery ? [] : output.work) {
         if (
           state.work.filter((w) => !["done", "cancelled"].includes(w.status))
             .length >= state.settings.maxOpenWork
