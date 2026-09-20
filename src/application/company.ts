@@ -1,3 +1,7 @@
+import {
+  automationPermissions,
+  assertAutomationOutput,
+} from "../domain/permissions";
 import { Planning } from "./planning";
 import { Library } from "./library";
 import { documentRef } from "../domain/library";
@@ -5,6 +9,7 @@ import {
   taskForRun,
   taskUsage,
   taskBlocker,
+  taskDueAt,
   runCanProceed,
 } from "../domain/automation";
 import { evidenceReferences } from "../domain/evidence";
@@ -136,10 +141,17 @@ export class Company {
     );
     if (assignedWork?.roleId && !role)
       throw new DomainError("The assigned role is paused or unavailable.");
+    const automation = taskForRun(state, input);
     const run: Run = {
       id: this.ids.next(),
       automatic: input.trigger !== "message",
       ...input,
+      ...(automation
+        ? {
+            discoveryLensId: automation.id,
+            automationPermissions: automationPermissions(automation),
+          }
+        : {}),
       agent: structuredClone(
         role?.agent ||
           taskForRun(state, input)?.agent ||
@@ -728,6 +740,9 @@ export class Company {
               threadId: run.threadId,
             });
             retry.agent = structuredClone(run.agent);
+            retry.automationPermissions = structuredClone(
+              run.automationPermissions,
+            );
             retry.role = structuredClone(run.role);
             retry.context = structuredClone(run.context);
             retry.reviewRoundId = run.reviewRoundId;
@@ -855,11 +870,53 @@ export class Company {
       const run = this.run(state, { trigger: "maintenance", automatic: true });
       run.discoveryLensId = maintenance.id;
       run.agent = structuredClone(maintenance.agent);
+      run.automationPermissions = automationPermissions(maintenance);
       run.manual = manual && !!lensId;
       maintenance.lastRunAt = this.now();
       maintenance.lastRunId = run.id;
       this.emit(
         { type: "LibraryMaintenanceRequested", payload: { runId: run.id } },
+        manual ? "human" : "system",
+        run.id,
+      );
+      return { runId: run.id };
+    }
+    const scheduled =
+      requested && ["planning", "task"].includes(requested.kind || "")
+        ? requested
+        : !requested
+          ? state.discovery.lenses
+              .filter(
+                (t) =>
+                  ["planning", "task"].includes(t.kind || "") &&
+                  t.enabled &&
+                  (!taskDueAt(state, t) ||
+                    taskDueAt(state, t)! <= this.now()) &&
+                  !taskBlocker(
+                    state,
+                    t,
+                    this.now(),
+                    hasConstitution,
+                    true,
+                    this.repo.documents(),
+                  ),
+              )
+              .sort((a, b) =>
+                (a.lastRunAt || "").localeCompare(b.lastRunAt || ""),
+              )[0]
+          : undefined;
+    if (scheduled?.kind === "planning")
+      return this.planning.request(state, manual, scheduled.id);
+    if (scheduled) {
+      const run = this.run(state, { trigger: "automation", automatic: true });
+      run.discoveryLensId = scheduled.id;
+      run.agent = structuredClone(scheduled.agent);
+      run.automationPermissions = automationPermissions(scheduled);
+      run.manual = manual && !!lensId;
+      scheduled.lastRunAt = this.now();
+      scheduled.lastRunId = run.id;
+      this.emit(
+        { type: "RunRequested", payload: { runId: run.id } },
         manual ? "human" : "system",
         run.id,
       );
@@ -871,6 +928,7 @@ export class Company {
     run.manual = manual && !!lensId;
     this.discovery.attach(state, run, lens);
     run.agent = structuredClone(lens.agent);
+    run.automationPermissions = automationPermissions(lens);
     this.emit(
       {
         type: "DiscoveryScoutRequested",
@@ -884,7 +942,6 @@ export class Company {
   heartbeat() {
     this.repo.transaction(() => {
       const state = this.repo.state();
-      this.planning.request(state);
       this.heartbeatIn(state);
       this.repo.save(state);
     });
@@ -1036,8 +1093,6 @@ export class Company {
       throw new Deferred(
         "Waiting for milestone approval or accepted dependencies.",
       );
-    if (run.trigger === "planning" && !state.planning.enabled && !run.manual)
-      throw new Deferred("Planning is paused.");
     if (work && ["done", "cancelled"].includes(work.status)) {
       this.repo.transaction(() => {
         const s = this.repo.state(),
@@ -1061,6 +1116,7 @@ export class Company {
         : undefined) ||
       thread?.messages.at(-1)?.content ||
       work?.instruction ||
+      owner?.question ||
       (run.discoveryLensId
         ? state.discovery.lenses.find((l) => l.id === run!.discoveryLensId)
             ?.question
@@ -1081,6 +1137,40 @@ export class Company {
       if (run.trigger === "maintenance") this.library.prepare(state, context);
       else this.discovery.context(state, run, context);
       this.planning.context(state, run, context);
+      if (owner && run.automationPermissions) {
+        context.automation = {
+          id: owner.id,
+          name: owner.name,
+          instruction: owner.question,
+          allowedChanges: run.automationPermissions,
+          ...(run.automationPermissions.includes("milestones")
+            ? {
+                milestoneSlots: Math.max(
+                  0,
+                  (owner.targetMilestones || 2) -
+                    state.planning.milestones.filter(
+                      (m) => !["completed", "declined"].includes(m.status),
+                    ).length,
+                ),
+              }
+            : {}),
+        };
+        context.evidenceRefs.push("automation:" + owner.id);
+      }
+      if (
+        run.trigger === "automation" &&
+        owner?.sources.length &&
+        this.researchSources
+      ) {
+        context.externalSources = await this.researchSources.read(
+          owner.sources,
+        );
+        context.evidenceRefs.push(
+          ...context.externalSources.flatMap((s) =>
+            s.releases.map((r) => r.ref),
+          ),
+        );
+      }
       if (context.discovery?.lens.sources?.length && this.researchSources) {
         context.externalSources = await this.researchSources.read(
           context.discovery.lens.sources,
@@ -1191,7 +1281,7 @@ export class Company {
     });
     if (
       (work?.mode === "ui-inspection" ||
-        (run!.discoveryLensId && context.discovery?.lens.inspectUI)) &&
+        (run!.discoveryLensId && owner?.inspectUI)) &&
       !run!.reviewRoundId &&
       run!.trigger !== "assessment" &&
       !context.browser
@@ -1296,10 +1386,12 @@ export class Company {
           ".";
       }
     }
+    assertAutomationOutput(this.repo.state(), run!, output);
     if (run!.trigger === "maintenance") {
       this.repo.transaction(() => {
         const s = this.repo.state(),
           r = s.runs.find((r) => r.id === run!.id)!;
+        assertAutomationOutput(s, r, output);
         this.library.complete(s, r, output);
         for (const request of output.requests) this.inbox(s, request, r.id);
         if (output.outcome !== "completed" && !output.requests.length)
@@ -1321,6 +1413,7 @@ export class Company {
     if (
       output.libraryUpdates?.length &&
       run!.trigger !== "message" &&
+      run!.trigger !== "automation" &&
       !(work?.milestoneId && run!.trigger === "work")
     )
       throw new DomainError(
@@ -1380,6 +1473,7 @@ export class Company {
       ])
         if (refs.some((ref) => !evidenceReferences(context).includes(ref)))
           throw new DomainError("Agent cited evidence it did not receive.");
+      assertAutomationOutput(state, run, output);
       run.result = output;
       const work = state.work.find((w) => w.id === run!.workId);
       if (work?.status === "cancelled") {
@@ -1422,7 +1516,7 @@ export class Company {
       }
       if (output.milestones?.length) {
         if (
-          !["planning", "message"].includes(run.trigger) ||
+          !["planning", "message", "automation"].includes(run.trigger) ||
           context.discovery ||
           context.review ||
           work
@@ -1436,6 +1530,7 @@ export class Company {
       if (output.libraryUpdates?.length) {
         if (
           (run.trigger !== "message" &&
+            run.trigger !== "automation" &&
             !(run.trigger === "work" && work?.milestoneId)) ||
           context.discovery ||
           context.review

@@ -1,8 +1,6 @@
 import { z } from "zod";
-import {
-  agentConfigurationSchema,
-  defaultAgentConfiguration,
-} from "./agents";
+import { permissionSchema } from "./permissions";
+import { agentConfigurationSchema, defaultAgentConfiguration } from "./agents";
 const text = z.string().trim().min(1);
 export const experimentSchema = z.object({
   track: z.enum(["research", "bug", "feature"]),
@@ -17,7 +15,9 @@ export const lensSchema = z.object({
   name: text.max(80),
   question: text.max(2000),
   enabled: z.boolean(),
-  kind: z.enum(["research", "knowledge"]).optional(),
+  kind: z.enum(["research", "knowledge", "planning", "task"]).optional(),
+  permissions: z.array(permissionSchema).max(4).optional(),
+  targetMilestones: z.number().int().min(1).max(5).optional(),
   intervalHours: z.number().int().min(1).max(720),
   dailyRunLimit: z.number().int().min(1).max(24).default(6),
   maxActiveIdeas: z.number().int().min(1).max(20).default(6),

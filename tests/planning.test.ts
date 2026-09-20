@@ -325,9 +325,10 @@ test("accepted document outputs reach dependent workers and independent reviewer
 test("planning is bounded, deduplicated, paused independently, and replenishes after completion", async () => {
   const s = repo.state();
   s.settings.enabled = true;
-  s.planning.targetMilestones = 1;
-  s.planning.dailyRunLimit = 2;
-  for (const l of s.discovery.lenses) l.enabled = false;
+  const automation = s.discovery.lenses.find((t) => t.kind === "planning")!;
+  automation.targetMilestones = 1;
+  automation.dailyRunLimit = 2;
+  for (const l of s.discovery.lenses) l.enabled = l.kind === "planning";
   repo.save(s);
   handler = () => result({ milestones: [plan()] });
   company.heartbeat();
@@ -350,7 +351,7 @@ test("planning is bounded, deduplicated, paused independently, and replenishes a
   await drain();
   expect(repo.state().runs).toHaveLength(2);
   const paused = repo.state();
-  paused.planning.enabled = false;
+  paused.discovery.lenses.find((t) => t.kind === "planning")!.enabled = false;
   repo.save(paused);
   now = "2026-09-21T10:00:00.000Z";
   company.heartbeat();
@@ -510,4 +511,316 @@ test("a pause can resume its final already-allocated review at the run limit", a
   await drain();
   expect(repo.state().planning.milestones[0]!.status).toBe("completed");
   expect(repo.state().runs).toHaveLength(2);
+});
+
+function scheduleTask(
+  permissions: import("../src/domain/permissions").AutomationPermission[] = [
+    "evidence",
+  ],
+) {
+  const task: import("../src/domain/discovery").Lens = {
+    id: "daily-research",
+    name: "Daily research",
+    question: "Record evidenced research findings.",
+    kind: "task",
+    enabled: true,
+    intervalHours: 24,
+    dailyRunLimit: 2,
+    maxActiveIdeas: 2,
+    maxInvestigations: 1,
+    maxOpenWork: 1,
+    inspectUI: false,
+    sources: [],
+    permissions,
+    agent: {
+      provider: "openai",
+      model: "research-model",
+      reasoningEffort: "low",
+    },
+  };
+  company.execute({ type: "SaveDiscoveryLens", lens: task });
+  return task;
+}
+test("a scheduled Foreman can add evidence without changing maintained knowledge or using the Inbox model", async () => {
+  const task = scheduleTask();
+  handler = (c) =>
+    result({
+      observations: [
+        {
+          kind: "observation",
+          title: "Observed behavior",
+          content: "A tentative research finding, not accepted direction.",
+          evidence: [c.evidenceRefs[0]!],
+        },
+      ],
+    });
+  const queued = company.execute({
+    type: "ExploreDiscovery",
+    lensId: task.id,
+  }) as { runId: string };
+  expect(repo.state().runs.find((r) => r.id === queued.runId)!.agent).toEqual(
+    task.agent,
+  );
+  await drain();
+  expect(contexts[0]!.automation).toEqual({
+    id: task.id,
+    name: task.name,
+    instruction: task.question,
+    allowedChanges: ["evidence"],
+  });
+  expect(contexts[0]!.discovery).toBeUndefined();
+  const doc = repo.documents().find((d) => d.title === "Observed behavior")!;
+  expect(doc).toBeTruthy();
+  expect(repo.state().library.pages[doc.id]).toBeUndefined();
+  expect(repo.state().planning.milestones).toHaveLength(0);
+  expect(repo.state().work).toHaveLength(0);
+  company.execute({
+    type: "StartConversation",
+    subject: "Talk to Foreman",
+    content: "Summarize the research.",
+  });
+  expect(repo.state().runs.at(-1)!.agent).toEqual(
+    repo.state().settings.foremanAgent,
+  );
+});
+test("automation permissions reject unauthorized output atomically, including mixed allowed evidence", async () => {
+  const task = scheduleTask();
+  handler = (c) =>
+    result({
+      observations: [
+        {
+          kind: "observation",
+          title: "Should roll back",
+          content: "Evidence",
+          evidence: [c.evidenceRefs[0]!],
+        },
+      ],
+      milestones: [plan()],
+    });
+  company.execute({ type: "ExploreDiscovery", lensId: task.id });
+  await expect(drain()).rejects.toThrow("not allowed to propose milestones");
+  expect(repo.documents().some((d) => d.title === "Should roll back")).toBe(
+    false,
+  );
+  expect(repo.state().planning.milestones).toHaveLength(0);
+});
+test("knowledge-writing permission allows documents and is separate from evidence permission", async () => {
+  const task = scheduleTask(["knowledge"]);
+  handler = (c) =>
+    result({
+      libraryUpdates: [
+        {
+          documentId: null,
+          expectedVersion: null,
+          title: "Research overview",
+          content: "Current understanding grounded in supplied context.",
+          collection: "Research",
+          parentId: null,
+          relatedIds: [],
+          sources: [c.evidenceRefs[0]!],
+          needsApproval: false,
+          reason: "Maintain the research overview",
+        },
+      ],
+    });
+  company.execute({ type: "ExploreDiscovery", lensId: task.id });
+  await drain();
+  const doc = repo.documents().find((d) => d.title === "Research overview")!;
+  expect(repo.state().library.pages[doc.id]).toBeTruthy();
+  expect(repo.state().runs[0]!.status).toBe("completed");
+});
+test("queued automation permissions cannot expand and in-flight revocations prevent writes", async () => {
+  const task = scheduleTask(["evidence"]);
+  company.execute({ type: "ExploreDiscovery", lensId: task.id });
+  company.execute({
+    type: "SaveDiscoveryLens",
+    lens: { ...task, permissions: ["evidence", "milestones"] },
+  });
+  handler = () => result({ milestones: [plan()] });
+  await expect(drain()).rejects.toThrow("not allowed to propose milestones");
+  const s = repo.state();
+  s.runs[0]!.status = "failed";
+  repo.save(s);
+  company.execute({ type: "ExploreDiscovery", lensId: task.id });
+  handler = (c) => {
+    company.execute({
+      type: "SaveDiscoveryLens",
+      lens: { ...task, permissions: [] },
+    });
+    return result({
+      observations: [
+        {
+          kind: "observation",
+          title: "Revoked result",
+          content: "Do not persist this",
+          evidence: [c.evidenceRefs[0]!],
+        },
+      ],
+    });
+  };
+  await expect(drain()).rejects.toThrow("not allowed to add evidence");
+  expect(repo.documents().some((d) => d.title === "Revoked result")).toBe(
+    false,
+  );
+});
+test("a normal automation can propose milestones but cannot approve or dispatch them", async () => {
+  const task = scheduleTask(["milestones"]);
+  handler = () => result({ milestones: [plan()] });
+  company.execute({ type: "ExploreDiscovery", lensId: task.id });
+  await drain();
+  expect(repo.state().planning.milestones[0]!.status).toBe("proposed");
+  expect(repo.state().work).toHaveLength(0);
+  expect(repo.state().threads[0]!.milestoneId).toBe(
+    repo.state().planning.milestones[0]!.id,
+  );
+});
+test("milestone proposals are revised through their Foreman conversation with version and actor attribution", async () => {
+  const m = propose();
+  await drain();
+  handler = (c) => {
+    expect(c.milestone?.id).toBe(m.id);
+    return result({
+      milestoneRevisions: [
+        {
+          milestoneId: m.id,
+          expectedVersion: 1,
+          plan: { ...plan(), objective: "A narrower approved outcome." },
+        },
+      ],
+    });
+  };
+  company.execute({
+    type: "Reply",
+    threadId: m.threadId,
+    content: "Narrow the outcome before I approve it.",
+  });
+  await drain();
+  expect(repo.state().planning.milestones[0]!.objective).toBe(
+    "A narrower approved outcome.",
+  );
+  expect(
+    repo.events(m.id).filter((e) => e.type === "MilestoneChanged")[0]!.actor,
+  ).toBe("foreman");
+  expect(repo.state().work).toHaveLength(0);
+});
+test("deleting the planning automation does not recreate it or keep a hidden schedule running", async () => {
+  const s = repo.state();
+  for (const task of s.discovery.lenses) task.enabled = false;
+  repo.save(s);
+  company.execute({
+    type: "DeleteDiscoveryLens",
+    lensId: "milestone-planning",
+  });
+  company.heartbeat();
+  await drain();
+  expect(repo.state().discovery.lenses.some((t) => t.kind === "planning")).toBe(
+    false,
+  );
+  expect(repo.state().runs).toHaveLength(0);
+  expect(
+    (company.execute({ type: "RequestPlanning" }) as any).skipped,
+  ).toContain("Schedule an automation");
+});
+
+test("evidence-only tasks cannot modify knowledge, governing documents or code", async () => {
+  const task = scheduleTask();
+  const candidates: Partial<AgentResult>[] = [
+    {
+      libraryUpdates: [
+        {
+          documentId: null,
+          expectedVersion: null,
+          title: "Unauthorized knowledge",
+          content: "Do not persist",
+          collection: "Research",
+          parentId: null,
+          relatedIds: [],
+          sources: [],
+          needsApproval: false,
+          reason: "Attempted expansion",
+        },
+      ],
+    },
+    {
+      changes: [
+        { path: "src/server/index.ts", content: "Unauthorized source" },
+      ],
+    },
+    {
+      proposals: [
+        {
+          documentId: "sequence",
+          content: "Unauthorized replacement",
+          reason: "Attempted expansion",
+          evidence: [],
+        },
+      ],
+    },
+    {
+      work: [
+        {
+          track: "feature",
+          mode: "analysis",
+          title: "Unauthorized work",
+          instruction: "Do it",
+          criteria: "Done",
+        },
+      ],
+    },
+  ];
+  for (const candidate of candidates) {
+    const s = repo.state();
+    for (const r of s.runs) r.status = "failed";
+    s.discovery.lenses.find((t) => t.id === task.id)!.dailyRunLimit = 24;
+    repo.save(s);
+    handler = () => result(candidate);
+    company.execute({ type: "ExploreDiscovery", lensId: task.id });
+    await expect(drain()).rejects.toThrow();
+  }
+  expect(
+    repo.documents().some((d) => d.title === "Unauthorized knowledge"),
+  ).toBe(false);
+  expect(repo.state().work).toHaveLength(0);
+});
+test("deleted automations do not execute queued work", async () => {
+  const task = scheduleTask();
+  company.execute({ type: "ExploreDiscovery", lensId: task.id });
+  company.execute({ type: "DeleteDiscoveryLens", lensId: task.id });
+  await drain();
+  expect(contexts).toHaveLength(0);
+  expect(repo.state().runs[0]!.error).toContain("deleted before execution");
+});
+
+test("unfinished legacy runs acquire bounded authority before later permission grants", async () => {
+  const task = scheduleTask(["evidence"]);
+  company.execute({ type: "ExploreDiscovery", lensId: task.id });
+  const stored = repo.state();
+  delete stored.runs[0]!.automationPermissions;
+  store.db
+    .query("UPDATE company_state SET json=? WHERE id=1")
+    .run(JSON.stringify(stored));
+  company.execute({
+    type: "SaveDiscoveryLens",
+    lens: { ...task, permissions: ["evidence", "milestones"] },
+  });
+  expect(repo.state().runs[0]!.automationPermissions).toEqual(["evidence"]);
+  handler = () => result({ milestones: [plan()] });
+  await expect(drain()).rejects.toThrow("not allowed to propose milestones");
+});
+
+test("automation milestone capacity is enforced on the whole result without partial proposals", async () => {
+  const task = scheduleTask(["milestones"]);
+  company.execute({
+    type: "SaveDiscoveryLens",
+    lens: { ...task, targetMilestones: 1 },
+  });
+  handler = (c) => {
+    expect(c.automation?.milestoneSlots).toBe(1);
+    return result({
+      milestones: [plan(), { ...plan(), title: "A second outcome" }],
+    });
+  };
+  company.execute({ type: "ExploreDiscovery", lensId: task.id });
+  await expect(drain()).rejects.toThrow("upcoming milestone limit");
+  expect(repo.state().planning.milestones).toHaveLength(0);
 });

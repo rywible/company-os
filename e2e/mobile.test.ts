@@ -215,7 +215,10 @@ async function choose(view: Bun.WebView, selector: string, value: string) {
 async function nav(view: Bun.WebView, name: string) {
   if (["Automation", "Assignments", "Discovery"].includes(name)) {
     await button(view, "Open Work");
-    if (name === "Discovery") {
+    if (name === "Assignments") {
+      await view.evaluate('location.hash = "#Work/assignments"');
+      await wait(view, "!!document.querySelector('.work-list, .work-detail')");
+    } else if (name === "Discovery") {
       await view.evaluate('location.hash = "#Work/ideas"');
       await wait(view, 'location.hash === "#Work/ideas"');
     } else {
@@ -753,7 +756,10 @@ for (const backend of backends) {
         expect(errors).toEqual([]);
       }, 30000);
       test("work, PR review count and complete event-driven round", async () => {
-        const { view, repo, errors } = await setup(backend, size);
+        const { view, repo, company, drain, errors } = await setup(
+          backend,
+          size,
+        );
         await nav(view, "Settings");
         expect(
           await view.evaluate<any>(
@@ -789,12 +795,24 @@ for (const backend of backends) {
         await wait(view, `!document.querySelector('button.primary:disabled')`);
         expect(repo.state().settings.requiredReviews).toBe(3);
         await nav(view, "Assignments");
-        await button(view, "New work");
-        await fill(view, "dialog input", "Investigate responsive layout");
-        await fill(view, "dialog textarea", "Inspect the layout boundaries");
-        await fill(view, 'dialog textarea[rows="3"]', "Concrete findings");
-        await button(view, "Create work", "dialog");
-        await wait(view, `!!document.querySelector('.work-detail')`);
+        company.execute({
+          type: "CreateWork",
+          title: "Investigate responsive layout",
+          instruction: "Inspect the layout boundaries",
+          criteria: "Concrete findings",
+          track: "research",
+          mode: "analysis",
+        });
+        await drain();
+        await view.reload();
+        await wait(view, "!!document.querySelector('.work-list')");
+        await button(
+          view,
+          "Investigate responsive layout",
+          ".work-list",
+          false,
+        );
+        await wait(view, "!!document.querySelector('.work-detail')");
         await fill(
           view,
           'input[type="url"]',
@@ -1244,6 +1262,21 @@ for (const size of [widths[0]!, widths[1]!, widths[4]!])
       `.artifacts/milestones-${size.name}.png`,
       await view.screenshot(),
     );
+    expect(
+      await view.evaluate<string[]>(
+        "Array.from(document.querySelectorAll('.work-tabs button')).map(b => b.textContent?.trim())",
+      ),
+    ).toEqual(["Milestones", "Automations"]);
+    expect(
+      await view.evaluate<boolean>(
+        "document.querySelector('.page-actions').compareDocumentPosition(document.querySelector('.work-tabs')) & Node.DOCUMENT_POSITION_FOLLOWING ? true : false",
+      ),
+    ).toBe(true);
+    expect(
+      await view.evaluate<string[]>(
+        "Array.from(document.querySelectorAll('.page-actions button')).map(b => b.textContent?.trim())",
+      ),
+    ).toEqual(["Schedule work"]);
     await click(view, ".milestone-row");
     await click(view, ".milestone-graph > summary");
     await wait(
@@ -1255,14 +1288,12 @@ for (const size of [widths[0]!, widths[1]!, widths[4]!])
       `.artifacts/milestone-detail-${size.name}.png`,
       await view.screenshot(),
     );
-    await button(view, "Revise proposal");
-    await fill(view, "dialog input", "Architecture ready for parallel work");
-    await button(view, "Save proposal", "dialog");
-    await wait(
-      view,
-      "!document.querySelector('dialog') && document.querySelector('.milestone-heading h2')?.textContent === 'Architecture ready for parallel work'",
-    );
-    await button(view, "Decision thread");
+    expect(
+      await view.evaluate<boolean>(
+        "document.querySelector('.milestone-graph')?.hasAttribute('open')",
+      ),
+    ).toBe(true);
+    await button(view, "Discuss with Foreman");
     await wait(view, "!!document.querySelector('.milestone-inbox')");
     await button(view, "Approve milestone", ".milestone-inbox");
     await wait(
@@ -1270,12 +1301,10 @@ for (const size of [widths[0]!, widths[1]!, widths[4]!])
       "document.querySelector('.milestone-inbox h3')?.textContent.includes('completed')",
     );
     expect(repo.state().work.every((w) => w.status === "done")).toBe(true);
-    await button(view, "Review milestone and dependencies");
-    await button(view, "Frontend vertical", ".assignment-list");
-    await wait(view, "!!document.querySelector('.work-detail')");
+    await button(view, "Review milestone");
     expect(
       await view.evaluate<boolean>(
-        "document.querySelector('.work-detail')?.textContent.includes('Assigned to Implementer')",
+        "!!document.querySelector('.milestone-graph:not([open])')",
       ),
     ).toBe(true);
     await fits(view);
@@ -1301,6 +1330,74 @@ for (const size of [widths[0]!, widths[1]!, widths[4]!])
     ).toBe("America/Denver");
     await button(view, "Save availability");
     await wait(view, "!!document.querySelector('[role=status]')");
+    await fits(view);
+    expect(errors).toEqual([]);
+  }, 30000);
+
+for (const size of [widths[1]!, widths[4]!])
+  test(`schedule Foreman work with limited access at ${size.name}`, async () => {
+    const { view, repo, errors } = await setup("chrome", size);
+    await nav(view, "Work");
+    await button(view, "Schedule work", ".page-actions");
+    await wait(view, "!!document.querySelector('.task-editor')");
+    await fill(view, "dialog input", "Daily research digest");
+    await fill(
+      view,
+      '[aria-label="Task question"]',
+      "Review the available research and add attributed findings to Evidence.",
+    );
+    expect(
+      await view.evaluate<string[]>(
+        "Array.from(document.querySelectorAll('.automation-permissions input:checked')).map(i=>i.value)",
+      ),
+    ).toEqual(["evidence"]);
+    await choose(view, '[aria-label="Agent model"]', "gpt-5.6-luna");
+    await choose(view, '[aria-label="Reasoning effort"]', "low");
+    await fill(view, '[aria-label="Hours between runs"]', "24");
+    await fits(view);
+    await Bun.write(
+      `.artifacts/schedule-work-${size.name}.png`,
+      await view.screenshot(),
+    );
+    await button(view, "Save task", "dialog");
+    await wait(view, "!document.querySelector('dialog')");
+    const task = repo
+      .state()
+      .discovery.lenses.find((t) => t.name === "Daily research digest")!;
+    expect(task.permissions).toEqual(["evidence"]);
+    expect(task.kind).toBe("task");
+    expect(task.intervalHours).toBe(24);
+    expect(task.agent.model).toBe("gpt-5.6-luna");
+    expect(
+      await view.evaluate<boolean>(
+        "!!document.querySelector('.milestones-page')",
+      ),
+    ).toBe(true);
+    await button(view, "Automations", ".work-tabs");
+    await wait(view, "!!document.querySelector('.automation-page')");
+    expect(
+      await view.evaluate<boolean>(
+        "document.querySelector('.automation-page')?.textContent.includes('Plan upcoming milestones')",
+      ),
+    ).toBe(true);
+    expect(
+      await view.evaluate<boolean>(
+        "!!document.querySelector('.planning-settings')",
+      ),
+    ).toBe(false);
+    await button(view, "Edit Plan upcoming milestones");
+    await fill(view, '[aria-label="Hours between runs"]', "12");
+    await choose(view, '[aria-label="Agent model"]', "gpt-5.6-sol");
+    await button(view, "Save task", "dialog");
+    await wait(view, "!document.querySelector('dialog')");
+    expect(
+      repo.state().discovery.lenses.find((t) => t.kind === "planning")!
+        .intervalHours,
+    ).toBe(12);
+    expect(
+      repo.state().discovery.lenses.find((t) => t.kind === "planning")!.agent
+        .model,
+    ).toBe("gpt-5.6-sol");
     await fits(view);
     expect(errors).toEqual([]);
   }, 30000);

@@ -1,8 +1,11 @@
 import {
   initialPlanning,
+  planningAutomation,
   initialRoles,
   initialAvailability,
 } from "../domain/planning";
+import { taskForRun } from "../domain/automation";
+import { automationPermissions } from "../domain/permissions";
 import { importLibrary, libraryTask } from "../domain/library";
 import type { Document } from "../contracts";
 import { initialDiscovery } from "../domain/discovery";
@@ -164,6 +167,34 @@ export class SQLiteRepository implements Repository {
       lens.sources ??= [];
       lens.agent ??= defaultAgentConfiguration();
     }
+    if (!s.planning.automationVersion) {
+      const task = planningAutomation(s.planning);
+      task.agent = structuredClone(
+        s.settings.foremanAgent || defaultAgentConfiguration(),
+      );
+      if (!s.discovery.lenses.some((l: any) => l.id === task.id))
+        s.discovery.lenses.push(task);
+      // Preserve attribution of historical planning runs and their model snapshots.
+      for (const run of s.runs)
+        if (run.trigger === "planning" && !run.discoveryLensId)
+          run.discoveryLensId = task.id;
+      s.planning.automationVersion = 1;
+      this.save(s);
+    }
+    let assignedAuthority = false;
+    for (const run of s.runs)
+      if (
+        !run.automationPermissions &&
+        ["queued", "running"].includes(run.status)
+      ) {
+        const task = taskForRun(s, run);
+        if (task) {
+          run.discoveryLensId = task.id;
+          run.automationPermissions = automationPermissions(task);
+          assignedAuthority = true;
+        }
+      }
+    if (assignedAuthority) this.save(s);
     delete s.settings.objective;
     s.settings.requiredReviews ??= 2;
     s.settings.allowCodeChanges ??= false;

@@ -28,6 +28,7 @@ export function renderBriefing(context: Context): string {
     "# Work coordination\n" +
       JSON.stringify({
         role: context.role,
+        automation: context.automation,
         coordination: context.coordination,
         milestone: context.milestone,
         dependencies: context.dependencies,

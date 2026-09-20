@@ -1,6 +1,7 @@
 import type { Document } from "../contracts";
 import { hasLibraryWork, libraryFreshness } from "./freshness";
 import type { CompanyState, Run } from "./model";
+import { automationPermissions } from "./permissions";
 import type { Lens } from "./discovery";
 export const activeIdea = (idea: { status: string }) =>
   ["candidate", "investigating", "ready", "pursued", "evaluating"].includes(
@@ -25,8 +26,17 @@ export function taskUsage(state: CompanyState, lens: Lens, now: string) {
   ).length;
 }
 export function taskCapacity(state: CompanyState, lens: Lens) {
+  if (
+    lens.kind === "planning" ||
+    (lens.kind === "task" && automationPermissions(lens).includes("milestones"))
+  )
+    return (
+      state.planning.milestones.filter(
+        (m) => !["completed", "declined"].includes(m.status),
+      ).length < (lens.targetMilestones || 2)
+    );
   return (
-    lens.kind === "knowledge" ||
+    ["knowledge", "task"].includes(lens.kind || "") ||
     state.discovery.ideas.filter((i) => i.lensId === lens.id && activeIdea(i))
       .length < lens.maxActiveIdeas
   );
@@ -34,7 +44,7 @@ export function taskCapacity(state: CompanyState, lens: Lens) {
 export function taskDueAt(state: CompanyState, lens: Lens) {
   if (!lens.lastRunAt) return null;
   const signalled =
-    lens.kind !== "knowledge" &&
+    (!lens.kind || lens.kind === "research") &&
     state.discovery.signals.some(
       (s) => !s.consumedBy && s.lensIds.includes(lens.id),
     );
@@ -47,7 +57,6 @@ export function taskDueAt(state: CompanyState, lens: Lens) {
   ).toISOString();
 }
 export function runCanProceed(state: CompanyState, run: Run) {
-  if (run.trigger === "planning") return run.manual || state.planning.enabled;
   if (
     !run.automatic ||
     state.work.some((w) => w.id === run.workId && w.milestoneId)
@@ -86,6 +95,8 @@ export function taskBlocker(
       ? "Waiting for a decision or review of a source subject."
       : "The library is up to date. New evidence or a scheduled review will queue a pass.";
   if (!taskCapacity(state, lens))
-    return "This task has reached its active idea limit.";
+    return lens.kind === "planning"
+      ? "There are enough upcoming milestones. Planning resumes when capacity opens."
+      : "This task has reached its active idea limit.";
   return null;
 }

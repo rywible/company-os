@@ -6,7 +6,6 @@ import {
   MilestoneActions,
   AvailabilityNote,
 } from "./milestones";
-import { PlanningSettings } from "./work-settings";
 import { AutomationPage } from "./automation";
 import { DiscoveryPage } from "./discovery";
 import { Modal } from "./modal";
@@ -324,6 +323,7 @@ function App() {
     [contextQuery, setContextQuery] = useState(""),
     [previewOpen, setPreviewOpen] = useState(false),
     [contextBusy, setContextBusy] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [draftSubject, setDraftSubject] = useState("");
   const [proposalId, setProposalId] = useState<string | null>(null);
@@ -331,8 +331,7 @@ function App() {
     null,
   );
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
-  const [workForm, setWorkForm] = useState(false),
-    [selectedWork, setSelectedWork] = useState<string | null>(null),
+  const [selectedWork, setSelectedWork] = useState<string | null>(null),
     [trackFilter, setTrackFilter] = useState("all"),
     [inboxFilter, setInboxFilter] = useState("open"),
     [constitutionHistory, setConstitutionHistory] = useState<any[] | null>(
@@ -566,14 +565,14 @@ function App() {
           <Plus size={16} /> New document
         </button>
       </div>
-    ) : page === "Work" && inboxView === "work" ? (
+    ) : page === "Work" ? (
       <div className="page-actions">
         <button
           className="primary"
           disabled={disabled}
-          onClick={() => setWorkForm(true)}
+          onClick={() => setScheduleOpen(true)}
         >
-          <Plus size={16} /> New work
+          <Plus size={16} /> Schedule work
         </button>
       </div>
     ) : null;
@@ -680,7 +679,6 @@ function App() {
               >
                 {[
                   ["Milestones", "milestones", "Work"],
-                  ["Assignments", "work", "Assignments"],
                   ["Automations", "automations", "Automation"],
                 ].map(([label, view, target]) => (
                   <button
@@ -720,20 +718,6 @@ function App() {
                       : "Knowledge",
                   );
                   setDocId(id);
-                }}
-                requestBrief={async (subject, content) => {
-                  let ok = false;
-                  await perform(async () => {
-                    const result = await act({
-                      type: "StartConversation",
-                      subject,
-                      content,
-                    });
-                    navigate("Inbox");
-                    setThreadId(result.threadId);
-                    ok = true;
-                  });
-                  return ok;
                 }}
               />
             )}
@@ -880,9 +864,8 @@ function App() {
                               <section className="milestone-inbox">
                                 <h3>Milestone decision · {m.status}</h3>
                                 <p>
-                                  {m.assignments.length} assignments ·{" "}
-                                  {m.maxRuns} runs · up to {m.maxParallel} in
-                                  parallel
+                                  {m.maxRuns} agent runs within the proposed
+                                  boundaries.
                                 </p>
                                 <button
                                   onClick={() => {
@@ -890,7 +873,7 @@ function App() {
                                     setSelectedMilestone(m.id);
                                   }}
                                 >
-                                  Review milestone and dependencies
+                                  Review milestone
                                 </button>
                                 <MilestoneActions
                                   milestone={m}
@@ -1580,18 +1563,8 @@ function App() {
                 api={api}
               />
             )}
-            {page === "Work" && inboxView === "automations" && (
-              <>
-                <PlanningSettings
-                  planning={state.planning}
-                  command={command}
-                  disabled={disabled}
-                />
-                <div className="actions">
-                  <button onClick={() => navigate("Discovery")}>
-                    Ideas and experiments
-                  </button>
-                </div>
+            {page === "Work" &&
+              (inboxView === "automations" || scheduleOpen) && (
                 <AutomationPage
                   state={state}
                   agentCatalog={state.agentCatalog}
@@ -1599,12 +1572,14 @@ function App() {
                   disabled={disabled}
                   command={command}
                   configured={state.configured}
+                  creating={scheduleOpen}
+                  closeCreate={() => setScheduleOpen(false)}
+                  showList={inboxView === "automations"}
                   hasConstitution={state.documents.some(
                     (d) => d.level === "constitution" && !!d.content.trim(),
                   )}
                 />
-              </>
-            )}
+              )}
             {page === "Settings" && (
               <SettingsPage
                 settings={state.settings}
@@ -1953,20 +1928,6 @@ function App() {
           )}
         </Modal>
       )}
-      {workForm && (
-        <Modal title="New work" close={() => setWorkForm(false)}>
-          <WorkForm
-            disabled={disabled}
-            save={(cmd) =>
-              void perform(async () => {
-                const r = await act(cmd);
-                setSelectedWork(r.workId);
-                setWorkForm(false);
-              })
-            }
-          />
-        </Modal>
-      )}
     </div>
   );
 }
@@ -2283,95 +2244,7 @@ function PolicyFields({
     </fieldset>
   );
 }
-function WorkForm({
-  disabled,
-  save,
-}: {
-  disabled: boolean;
-  save: (c: Extract<CompanyCommand, { type: "CreateWork" }>) => void;
-}) {
-  const [value, set] = useState<
-    Extract<CompanyCommand, { type: "CreateWork" }>
-  >({
-    type: "CreateWork",
-    title: "",
-    track: "research",
-    mode: "analysis",
-    instruction: "",
-    criteria: "",
-  });
-  return (
-    <form
-      className="editor"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save(value);
-      }}
-    >
-      <label>
-        Title
-        <input
-          required
-          value={value.title}
-          onChange={(e) => set({ ...value, title: e.target.value })}
-        />
-      </label>
-      <div className="form-grid">
-        <label>
-          Track
-          <select
-            value={value.track}
-            onChange={(e) =>
-              set({ ...value, track: e.target.value as Work["track"] })
-            }
-          >
-            {["research", "bug", "feature"].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Execution
-          <select
-            value={value.mode}
-            onChange={(e) =>
-              set({ ...value, mode: e.target.value as Work["mode"] })
-            }
-          >
-            <option value="analysis">Investigation</option>
-            <option value="ui-inspection">Browser inspection</option>
-          </select>
-        </label>
-      </div>
-      <label>
-        Assignment
-        <textarea
-          required
-          rows={5}
-          value={value.instruction}
-          onChange={(e) => set({ ...value, instruction: e.target.value })}
-        />
-      </label>
-      <label>
-        Completion criteria
-        <textarea
-          required
-          rows={3}
-          value={value.criteria}
-          onChange={(e) => set({ ...value, criteria: e.target.value })}
-        />
-      </label>
-      <p className="muted">
-        Investigations can produce research, bug reports, and feature plans.
-        They do not commit code. Browser inspection navigates the live app using
-        a read-only session.
-      </p>
-      <button disabled={disabled} className="primary">
-        Create work
-      </button>
-    </form>
-  );
-}
+
 function ReviewPanel({
   work,
   state,

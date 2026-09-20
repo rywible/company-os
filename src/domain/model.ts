@@ -1,3 +1,4 @@
+import { DomainError } from "./errors";
 import {
   planningCommands,
   milestonePlanSchema,
@@ -124,6 +125,13 @@ export type ContextEntry = {
   indexedVersion: number | null;
 };
 export type Context = {
+  automation?: {
+    milestoneSlots?: number;
+    id: string;
+    name: string;
+    instruction: string;
+    allowedChanges: import("./permissions").AutomationPermission[];
+  };
   role?: Pick<AgentRole, "id" | "name" | "purpose">;
   coordination?: {
     roles: Pick<AgentRole, "id" | "name" | "purpose">[];
@@ -229,6 +237,7 @@ export type BrowserEvidence = {
   errors: string[];
 };
 export type Run = {
+  automationPermissions?: import("./permissions").AutomationPermission[];
   role?: { id: string; name: string; purpose: string };
   manual?: boolean;
   agent?: AgentConfiguration;
@@ -244,6 +253,7 @@ export type Run = {
     | "review"
     | "revision"
     | "maintenance"
+    | "automation"
     | "planning"
     | "assessment";
   status: "queued" | "running" | "completed" | "failed";
@@ -506,7 +516,7 @@ export const agentResultSchema = z.object({
     .max(3),
 });
 export type AgentResult = z.infer<typeof agentResultSchema>;
-export class DomainError extends Error {}
+export { DomainError } from "./errors";
 export const workKey = (title: string) =>
   title
     .toLowerCase()

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { Settings } from "../domain/model";
-import type { AgentRole, PlanningState } from "../domain/planning";
+import type { AgentRole } from "../domain/planning";
 import type { AgentCatalog, AgentProvider } from "../domain/agents";
 import type { CommandHandler } from "./settings";
 import { AgentConfigurationFields } from "./agent-configuration";
@@ -202,98 +202,5 @@ export function AvailabilitySettings({
         {saved && <span role="status">Saved</span>}
       </div>
     </form>
-  );
-}
-export function PlanningSettings({
-  planning,
-  disabled,
-  command,
-}: Shared & { planning: PlanningState }) {
-  const [value, setValue] = useState({
-      enabled: planning.enabled,
-      intervalHours: planning.intervalHours,
-      dailyRunLimit: planning.dailyRunLimit,
-      targetMilestones: planning.targetMilestones,
-    }),
-    [saved, setSaved] = useState(false);
-  return (
-    <details className="planning-settings">
-      <summary>
-        Milestone planning{" "}
-        <span>
-          {planning.enabled ? "On" : "Paused"} · {planning.targetMilestones}{" "}
-          milestones ahead
-        </span>
-      </summary>
-      <form
-        className="editor"
-        onChange={() => setSaved(false)}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void command({ type: "ConfigurePlanning", settings: value }).then(
-            setSaved,
-          );
-        }}
-      >
-        <p className="muted">
-          Foreman looks for useful next outcomes while approved work progresses.
-          New milestones come to your inbox for approval. A full pipeline stops
-          new planning runs.
-        </p>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={value.enabled}
-            onChange={(e) => setValue({ ...value, enabled: e.target.checked })}
-          />{" "}
-          Keep planning next milestones
-        </label>
-        <label>
-          Milestones to keep in the pipeline
-          <input
-            required
-            type="number"
-            min={1}
-            max={5}
-            value={value.targetMilestones}
-            onChange={(e) =>
-              setValue({ ...value, targetMilestones: Number(e.target.value) })
-            }
-          />
-        </label>
-        <label>
-          Check every (hours)
-          <input
-            required
-            type="number"
-            min={1}
-            max={168}
-            value={value.intervalHours}
-            onChange={(e) =>
-              setValue({ ...value, intervalHours: Number(e.target.value) })
-            }
-          />
-        </label>
-        <label>
-          Maximum planning runs per day
-          <input
-            required
-            type="number"
-            min={1}
-            max={24}
-            value={value.dailyRunLimit}
-            onChange={(e) =>
-              setValue({ ...value, dailyRunLimit: Number(e.target.value) })
-            }
-          />
-        </label>
-        <div className="actions">
-          <button className="primary" disabled={disabled}>
-            Save planning
-          </button>
-          {saved && <span role="status">Saved</span>}
-        </div>
-      </form>
-    </details>
   );
 }

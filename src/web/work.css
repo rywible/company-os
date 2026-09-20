@@ -320,3 +320,46 @@
   min-width: 480px;
   max-height: 340px;
 }
+.automation-permissions {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+.automation-permissions legend {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 0 6px;
+}
+.automation-permissions .check {
+  margin: 8px 0;
+}
+.task-permissions {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 75ch;
+}
+.milestone-decisions {
+  max-width: 76ch;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+}
+.milestone-decisions article + article {
+  margin-top: 20px;
+}
+.milestone-diagnostics {
+  margin-top: 22px;
+}
+.milestone-brief .markdown {
+  max-width: 76ch;
+}
+.automation-result {
+  margin-top: 18px;
+  max-width: 75ch;
+}
+.automation-result p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}

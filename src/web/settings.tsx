@@ -65,9 +65,9 @@ export function SettingsPage({
           <div>
             <h2>Foreman model</h2>
             <p className="muted">
-              The default used for conversations and planning. Assignments use
-              their role; other automation runs use their configured profile.
-              Runs already queued keep their original selection.
+              The model for new Inbox conversations. Every automation is also
+              Foreman, using its own execution profile and permissions. Runs
+              already queued keep their original selection.
             </p>
           </div>
           <AgentConfigurationFields

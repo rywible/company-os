@@ -89,8 +89,12 @@ The inbox renders actual run snapshots rather than recomputing what a past reply
 
 ## Work coordination
 
-Work contains Milestones, Assignments and Automations. The deterministic coordinator is `src/application/planning.ts`; validated plans, role profiles, triage hours and DAG rules live in `src/domain/planning.ts`. Milestones and settings are persisted in the versioned company state; existing databases receive empty milestone state and the initial roles/availability without changing old run snapshots.
+Work contains Milestones and Automations. Schedule work is its only creation action; milestone conversations, outcomes and approval are the main interaction, with optional DAG and execution diagnostics. The deterministic coordinator is `src/application/planning.ts`; validated plans, role profiles, triage hours and DAG rules live in `src/domain/planning.ts`. Milestones and settings are persisted in the versioned company state; existing databases receive empty milestone state and the initial roles/availability without changing old run snapshots.
 
 Foreman sees role purposes, a bounded milestone overview, and the full plan for its assigned milestone or decision conversation. Model selection is resolved by the application at enqueue time. The existing worker pool handles independent ready runs, while durable reconciliation releases dependent work only after accepted assignment review. Knowledge outputs remain in the existing library and retrieval path rather than a second artifact store.
 
 Milestone approval authorizes its explicit assignments and spending boundaries. Planning itself can propose but cannot approve. Availability changes the human-decision context; it never stops independent approved workers or creates approval by timeout. General engineering execution remains outside the current adapter capabilities.
+
+Automation authority is defined in `src/domain/permissions.ts`. Runs snapshot permission sets independently from model configuration. Completion checks the intersection of the snapshot and current authority, inside the same transaction as document or milestone changes. A normal task can return evidence, authorized Knowledge updates, or proposed milestones. Planning uses the same automation schedule, budget, model configuration, pause/delete and manual-run controls. Its bounded milestone capacity is a task limit, not a second scheduling subsystem.
+
+The existing planner settings migrate into a scheduled automation once. Legacy research workflows retain their bounded investigation path; new scheduled tasks default to evidence-only execution. Inbox conversations always resolve the Foreman profile separately.

@@ -76,6 +76,13 @@ export class Discovery {
       if (d.lenses[index]!.kind === "knowledge")
         throw new DomainError("The library automation cannot be deleted.");
       d.lenses.splice(index, 1);
+      for (const run of state.runs.filter(
+        (r) => r.discoveryLensId === cmd.lensId && r.status === "queued",
+      )) {
+        run.status = "completed";
+        run.finishedAt = this.h.now();
+        run.error = "Automation deleted before execution.";
+      }
       this.h.emit(
         { type: "DiscoveryDeleted", payload: { lensId: cmd.lensId } },
         "human",
@@ -126,7 +133,7 @@ export class Discovery {
   scout(state: CompanyState, requested?: string): Lens | undefined {
     const d = state.discovery;
     const eligible = (lens: Lens) =>
-      lens.kind !== "knowledge" &&
+      (!lens.kind || lens.kind === "research") &&
       taskUsage(state, lens, this.h.now()) < lens.dailyRunLimit &&
       taskCapacity(state, lens);
     if (requested) {
@@ -156,7 +163,7 @@ export class Discovery {
     const lens = state.discovery.lenses.find(
       (l) => l.id === (run.discoveryLensId || idea?.lensId),
     );
-    if (!lens) return;
+    if (!lens || (lens.kind && lens.kind !== "research")) return;
     const signals = state.discovery.signals.filter((s) =>
       (run.discoverySignalIds || idea?.signalIds || []).includes(s.id),
     );

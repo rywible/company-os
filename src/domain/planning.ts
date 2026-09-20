@@ -70,6 +70,7 @@ export const planningSettingsSchema = z.object({
   targetMilestones: z.number().int().min(1).max(5),
 });
 export type PlanningState = z.infer<typeof planningSettingsSchema> & {
+  automationVersion?: 1;
   milestones: Milestone[];
   lastRunAt?: string;
   lastRunId?: string;
@@ -195,3 +196,28 @@ export const planningCommands = [
     reason: text.max(4000),
   }),
 ] as const;
+
+export function planningAutomation(
+  state: PlanningState,
+): import("./discovery").Lens {
+  return {
+    id: "milestone-planning",
+    kind: "planning",
+    name: "Plan upcoming milestones",
+    question:
+      "Review company direction, existing work and evidence. Propose useful next milestones with clear outcomes, acceptance criteria and bounded authority. Decompose the work internally, establish interfaces first and parallelize independent streams. Do not duplicate existing milestones or manufacture busywork.",
+    enabled: state.enabled,
+    intervalHours: state.intervalHours,
+    dailyRunLimit: state.dailyRunLimit,
+    targetMilestones: state.targetMilestones,
+    maxActiveIdeas: 6,
+    maxInvestigations: 2,
+    maxOpenWork: 4,
+    inspectUI: false,
+    agent: defaultAgentConfiguration(),
+    sources: [],
+    permissions: ["milestones"],
+    lastRunAt: state.lastRunAt,
+    lastRunId: state.lastRunId,
+  };
+}

@@ -1,10 +1,9 @@
-import React, { useState } from "react";
-import { Plus, ArrowLeft, GitBranch } from "lucide-react";
+import React from "react";
+import { ArrowLeft, GitBranch } from "lucide-react";
 import type { CompanyState, Command, Work } from "../domain/model";
 import type { Document } from "../contracts";
-import type { Milestone, MilestonePlan } from "../domain/planning";
+import type { Milestone } from "../domain/planning";
 import { triageAvailable } from "../domain/planning";
-import { Modal } from "./modal";
 import "./work.css";
 type CommandHandler = (command: Command) => Promise<boolean>;
 export function AvailabilityNote({ state }: { state: CompanyState }) {
@@ -110,7 +109,6 @@ export function MilestonesPage({
   openWork,
   openThread,
   openKnowledge,
-  requestBrief,
 }: {
   state: CompanyState;
   documents: Document[];
@@ -122,54 +120,24 @@ export function MilestonesPage({
   openWork(id: string): void;
   openThread(id: string): void;
   openKnowledge(id: string): void;
-  requestBrief(subject: string, content: string): Promise<boolean>;
 }) {
-  const [brief, setBrief] = useState<string | null>(null),
-    [editing, setEditing] = useState<Milestone | null>(null);
   const m = state.planning.milestones.find((m) => m.id === selected);
-  const run = state.runs.find((r) => r.id === state.planning.lastRunId);
-  const planning = run && ["queued", "running"].includes(run.status);
+  const tasks = m ? state.work.filter((w) => w.milestoneId === m.id) : [];
+  const decisions = tasks
+    .filter((w) => w.status === "blocked" && w.threadId)
+    .map((w) => state.threads.find((t) => t.id === w.threadId))
+    .filter((t) => t && t.status !== "resolved");
+  const outputs = [...new Set(tasks.flatMap((w) => w.outputDocumentIds || []))];
+  const status = (milestone: Milestone) =>
+    ({
+      proposed: "Needs approval",
+      active: "In progress",
+      paused: "Paused",
+      completed: "Completed",
+      declined: "Declined",
+    })[milestone.status];
   return (
     <section className="milestones-page" aria-label="Milestones">
-      {brief !== null && (
-        <Modal title="Plan a milestone" close={() => setBrief(null)}>
-          <form
-            className="editor"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void requestBrief(
-                "Plan a milestone",
-                `Develop a milestone proposal and dependency DAG for this outcome. Use large coherent assignments, establish interfaces early, and parallelize independent verticals. Bring the proposed outcome and boundaries to my inbox for approval.\n\n${brief}`,
-              ).then((ok) => {
-                if (ok) setBrief(null);
-              });
-            }}
-          >
-            <label>
-              What outcome should Foreman plan?
-              <textarea
-                required
-                rows={8}
-                value={brief}
-                onChange={(e) => setBrief(e.target.value)}
-                placeholder="Describe the outcome, constraints, and what success looks like."
-              />
-            </label>
-            <button className="primary" disabled={disabled || !brief.trim()}>
-              Ask Foreman to plan
-            </button>
-          </form>
-        </Modal>
-      )}
-      {editing && (
-        <MilestoneEditor
-          milestone={editing}
-          state={state}
-          command={command}
-          disabled={disabled}
-          close={() => setEditing(null)}
-        />
-      )}
       {m ? (
         <>
           <button className="back" onClick={() => select(null)}>
@@ -177,28 +145,24 @@ export function MilestonesPage({
           </button>
           <header className="milestone-heading">
             <div>
-              <p className="milestone-state">{m.status}</p>
+              <p className="milestone-state">{status(m)}</p>
               <h2>{m.title}</h2>
             </div>
             <button onClick={() => openThread(m.threadId)}>
-              Decision thread
+              Discuss with Foreman
             </button>
           </header>
           <div className="milestone-brief">
             <h3>Outcome</h3>
             {markdown(m.objective)}
-            <h3>Acceptance criteria</h3>
+            <h3>Success looks like</h3>
             {markdown(m.criteria)}
             <h3>Authority and boundaries</h3>
             {markdown(m.boundaries)}
           </div>
           <p className="milestone-allowance">
-            {
-              state.runs.filter((r) => r.workId && m.workIds.includes(r.workId))
-                .length
-            }{" "}
-            of {m.maxRuns} runs used. Up to {m.maxParallel} assignments or
-            reviews in parallel.
+            {m.maxRuns} agent runs authorized. Foreman coordinates delivery and
+            review within this allowance.
           </p>
           <MilestoneActions
             milestone={m}
@@ -206,151 +170,127 @@ export function MilestonesPage({
             disabled={disabled}
           />
           {m.status === "proposed" && (
-            <button
-              disabled={disabled}
-              onClick={() => setEditing(structuredClone(m))}
-            >
-              Revise proposal
-            </button>
+            <p className="muted">
+              Discuss changes with Foreman before approving. Approval covers
+              this outcome and its stated boundaries.
+            </p>
+          )}
+          {decisions.length > 0 && (
+            <section className="milestone-decisions">
+              <h3>Needs your input</h3>
+              {decisions.map((t) => (
+                <article key={t!.id}>
+                  {markdown(t!.reason)}
+                  {markdown(t!.recommendation)}
+                  <button onClick={() => openThread(t!.id)}>
+                    Discuss this decision
+                  </button>
+                </article>
+              ))}
+              <p className="muted">
+                Independent approved work can continue while these decisions
+                wait.
+              </p>
+            </section>
+          )}
+          {!!outputs.length && (
+            <section className="milestone-documents">
+              <h3>Results</h3>
+              {outputs.map((id) => (
+                <button key={id} onClick={() => openKnowledge(id)}>
+                  {documents.find((d) => d.id === id)?.title ||
+                    "Document unavailable"}
+                </button>
+              ))}
+            </section>
           )}
           {!!m.documentIds.length && (
-            <div className="milestone-documents">
-              <h3>Shared knowledge</h3>
+            <details className="milestone-documents">
+              <summary>Related knowledge</summary>
               {m.documentIds.map((id) => (
                 <button key={id} onClick={() => openKnowledge(id)}>
                   {documents.find((d) => d.id === id)?.title ||
-                    "Unavailable document"}
+                    "Document unavailable"}
                 </button>
               ))}
-            </div>
+            </details>
           )}
           <details className="milestone-graph">
             <summary>
-              <GitBranch size={16} /> Dependency graph
+              <GitBranch size={16} /> How Foreman organized this work
             </summary>
             {markdown(graph(m))}
-          </details>
-          <h3 className="assignment-list-title">Assignments</h3>
-          <div className="assignment-list">
-            {m.assignments.map((a) => {
-              const w = state.work.find(
-                (w) => w.milestoneId === m.id && w.assignmentKey === a.key,
-              );
-              const role = state.settings.roles.find((r) => r.id === a.roleId);
-              return (
-                <article className="assignment-row" key={a.key}>
-                  <div className="assignment-row-title">
-                    {w ? (
-                      <button onClick={() => openWork(w.id)}>{a.title}</button>
-                    ) : (
+            <details className="milestone-diagnostics">
+              <summary>Execution details</summary>
+              <div className="assignment-list">
+                {m.assignments.map((a) => {
+                  const w = tasks.find((w) => w.assignmentKey === a.key);
+                  return (
+                    <article className="assignment-row" key={a.key}>
                       <strong>{a.title}</strong>
-                    )}
-                    <span>
-                      {w
-                        ? assignmentStatus(w, state.work)
-                        : "Awaiting approval"}
-                    </span>
-                  </div>
-                  <p className="muted">
-                    {role?.name || a.roleId}
-                    {a.dependsOn.length
-                      ? ` · After ${a.dependsOn.map((key) => m.assignments.find((n) => n.key === key)?.title).join(", ")}`
-                      : " · No dependencies"}
-                  </p>
-                  <details>
-                    <summary>Assignment brief</summary>
-                    {markdown(a.instruction)}
-                    <h4>Acceptance criteria</h4>
-                    {markdown(a.criteria)}
-                    <h4>Expected outputs</h4>
-                    <ul>
-                      {a.outputs.map((o) => (
-                        <li key={o}>{o}</li>
-                      ))}
-                    </ul>
-                  </details>
-                </article>
-              );
-            })}
-          </div>
+                      <p className="muted">
+                        {w
+                          ? assignmentStatus(w, state.work)
+                          : "Awaiting approval"}
+                      </p>
+                      {w && (
+                        <button onClick={() => openWork(w.id)}>
+                          Inspect execution
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </details>
+          </details>
         </>
       ) : (
         <>
           <div className="milestones-heading">
             <div>
               <h2>Milestones</h2>
-              <p>Outcomes and the assignments that deliver them.</p>
+              <p>
+                Foreman proposes outcomes here for you to review and discuss.
+              </p>
             </div>
-            <button
-              className="primary"
-              disabled={disabled}
-              onClick={() => setBrief("")}
-            >
-              <Plus size={16} /> New milestone
-            </button>
-          </div>
-          <AvailabilityNote state={state} />
-          <div className="planning-status">
-            <span>
-              {planning
-                ? "Foreman is preparing the next milestone."
-                : run?.status === "failed"
-                  ? "The last planning run needs attention."
-                  : state.planning.enabled
-                    ? "Automatic milestone planning is on."
-                    : "Automatic planning is paused."}
-            </span>
-            <button
-              disabled={
-                disabled ||
-                !!planning ||
-                !documents.some(
-                  (d) => d.level === "constitution" && d.content.trim(),
-                )
-              }
-              onClick={() => void command({ type: "RequestPlanning" })}
-            >
-              Plan next milestone
-            </button>
           </div>
           {!state.planning.milestones.length && (
             <div className="milestone-empty">
-              <h3>Start with an outcome</h3>
+              <h3>No milestones yet</h3>
               <p>
-                Give Foreman a direction. It will propose substantial
-                assignments, their dependencies, and the boundaries for
-                autonomous work.
+                Foreman will bring proposals here as scheduled work uncovers
+                useful next steps. You can also discuss your direction with
+                Foreman in Inbox.
               </p>
             </div>
           )}
           {(
-            ["active", "proposed", "paused", "completed", "declined"] as const
-          ).map((status) => {
-            const items = state.planning.milestones.filter(
-              (m) => m.status === status,
+            ["proposed", "active", "paused", "completed", "declined"] as const
+          ).map((group) => {
+            const milestones = state.planning.milestones.filter(
+              (m) => m.status === group,
             );
-            return !items.length ? null : (
-              <section className="milestone-group" key={status}>
+            return !milestones.length ? null : (
+              <section className="milestone-group" key={group}>
                 <h3>
                   {
                     {
+                      proposed: "Needs approval",
                       active: "In progress",
-                      proposed: "Upcoming · needs a decision",
                       paused: "Paused",
                       completed: "Completed",
                       declined: "Declined",
-                    }[status]
+                    }[group]
                   }
                 </h3>
-                {items.map((m) => {
-                  const tasks = state.work.filter(
-                      (w) => w.milestoneId === m.id,
-                    ),
-                    done = tasks.filter((w) => w.status === "done").length;
-                  const blocked = tasks.filter(
-                    (w) =>
-                      ["blocked", "review"].includes(w.status) && w.threadId,
-                  );
+                {milestones.map((m) => {
+                  const work = state.work.filter((w) => w.milestoneId === m.id),
+                    done = work.filter((w) => w.status === "done").length;
+                  const percent = work.length
+                    ? Math.round((done / work.length) * 100)
+                    : 0;
+                  const needsInput = work.some((w) => w.status === "blocked");
                   return (
                     <button
                       className="milestone-row"
@@ -361,19 +301,19 @@ export function MilestonesPage({
                         <strong>{m.title}</strong>
                         <p>{m.objective}</p>
                         <span>
-                          {m.status === "proposed"
-                            ? `${m.assignments.length} assignments proposed`
-                            : `${done} of ${m.assignments.length} assignments accepted`}
-                          {blocked.length
-                            ? ` · ${blocked.length} need input`
+                          {needsInput ? "Needs your input" : status(m)}
+                          {m.status === "active"
+                            ? " · " + percent + "% complete"
                             : ""}
                         </span>
                       </div>
-                      <progress
-                        aria-label={`${m.title} progress`}
-                        value={done}
-                        max={m.assignments.length}
-                      />
+                      {m.status === "active" && (
+                        <progress
+                          value={percent}
+                          max={100}
+                          aria-label={m.title + " progress"}
+                        />
+                      )}
                     </button>
                   );
                 })}
@@ -383,183 +323,5 @@ export function MilestonesPage({
         </>
       )}
     </section>
-  );
-}
-function MilestoneEditor({
-  milestone: m,
-  state,
-  command,
-  disabled,
-  close,
-}: {
-  milestone: Milestone;
-  state: CompanyState;
-  command: CommandHandler;
-  disabled: boolean;
-  close(): void;
-}) {
-  const [plan, setPlan] = useState<MilestonePlan>(m);
-  return (
-    <Modal title="Revise milestone proposal" close={close}>
-      <form
-        className="editor milestone-editor"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void command({
-            type: "ReviseMilestone",
-            milestoneId: m.id,
-            expectedVersion: m.version,
-            plan,
-          }).then((ok) => {
-            if (ok) close();
-          });
-        }}
-      >
-        <label>
-          Title
-          <input
-            required
-            maxLength={160}
-            value={plan.title}
-            onChange={(e) => setPlan({ ...plan, title: e.target.value })}
-          />
-        </label>
-        {(["objective", "criteria", "boundaries"] as const).map((key) => (
-          <label key={key}>
-            {
-              {
-                objective: "Outcome",
-                criteria: "Acceptance criteria",
-                boundaries: "Authority and boundaries",
-              }[key]
-            }
-            <textarea
-              required
-              value={plan[key]}
-              onChange={(e) => setPlan({ ...plan, [key]: e.target.value })}
-            />
-          </label>
-        ))}
-        <div className="form-grid">
-          <label>
-            Run allowance
-            <input
-              type="number"
-              min={2}
-              max={200}
-              value={plan.maxRuns}
-              onChange={(e) =>
-                setPlan({ ...plan, maxRuns: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Parallel assignments
-            <input
-              type="number"
-              min={1}
-              max={8}
-              value={plan.maxParallel}
-              onChange={(e) =>
-                setPlan({ ...plan, maxParallel: Number(e.target.value) })
-              }
-            />
-          </label>
-        </div>
-        {plan.assignments.map((a, i) => (
-          <details key={a.key}>
-            <summary>{a.title}</summary>
-            <label>
-              Assigned role
-              <select
-                value={a.roleId}
-                onChange={(e) =>
-                  setPlan({
-                    ...plan,
-                    assignments: plan.assignments.map((v, j) =>
-                      i === j ? { ...v, roleId: e.target.value } : v,
-                    ),
-                  })
-                }
-              >
-                {state.settings.roles
-                  .filter((r) => r.enabled)
-                  .map((r) => (
-                    <option value={r.id} key={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label>
-              Assignment
-              <textarea
-                required
-                value={a.instruction}
-                onChange={(e) =>
-                  setPlan({
-                    ...plan,
-                    assignments: plan.assignments.map((v, j) =>
-                      i === j ? { ...v, instruction: e.target.value } : v,
-                    ),
-                  })
-                }
-              />
-            </label>
-            <label>
-              Completion criteria
-              <textarea
-                required
-                value={a.criteria}
-                onChange={(e) =>
-                  setPlan({
-                    ...plan,
-                    assignments: plan.assignments.map((v, j) =>
-                      i === j ? { ...v, criteria: e.target.value } : v,
-                    ),
-                  })
-                }
-              />
-            </label>
-            <fieldset>
-              <legend>Depends on</legend>
-              {plan.assignments
-                .filter((v) => v.key !== a.key)
-                .map((v) => (
-                  <label className="check" key={v.key}>
-                    <input
-                      type="checkbox"
-                      checked={a.dependsOn.includes(v.key)}
-                      onChange={(e) =>
-                        setPlan({
-                          ...plan,
-                          assignments: plan.assignments.map((n, j) =>
-                            i === j
-                              ? {
-                                  ...n,
-                                  dependsOn: e.target.checked
-                                    ? [...n.dependsOn, v.key]
-                                    : n.dependsOn.filter((k) => k !== v.key),
-                                }
-                              : n,
-                          ),
-                        })
-                      }
-                    />
-                    {v.title}
-                  </label>
-                ))}
-            </fieldset>
-          </details>
-        ))}
-        <p className="field-help">
-          For a different assignment breakdown, ask Foreman to revise the
-          proposal in its decision thread.
-        </p>
-        <button className="primary" disabled={disabled}>
-          Save proposal
-        </button>
-      </form>
-    </Modal>
   );
 }

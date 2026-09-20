@@ -13,6 +13,8 @@ import type {
   Thread,
   Context,
 } from "../domain/model";
+import { taskBlocker, taskDueAt } from "../domain/automation";
+import { automationPermissions } from "../domain/permissions";
 import { DomainError } from "../domain/model";
 import type { Repository } from "./ports";
 import type { DomainEvent, EventInput } from "../domain/events";
@@ -133,6 +135,11 @@ export class Planning {
         "availability",
       );
     } else if (cmd.type === "ConfigurePlanning") {
+      // Compatibility for saved clients; the automation owns scheduling now.
+      const task = state.discovery.lenses.find((t) => t.kind === "planning");
+      if (!task)
+        throw new DomainError("The milestone automation has been deleted.");
+      Object.assign(task, cmd.settings);
       Object.assign(state.planning, cmd.settings);
       this.h.emit(
         { type: "PlanningConfigured", payload: {} },
@@ -289,7 +296,7 @@ export class Planning {
         m.status = "completed";
         m.updatedAt = this.h.now();
         m.version++;
-        state.planning.lastRunAt = undefined;
+
         const thread = this.h.inbox(
           state,
           {
@@ -400,47 +407,39 @@ export class Planning {
   request(
     state: CompanyState,
     manual = false,
+    taskId?: string,
   ): { runId?: string; skipped?: string } {
-    const p = state.planning;
-    if (
-      !this.h.repo
-        .documents()
-        .some((d) => d.level === "constitution" && d.content.trim())
-    )
-      return { skipped: "Write a constitution before planning milestones." };
-    if (
-      state.runs.some(
-        (r) =>
-          r.trigger === "planning" && ["queued", "running"].includes(r.status),
-      )
-    )
-      return { skipped: "Foreman is already planning." };
-    if (!manual && !p.enabled) return { skipped: "Planning is paused." };
-    if (
-      state.runs.filter(
-        (r) =>
-          r.trigger === "planning" &&
-          r.createdAt.slice(0, 10) === this.h.now().slice(0, 10),
-      ).length >= p.dailyRunLimit
-    )
-      return { skipped: "Planning reached its daily run allowance." };
-    if (
-      !manual &&
-      p.lastRunAt &&
-      Date.parse(p.lastRunAt) + p.intervalHours * 3600000 >
-        Date.parse(this.h.now())
-    )
-      return { skipped: "Planning is not due yet." };
-    if (
-      !manual &&
-      p.milestones.filter((m) => !["completed", "declined"].includes(m.status))
-        .length >= p.targetMilestones
-    )
-      return { skipped: "The milestone pipeline is stocked." };
+    const task = state.discovery.lenses.find((t) =>
+      taskId ? t.id === taskId : t.kind === "planning",
+    );
+    if (!task)
+      return { skipped: "Schedule an automation to propose milestones." };
+    const hasConstitution = this.h.repo
+      .documents()
+      .some((d) => d.level === "constitution" && d.content.trim());
+    const blocker = taskBlocker(
+      state,
+      task,
+      this.h.now(),
+      hasConstitution,
+      true,
+      this.h.repo.documents(),
+    );
+    if (blocker) return { skipped: blocker };
+    if (!manual && !task.enabled)
+      return { skipped: "This automation is paused." };
+    const due = taskDueAt(state, task);
+    if (!manual && due && due > this.h.now())
+      return { skipped: "This automation is not due yet." };
     const run = this.h.run(state, { trigger: "planning" });
+    run.discoveryLensId = task.id;
+    run.automationPermissions = automationPermissions(task);
+    run.agent = structuredClone(task.agent);
     run.manual = manual;
-    p.lastRunAt = this.h.now();
-    p.lastRunId = run.id;
+    task.lastRunAt = this.h.now();
+    task.lastRunId = run.id;
+    state.planning.lastRunAt = task.lastRunAt;
+    state.planning.lastRunId = run.id;
     this.h.emit(
       { type: "RunRequested", payload: { runId: run.id } },
       manual ? "human" : "system",
@@ -448,6 +447,7 @@ export class Planning {
     );
     return { runId: run.id };
   }
+
   context(state: CompanyState, run: Run, context: Context) {
     const work = state.work.find((w) => w.id === run.workId);
     if (run.role) context.role = structuredClone(run.role);

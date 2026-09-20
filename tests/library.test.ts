@@ -39,7 +39,7 @@ beforeEach(() => {
   repo = new SQLiteRepository(store, now);
   // These suites exercise their own automation clocks; milestone planning is covered separately.
   const planningState = repo.state();
-  planningState.planning.enabled = false;
+  planningState.discovery.lenses.find(t => t.kind === "planning")!.enabled = false;
   repo.save(planningState);
   contexts = [];
   outputs = [];
