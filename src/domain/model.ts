@@ -112,7 +112,7 @@ export type Context = {
   repositoryError?: string;
   searchMode: string;
   browser?: BrowserEvidence;
-  objective: string;
+  constitutionRef: string | null;
   review?: {
     roundId: string;
     reviewId?: string;
@@ -165,7 +165,6 @@ export type Settings = {
   enabled: boolean;
   intervalMinutes: number;
   dailyBudget: number;
-  objective: string;
   scope: string;
   nextHeartbeatAt: string;
   maxOpenWork: number;
@@ -199,8 +198,6 @@ export function initialState(now: string): CompanyState {
       requiredReviews: 2,
       allowCodeChanges: false,
       scope: "rywible/company-os",
-      objective:
-        "Improve Company OS itself. Inspect the running interface, research architecture, and identify reproducible bugs and bounded features. Use evidence. Do not invent completed engineering work. Research and UI inspection may proceed autonomously; code changes, publishing, and deployment need an engineering executor and explicit authority.",
       nextHeartbeatAt: new Date(Date.parse(now) + 3600000).toISOString(),
     },
   };
@@ -267,7 +264,6 @@ export const commandSchema = z.discriminatedUnion("type", [
     intervalMinutes: z.number().int().min(15).max(1440),
     dailyBudget: z.number().int().min(1).max(24),
     maxOpenWork: z.number().int().min(1).max(10),
-    objective: text.max(8000),
     scope: text.max(160),
   }),
   z.object({ type: z.literal("Heartbeat") }),

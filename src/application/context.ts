@@ -51,7 +51,7 @@ export async function assembleContext(
     messages: thread?.messages.slice(-20) || [],
     work,
     searchMode,
-    objective: state.settings.objective,
+    constitutionRef: null,
     portfolio: {
       work: state.work.slice(-30),
       pendingThreads: state.threads
@@ -95,6 +95,8 @@ export async function assembleContext(
     if (included) {
       remaining -= d.content.length;
       context.documents.push(d);
+      if (d.level === "constitution")
+        context.constitutionRef = `document:${d.id}@${d.version}`;
       context.evidenceRefs.push(`document:${d.id}@${d.version}`);
     }
     context.entries.push({

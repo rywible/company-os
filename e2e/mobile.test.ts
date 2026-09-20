@@ -27,8 +27,12 @@ afterEach(async () => {
   active?.store.close();
   active = undefined;
 });
-async function setup(backend: "chrome" | "webkit", size = widths[1]!) {
-  const f = fixture(),
+async function setup(
+  backend: "chrome" | "webkit",
+  size = widths[1]!,
+  empty = false,
+) {
+  const f = fixture(empty),
     root = resolve("dist");
   await f.drain();
   const handler = async (req: Request): Promise<Response> => {
@@ -134,7 +138,7 @@ async function setup(backend: "chrome" | "webkit", size = widths[1]!) {
 async function wait(view: Bun.WebView, expression: string) {
   const deadline = Date.now() + 7000;
   while (Date.now() < deadline) {
-    if (await view.evaluate(expression)) return;
+    if (await view.evaluate<any>(expression)) return;
     await Bun.sleep(25);
   }
   await Bun.write(
@@ -153,7 +157,7 @@ async function click(view: Bun.WebView, selector: string) {
       `.artifacts/webview-click-failure-${Date.now()}.png`,
       await view.screenshot(),
     );
-    const element = await view.evaluate(
+    const element = await view.evaluate<any>(
       `document.querySelector(${JSON.stringify(selector)})?.outerHTML`,
     );
     throw new Error(`Click failed: ${element}`, { cause: error });
@@ -183,13 +187,23 @@ async function fill(view: Bun.WebView, selector: string, value: string) {
   await click(view, selector);
   // Selecting the existing text does not mutate React state; native insertion
   // below fires the trusted input event, just as a user replacing text would.
-  await view.evaluate(
+  await view.evaluate<any>(
     `document.querySelector(${JSON.stringify(selector)}).select()`,
   );
   await view.type(value);
 }
 
 async function nav(view: Bun.WebView, name: string) {
+  if (name === "Work" || name === "Discovery") {
+    await nav(view, "Inbox");
+    await click(view, ".inbox-background summary");
+    await button(
+      view,
+      name === "Work" ? "Work in progress" : "Ideas and experiments",
+    );
+    await wait(view, `!!document.querySelector('.inbox-drilldown')`);
+    return;
+  }
   await button(view, "Open " + name);
   await wait(
     view,
@@ -218,8 +232,19 @@ for (const backend of backends) {
         );
         await nav(view, "Discovery");
         await fits(view);
+        expect(
+          await view.evaluate<any>(
+            `[...document.querySelectorAll('nav[aria-label="Workspace navigation"] button')].map(b=>b.getAttribute('aria-label'))`,
+          ),
+        ).toEqual([
+          "Open Foreman",
+          "Open Inbox",
+          "Open Documents",
+          "Open Knowledge",
+        ]);
         await button(view, "Explore next");
-        await button(view, "Make navigation clearer", ".discovery-list", false);
+        await nav(view, "Inbox");
+        await button(view, "Make navigation clearer", ".thread-list", false);
         await wait(
           view,
           `document.querySelector('.discovery-detail')?.textContent.includes('Proposed work')`,
@@ -241,6 +266,8 @@ for (const backend of backends) {
         );
         expect(repo.state().discovery.ideas[0]!.status).toBe("learned");
         await fits(view);
+        await nav(view, "Settings");
+        await click(view, ".settings-discovery > summary");
         await button(view, "Perspectives");
         await fits(view);
         await button(view, "Edit Users & workflows");
@@ -303,17 +330,42 @@ for (const backend of backends) {
         ).toBe(true);
         await button(view, "Close dialog");
         await wait(view, `!document.querySelector('dialog')`);
-        await nav(view, "Understanding");
-        await fill(view, '[aria-label="Search understanding"]', "architecture");
+        await nav(view, "Knowledge");
+        await fill(view, '[aria-label="Search knowledge"]', "architecture");
         await button(view, "Search");
+        await button(view, "Edit A clearer architecture");
+        await fill(
+          view,
+          "dialog textarea",
+          "Architecture: the founder can revise this text directly from the search results.",
+        );
+        await button(view, "Save revision", "dialog");
+        await wait(view, `!document.querySelector('dialog')`);
+        expect(repo.document("architecture")!.version).toBe(3);
+        expect(repo.document("architecture")!.indexed_version).toBe(3);
+        await wait(
+          view,
+          `document.querySelector('.knowledge-card')?.textContent.includes('founder can revise')`,
+        );
+        await click(view, ".knowledge-card summary");
+        expect(
+          await view.evaluate<any>(
+            `document.querySelector('.knowledge-card').textContent.includes('title and full text')`,
+          ),
+        ).toBe(true);
+        await fits(view);
+        await Bun.write(
+          `.artifacts/knowledge-${size.name}.png`,
+          await view.screenshot(),
+        );
         await button(view, "A clearer architecture", "", false);
         await wait(
           view,
-          `!!document.querySelector('dialog[aria-label="Understanding record"]')`,
+          `!!document.querySelector('dialog[aria-label="Knowledge entry"]')`,
         );
         expect(
           await view.evaluate<any>(
-            `document.querySelector('dialog').textContent.includes('Embedding chunks')`,
+            `document.querySelector('dialog').textContent.includes('What meaning search uses')`,
           ),
         ).toBe(true);
         await fits(view);
@@ -352,6 +404,11 @@ for (const backend of backends) {
       test("work, PR review count and complete event-driven round", async () => {
         const { view, repo, errors } = await setup(backend, size);
         await nav(view, "Settings");
+        expect(
+          await view.evaluate<any>(
+            `document.querySelector('main').innerText.includes('Objective')`,
+          ),
+        ).toBe(false);
         await fill(view, 'input[type="number"][max="5"]', "3");
         await button(view, "Save review policy");
         await wait(view, `!document.querySelector('button.primary:disabled')`);
@@ -421,14 +478,44 @@ for (const backend of backends) {
     }, 30000);
 }
 
+test("empty workspace: author the constitution without starter documents or invented work", async () => {
+  const { view, repo, errors } = await setup("chrome", widths[0]!, true);
+  expect(repo.documents()).toHaveLength(0);
+  expect(repo.state().threads).toHaveLength(0);
+  expect(repo.state().work).toHaveLength(0);
+  await fits(view);
+  await button(view, "Write constitution");
+  await fill(
+    view,
+    "dialog textarea",
+    "Build software that helps small orchestras plan rehearsals. Keep proposals grounded in observed problems.",
+  );
+  await button(view, "Save revision", "dialog");
+  await wait(view, `!document.querySelector('dialog')`);
+  expect(repo.documents()).toHaveLength(1);
+  expect(repo.documents()[0]!.level).toBe("constitution");
+  expect(repo.documents()[0]!.indexed_version).toBe(1);
+  await nav(view, "Documents");
+  await wait(
+    view,
+    `document.querySelector('.document-reader')?.textContent.includes('small orchestras')`,
+  );
+  await nav(view, "Knowledge");
+  expect(
+    await view.evaluate<any>(`document.querySelectorAll('.knowledge-card').length`),
+  ).toBe(1);
+  await fits(view);
+  expect(errors).toEqual([]);
+}, 30000);
+
 test("browser inspection uses the real accessible names at desktop and phone widths", async () => {
   const { view, origin } = await setup("chrome");
   // The visible label is intentionally shorter than the accessible name.
   expect(
     await view.evaluate<string>(
-      `document.querySelector('nav button[aria-label="Open Understanding"]').textContent`,
+      `document.querySelector('nav button[aria-label="Open Knowledge"]').textContent`,
     ),
-  ).toBe("Memory");
+  ).toBe("Knowledge");
   const { SpriteBrowser } = await import("../src/adapters/browser");
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -469,16 +556,9 @@ test("browser inspection uses the real accessible names at desktop and phone wid
       "test-secret",
     );
     const evidence = await browser.inspect("browser-contract");
-    expect(evidence.steps).toHaveLength(14);
+    expect(evidence.steps).toHaveLength(10);
     expect(evidence.errors).toEqual([]);
-    for (const label of [
-      "Inbox",
-      "Work",
-      "Documents",
-      "Understanding",
-      "Discovery",
-      "Foreman",
-    ]) {
+    for (const label of ["Inbox", "Documents", "Knowledge", "Foreman"]) {
       expect(
         evidence.steps.some(
           (s) => s.action === "Phone: click " + label && s.title === label,
@@ -487,8 +567,8 @@ test("browser inspection uses the real accessible names at desktop and phone wid
     }
     const memory = evidence.steps
       .at(-1)!
-      .navigation?.find((n) => n.visibleText === "Memory");
-    expect(memory?.accessibleName).toBe("Open Understanding");
+      .navigation?.find((n) => n.visibleText === "Knowledge");
+    expect(memory?.accessibleName).toBe("Open Knowledge");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

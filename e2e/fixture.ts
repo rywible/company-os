@@ -1,10 +1,13 @@
+import { seedFixture } from "../tests/fixtures/documents";
 import { Store } from "../src/server/store";
 import { SQLiteRepository } from "../src/adapters/sqlite";
 import { Company } from "../src/application/company";
 import { defaultPolicy, type AgentResult } from "../src/domain/model";
 import { workflowDefinitions } from "../src/domain/workflows";
-export function fixture() {
-  const store = new Store(":memory:"),
+export function fixture(empty = false) {
+  const store = empty
+      ? new Store(":memory:")
+      : seedFixture(new Store(":memory:")),
     repo = new SQLiteRepository(store);
   const answer: AgentResult = {
     message: "The evidence supports this approach.",
@@ -123,30 +126,31 @@ export function fixture() {
   );
   const s = repo.state();
   s.settings.enabled = false;
-  s.threads.push({
-    id: "inbox-one",
-    kind: "inbox",
-    subject: "Prove the handoff before expanding",
-    reason: "We need a sequencing decision.",
-    recommendation: "Validate the complete loop first.",
-    evidence: ["document:sequence@1"],
-    status: "open",
-    unread: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    messages: [],
-    proposals: [
-      {
-        id: "proposal-one",
-        documentId: "sequence",
-        version: 1,
-        content: "# Next step\nProve the handoff before expanding.",
-        reason: "Validate the whole loop.",
-        evidence: ["document:sequence@1"],
-        status: "pending",
-      },
-    ],
-  });
+  if (!empty)
+    s.threads.push({
+      id: "inbox-one",
+      kind: "inbox",
+      subject: "Prove the handoff before expanding",
+      reason: "We need a sequencing decision.",
+      recommendation: "Validate the complete loop first.",
+      evidence: ["document:sequence@1"],
+      status: "open",
+      unread: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      messages: [],
+      proposals: [
+        {
+          id: "proposal-one",
+          documentId: "sequence",
+          version: 1,
+          content: "# Next step\nProve the handoff before expanding.",
+          reason: "Validate the whole loop.",
+          evidence: ["document:sequence@1"],
+          status: "pending",
+        },
+      ],
+    });
   repo.save(s);
   async function drain() {
     for (let i = 0; i < 50; i++) {

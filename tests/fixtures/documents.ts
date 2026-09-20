@@ -86,3 +86,9 @@ Engineering execution, revision-aware independent PR reviews, automatic reposito
 A fresh agent can continue from accepted decisions and evidence, without requiring Ryan to repeat the entire conversation.`,
   },
 ] as const;
+
+import type { Store } from "../../src/server/store";
+export function seedFixture(store: Store) {
+  for (const d of initialDocuments) store.saveDocument(d, "bootstrap");
+  return store;
+}

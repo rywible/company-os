@@ -6,7 +6,7 @@ Company OS separates decisions about company state from HTTP, SQLite, agents, Gi
 C4Container
   Person(ryan, "Ryan", "Direction, triage, review, auditing")
   System_Boundary(os, "Company OS") {
-    Container(ui, "Workspace", "React · Bun build", "Foreman, Inbox, Discovery, Work, Documents, Understanding")
+    Container(ui, "Workspace", "React · Bun build", "Inbox, Foreman, Documents, Knowledge")
     Container(app, "Application", "TypeScript · Bun", "Commands, context assembly, durable workflow runner")
     ContainerDb(db, "Company state", "SQLite · FTS5 · sqlite-vec", "State, ordered events, deliveries, revisions, vectors")
     Container(sprite, "Worker Sprite", "Bun · Codex CLI · Chrome", "Agent invocations, read-only browser inspection, correction verification")
@@ -46,11 +46,13 @@ Keep one Fly application Machine. This design does not support multiple worker o
 
 ## Context and present understanding
 
-Documents and observations share a canonical, versioned source. Each record has scope, inclusion (`always`, `relevant`, `reference`) and lifecycle (`active`, `draft`, `retired`). The constitution is always included and can only be edited by a human. Proposals cannot alter it.
+The primary navigation is Inbox, Foreman, Documents, and Knowledge; Settings is a utility control. Work and experiment history are optional drill-downs inside Inbox. Developed discovery recommendations expose their decision controls directly in their inbox threads.
+
+Documents and observations share a canonical, versioned source. Each record has scope, inclusion (`always`, `relevant`, `reference`) and lifecycle (`active`, `draft`, `retired`). The constitution is the sole source of company direction: Settings has no separate objective. The constitution is always included and can only be edited by a human. Proposals cannot alter it.
 
 The context assembler uses the same policy for preview and execution: constitution, explicit pinned attachments, eligible always-included records, then relevant retrieval hits. A 60,000-character document budget includes whole records; every exclusion has an inspectable reason. Draft, retired and reference-only records are excluded unless explicitly attached. Repository evidence, conversation, assignment and browser results are separate context sections. A preview is not a promise about a future retrieval result; each actual run saves its exact selected revisions and evidence.
 
-Saving an edit invalidates old vectors immediately and emits `KnowledgeChanged`. The indexing effect checks the revision both before and after the remote embedding call. Only current vectors can become searchable. Keyword retrieval remains available during reindexing or provider failure. Historical run contexts do not change. Agent findings enter understanding as attributed observations or hypotheses; proposed revisions to existing documents require acceptance in an inbox thread.
+Knowledge exposes the exact indexed title-and-text passages, keyword/semantic match reasons, inclusion policy and revision history, with direct editing from search results. Saving an edit invalidates old vectors immediately and emits `KnowledgeChanged`. The indexing effect checks the revision both before and after the remote embedding call. Only current vectors can become searchable. Keyword retrieval remains available during reindexing or provider failure. Historical run contexts do not change. Agent findings enter understanding as attributed observations or hypotheses; proposed revisions to existing documents require acceptance in an inbox thread.
 
 ## Execution boundaries
 
@@ -63,3 +65,9 @@ PR reviews are implemented for linked same-repository PRs, with separately autho
 Browser inspection opens the actual app in Chrome at desktop and phone widths, navigates primary views, saves screenshots, and records console errors and overflow. Its signed session expires after ten minutes and the server rejects mutations. Screenshot context reaches the agent. This is bounded navigation, not an unrestricted agent-controlled browser.
 
 The app uses a private session, same-origin checks, no-store API responses, and private artifact routes. Codex login stays on the Sprite. Provider credentials stay in connectors. Inspection cookies are temporary read-only capabilities. The PWA caches only public icons and an offline screen.
+
+## Empty workspaces and legacy examples
+
+New databases contain no documents, conversations, work or findings. The interface offers a blank constitution editor; new autonomous exploration waits until a constitution exists. Exploration perspectives are configuration, not invented company knowledge.
+
+A compatibility migration archives only the four original bootstrap documents when their ID, first revision, source and content fingerprint still match. Authored revisions and real learned findings remain. Archived starters are removed from keyword and vector search and ordinary context selection; historical revisions and recorded run contexts remain readable. Nothing recreates the examples on restart. Test/example documents live exclusively in `tests/fixtures`.

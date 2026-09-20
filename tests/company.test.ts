@@ -1,3 +1,4 @@
+import { seedFixture } from "./fixtures/documents";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Store } from "../src/server/store";
 import { SQLiteRepository } from "../src/adapters/sqlite";
@@ -32,7 +33,7 @@ const answer = (overrides: Partial<AgentResult> = {}): AgentResult => ({
   ...overrides,
 });
 beforeEach(() => {
-  store = new Store(":memory:");
+  store = seedFixture(new Store(":memory:"));
   repo = new SQLiteRepository(store, now.toISOString());
   outputs = [];
   contexts = [];

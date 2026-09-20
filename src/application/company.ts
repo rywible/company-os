@@ -525,6 +525,14 @@ export class Company {
   private heartbeatIn(state: CompanyState, manual = false, lensId?: string) {
     if (!state.settings.enabled) return { skipped: "paused" };
     if (
+      !this.repo
+        .documents()
+        .some((d) => d.level === "constitution" && d.content.trim())
+    )
+      return {
+        skipped: "Add a constitution before starting autonomous exploration.",
+      };
+    if (
       !manual &&
       Date.parse(state.settings.nextHeartbeatAt) > this.clock.now().getTime()
     )
@@ -688,7 +696,8 @@ export class Company {
         ? state.discovery.lenses.find((l) => l.id === run!.discoveryLensId)
             ?.question
         : undefined) ||
-      state.settings.objective;
+      this.repo.documents().find((d) => d.level === "constitution")?.content ||
+      "Help define the company constitution.";
     let context = run.context;
     if (!context) {
       context = await assembleContext(

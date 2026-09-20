@@ -34,7 +34,7 @@ import {
   Terminal,
   X,
 } from "lucide-react";
-import type { Document } from "../contracts";
+import type { Document, SearchHit } from "../contracts";
 import type {
   CompanyState,
   Command as CompanyCommand,
@@ -254,11 +254,8 @@ function Markdown({ children }: { children: string }) {
 const pages = [
   { name: "Foreman", icon: Terminal },
   { name: "Inbox", icon: Inbox },
-  { name: "Work", icon: Briefcase },
-  { name: "Discovery", icon: Search },
   { name: "Documents", icon: BookOpen },
-  { name: "Understanding", icon: Brain },
-  { name: "Settings", icon: Settings2 },
+  { name: "Knowledge", icon: Brain },
 ];
 const freshPolicy: Policy = {
   inclusion: "relevant",
@@ -273,10 +270,26 @@ function App() {
     [readOnly, setReadOnly] = useState(false),
     [password, setPassword] = useState("");
   const [state, setState] = useState<Workspace | null>(null),
-    [page, setPage] = useState(location.hash.slice(1) || "Inbox"),
+    [page, setPage] = useState(
+      ["Work", "Discovery"].includes(location.hash.slice(1))
+        ? "Inbox"
+        : location.hash.slice(1) === "Understanding"
+          ? "Knowledge"
+          : location.hash.slice(1) || "Inbox",
+    ),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [stale, setStale] = useState(false);
+  const [inboxView, setInboxView] = useState(
+    location.hash === "#Work"
+      ? "work"
+      : location.hash === "#Discovery"
+        ? "ideas"
+        : "requests",
+  );
+  const [searchMatches, setSearchMatches] = useState<Record<string, SearchHit>>(
+    {},
+  );
   const [threadId, setThreadId] = useState<string | null>(null),
     [docId, setDocId] = useState("architecture"),
     [drafts, setDrafts] = useState<Record<string, string>>({}),
@@ -297,6 +310,14 @@ function App() {
     [query, setQuery] = useState(""),
     [searchIds, setSearchIds] = useState<string[] | null>(null),
     [history, setHistory] = useState<any[] | null>(null);
+  useEffect(() => {
+    if (state && !state.documents.some((d) => d.id === docId))
+      setDocId(
+        state.documents.find((d) => d.level === "constitution")?.id ||
+          state.documents.find((d) => d.level !== "knowledge")?.id ||
+          "",
+      );
+  }, [state, docId]);
   const currentThread = state?.threads.find((t) => t.id === threadId),
     currentDoc = state?.documents.find((d) => d.id === docId),
     work = state?.work.find((w) => w.id === selectedWork);
@@ -337,14 +358,27 @@ function App() {
   useEffect(() => {
     const sync = () => {
       const p = location.hash.slice(1);
-      if (pages.some((x) => x.name === p)) setPage(p);
+      if (p === "Work" || p === "Discovery") {
+        setPage("Inbox");
+        setInboxView(p === "Work" ? "work" : "ideas");
+      } else if (p === "Understanding") setPage("Knowledge");
+      else if (p === "Settings" || pages.some((x) => x.name === p)) setPage(p);
     };
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
   function navigate(name: string) {
-    setPage(name);
-    location.hash = name;
+    const target =
+      name === "Work" || name === "Discovery"
+        ? "Inbox"
+        : name === "Understanding"
+          ? "Knowledge"
+          : name;
+    setInboxView(
+      name === "Work" ? "work" : name === "Discovery" ? "ideas" : "requests",
+    );
+    setPage(target);
+    location.hash = target;
     setThreadId(null);
     setSelectedWork(null);
     setError("");
@@ -372,6 +406,7 @@ function App() {
   }
   const disabled = busy || !online || readOnly;
   function openThread(t: Thread) {
+    setInboxView("requests");
     setPage(t.kind === "inbox" ? "Inbox" : "Foreman");
     location.hash = t.kind === "inbox" ? "Inbox" : "Foreman";
     setThreadId(t.id);
@@ -423,10 +458,57 @@ function App() {
       setContextBusy(false);
     }
   }
+  const renderDiscovery = (
+    mode: "archive" | "idea" | "settings",
+    ideaId = selectedIdea,
+  ) =>
+    state ? (
+      <DiscoveryPage
+        mode={mode}
+        state={state}
+        disabled={disabled}
+        selected={ideaId}
+        select={setSelectedIdea}
+        command={async (cmd) => {
+          let ok = false;
+          await perform(async () => {
+            const result = await act(cmd);
+            if (result.skipped) throw Error(result.skipped);
+            ok = true;
+          });
+          return ok;
+        }}
+        openWork={(id) => {
+          navigate("Work");
+          setSelectedWork(id);
+        }}
+        openThread={(id) => {
+          const t = state.threads.find((t) => t.id === id);
+          if (t) openThread(t);
+        }}
+        inspect={setContext}
+        openKnowledge={(id) => {
+          navigate("Understanding");
+          setDocId(id);
+          void perform(async () => {
+            setAudit(await api("/knowledge/" + id));
+          });
+        }}
+      />
+    ) : null;
   const heading = (
     <header className="page-header">
       <h1>{page}</h1>
       <div className="actions">
+        {page !== "Settings" && (
+          <button
+            aria-label="Open Settings"
+            title="Settings"
+            onClick={() => navigate("Settings")}
+          >
+            <Settings2 size={18} />
+          </button>
+        )}
         {page === "Foreman" && (
           <button
             onClick={() => {
@@ -442,8 +524,17 @@ function App() {
             disabled={disabled}
             onClick={() =>
               setEditor({
-                level: "product",
-                policy: { ...freshPolicy },
+                level: state?.documents.some((d) => d.level === "constitution")
+                  ? "product"
+                  : "constitution",
+                policy: {
+                  ...freshPolicy,
+                  inclusion: state?.documents.some(
+                    (d) => d.level === "constitution",
+                  )
+                    ? "relevant"
+                    : "always",
+                },
                 content: "",
                 title: "",
               })
@@ -452,7 +543,7 @@ function App() {
             <Plus size={16} /> New document
           </button>
         )}
-        {page === "Understanding" && (
+        {page === "Knowledge" && (
           <button
             disabled={disabled}
             onClick={() =>
@@ -467,7 +558,7 @@ function App() {
             <Plus size={16} /> New record
           </button>
         )}
-        {page === "Work" && (
+        {page === "Inbox" && inboxView === "work" && (
           <button disabled={disabled} onClick={() => setWorkForm(true)}>
             <Plus size={16} /> New work
           </button>
@@ -529,13 +620,7 @@ function App() {
               onClick={() => navigate(p.name)}
             >
               <p.icon size={19} />
-              <span>
-                {p.name === "Understanding"
-                  ? "Memory"
-                  : p.name === "Discovery"
-                    ? "Discover"
-                    : p.name}
-              </span>
+              <span>{p.name}</span>
               {p.name === "Inbox" &&
                 !!state?.threads.filter(
                   (t) =>
@@ -592,7 +677,51 @@ function App() {
         ) : (
           <main>
             {heading}
-            {(page === "Foreman" || page === "Inbox") && (
+            {page === "Inbox" &&
+              !state.documents.some((d) => d.level === "constitution") &&
+              inboxView === "requests" && (
+                <div className="constitution-setup">
+                  <p>Add a constitution to give Foreman direction.</p>
+                  <button
+                    disabled={disabled}
+                    onClick={() =>
+                      setEditor({
+                        level: "constitution",
+                        title: "Constitution",
+                        content: "",
+                        policy: { ...freshPolicy, inclusion: "always" },
+                      })
+                    }
+                  >
+                    Write constitution
+                  </button>
+                </div>
+              )}
+            {page === "Inbox" &&
+              (inboxView === "requests" ? (
+                <details className="inbox-background">
+                  <summary>Background activity</summary>
+                  <button onClick={() => navigate("Work")}>
+                    Work in progress
+                  </button>
+                  <button onClick={() => navigate("Discovery")}>
+                    Ideas and experiments
+                  </button>
+                </details>
+              ) : (
+                <div className="inbox-drilldown">
+                  <button onClick={() => navigate("Inbox")}>
+                    Back to inbox
+                  </button>
+                  <h2>
+                    {inboxView === "work"
+                      ? "Work in progress"
+                      : "Ideas and experiments"}
+                  </h2>
+                </div>
+              ))}
+            {(page === "Foreman" ||
+              (page === "Inbox" && inboxView === "requests")) && (
               <div
                 className={
                   "thread-layout " +
@@ -728,7 +857,9 @@ function App() {
                     )}
                   </div>
                   <div className="conversation-messages">
-                    {currentThread?.reason && (
+                    {currentThread?.discoveryId &&
+                      renderDiscovery("idea", currentThread.discoveryId)}
+                    {currentThread?.reason && !currentThread.discoveryId && (
                       <div className="request">
                         <span className="eyebrow">Needs your input</span>
                         <Markdown>{currentThread.reason}</Markdown>
@@ -983,40 +1114,10 @@ function App() {
                 </section>
               </div>
             )}
-            {page === "Discovery" && (
-              <DiscoveryPage
-                state={state}
-                disabled={disabled}
-                selected={selectedIdea}
-                select={setSelectedIdea}
-                command={async (cmd) => {
-                  let ok = false;
-                  await perform(async () => {
-                    const result = await act(cmd);
-                    if (result.skipped) throw Error(result.skipped);
-                    ok = true;
-                  });
-                  return ok;
-                }}
-                openWork={(id) => {
-                  navigate("Work");
-                  setSelectedWork(id);
-                }}
-                openThread={(id) => {
-                  const t = state.threads.find((t) => t.id === id);
-                  if (t) openThread(t);
-                }}
-                inspect={setContext}
-                openKnowledge={(id) => {
-                  navigate("Understanding");
-                  setDocId(id);
-                  void perform(async () => {
-                    setAudit(await api("/knowledge/" + id));
-                  });
-                }}
-              />
-            )}
-            {page === "Work" && (
+            {page === "Inbox" &&
+              inboxView === "ideas" &&
+              renderDiscovery("archive")}
+            {page === "Inbox" && inboxView === "work" && (
               <>
                 <div className="autonomy-strip">
                   <span
@@ -1253,7 +1354,7 @@ function App() {
                     {!state.work.length && (
                       <Empty
                         title="No work yet"
-                        text="Create an investigation or let Foreman assess the objective on its next heartbeat."
+                        text="Foreman’s investigations appear here as they happen."
                       />
                     )}
                   </div>
@@ -1329,6 +1430,12 @@ function App() {
                       </button>
                     ))}
                 </div>
+                {!state.documents.some((d) => d.level !== "knowledge") && (
+                  <Empty
+                    title="No documents yet"
+                    text="Start with your constitution. Other documents can grow from the work."
+                  />
+                )}
                 {currentDoc && (
                   <article className="document-reader">
                     <div className="detail-title">
@@ -1399,11 +1506,11 @@ function App() {
                 )}
               </div>
             )}
-            {page === "Understanding" && (
+            {page === "Knowledge" && (
               <>
                 <p className="page-description">
-                  Human-readable records used to assemble context. Documents and
-                  standalone findings share the same revisioned source.
+                  What Foreman knows. Search the title and text by keyword, or
+                  find related passages by meaning.
                 </p>
                 <form
                   className="search-form"
@@ -1414,11 +1521,16 @@ function App() {
                         "/search?q=" + encodeURIComponent(query),
                       );
                       setSearchIds(result.results.map((d: Document) => d.id));
+                      setSearchMatches(
+                        Object.fromEntries(
+                          result.results.map((d: SearchHit) => [d.id, d]),
+                        ),
+                      );
                     });
                   }}
                 >
                   <input
-                    aria-label="Search understanding"
+                    aria-label="Search knowledge"
                     placeholder="Search by meaning or keyword"
                     value={query}
                     onChange={(e) => {
@@ -1433,30 +1545,89 @@ function App() {
                 <div className="knowledge-list">
                   {state.documents
                     .filter((d) => !searchIds || searchIds.includes(d.id))
+                    .sort((a, b) =>
+                      searchIds
+                        ? searchIds.indexOf(a.id) - searchIds.indexOf(b.id)
+                        : 0,
+                    )
                     .map((d) => (
-                      <button
-                        key={d.id}
-                        className="knowledge-row"
-                        onClick={() =>
-                          void api("/knowledge/" + d.id).then(setAudit)
-                        }
-                      >
-                        <div>
-                          <strong>{d.title}</strong>
-                          <p>{d.content.replace(/^#+ /gm, "").slice(0, 170)}</p>
+                      <article key={d.id} className="knowledge-card">
+                        <div className="knowledge-card-heading">
+                          <button
+                            className="knowledge-title"
+                            onClick={() =>
+                              void api("/knowledge/" + d.id).then(setAudit)
+                            }
+                          >
+                            {d.title}
+                          </button>
+                          <button
+                            disabled={disabled}
+                            aria-label={"Edit " + d.title}
+                            onClick={() => setEditor(d)}
+                          >
+                            <Pencil size={14} /> Edit
+                          </button>
                         </div>
-                        <div className="badges">
-                          <span className="badge">{d.policy.kind}</span>
-                          <span className="badge">{d.policy.status}</span>
-                          <span className="badge">
-                            v{d.version} /{" "}
+                        <p>
+                          {(searchIds
+                            ? searchMatches[d.id]?.excerpt
+                            : d.content
+                          )
+                            ?.replace(/^#+ /gm, "")
+                            .slice(0, searchIds ? 450 : 180)}
+                        </p>
+                        {searchIds && (
+                          <small>
+                            Matched by{" "}
+                            {searchMatches[d.id]?.match === "hybrid"
+                              ? "keyword and meaning"
+                              : searchMatches[d.id]?.match === "semantic"
+                                ? "meaning"
+                                : "keyword"}
+                          </small>
+                        )}
+                        <details>
+                          <summary>How this is found</summary>
+                          <p>
+                            Keyword search uses this entry’s title and full
+                            text. Meaning search uses passages from the same
+                            title and text, not hidden keywords.
+                          </p>
+                          <p>
                             {d.indexed_version === d.version
-                              ? "indexed"
-                              : "pending index"}
-                          </span>
-                        </div>
-                      </button>
+                              ? `Meaning search is using revision ${d.version}.`
+                              : "The latest text is keyword-searchable now. Meaning search is waiting for indexing."}
+                          </p>
+                          <p>
+                            {d.policy.status !== "active"
+                              ? `This entry is ${d.policy.status} and excluded from automatic context.`
+                              : d.policy.inclusion === "always"
+                                ? "Included in every matching-scope run, within the context limit."
+                                : d.policy.inclusion === "reference"
+                                  ? "Only used when explicitly attached."
+                                  : "Retrieved when relevant to the current question."}{" "}
+                            Scope: {d.policy.scope}.
+                          </p>
+                          <button
+                            onClick={() =>
+                              void api("/knowledge/" + d.id).then(setAudit)
+                            }
+                          >
+                            View indexed passages and usage
+                          </button>
+                        </details>
+                      </article>
                     ))}
+                  {!state.documents.length && (
+                    <Empty
+                      title="No knowledge yet"
+                      text="Documents and findings will appear here as they’re created."
+                    />
+                  )}
+                  {!!state.documents.length && searchIds?.length === 0 && (
+                    <p className="muted">No matching entries.</p>
+                  )}
                 </div>
                 <button
                   onClick={() => {
@@ -1471,6 +1642,13 @@ function App() {
             )}
             {page === "Settings" && (
               <>
+                <p className="muted">
+                  Foreman takes its direction from the constitution.
+                </p>
+                <details className="settings-discovery">
+                  <summary>Exploration settings</summary>
+                  {renderDiscovery("settings")}
+                </details>
                 <AutonomySettings
                   settings={state.settings}
                   disabled={disabled}
@@ -1533,6 +1711,17 @@ function App() {
                 });
                 setDocId(result.id);
                 setEditor(null);
+                if (page === "Knowledge" && query.trim()) {
+                  const matches = await api(
+                    "/search?q=" + encodeURIComponent(query),
+                  );
+                  setSearchIds(matches.results.map((d: SearchHit) => d.id));
+                  setSearchMatches(
+                    Object.fromEntries(
+                      matches.results.map((d: SearchHit) => [d.id, d]),
+                    ),
+                  );
+                }
               });
             }}
           >
@@ -1559,11 +1748,17 @@ function App() {
                     })
                   }
                 >
-                  {["product", "architecture", "execution", "knowledge"].map(
-                    (x) => (
-                      <option key={x}>{x}</option>
-                    ),
-                  )}
+                  {[
+                    ...(state?.documents.some((d) => d.level === "constitution")
+                      ? []
+                      : ["constitution"]),
+                    "product",
+                    "architecture",
+                    "execution",
+                    "knowledge",
+                  ].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
                 </select>
               </label>
             )}
@@ -1579,14 +1774,17 @@ function App() {
                 }
               />
             </label>
-            <PolicyFields
-              policy={editor.policy || freshPolicy}
-              protectedRecord={editor.level === "constitution"}
-              change={(policy) => setEditor({ ...editor, policy })}
-            />
+            <details className="editor-context-policy">
+              <summary>Context settings</summary>
+              <PolicyFields
+                policy={editor.policy || freshPolicy}
+                protectedRecord={editor.level === "constitution"}
+                change={(policy) => setEditor({ ...editor, policy })}
+              />
+            </details>
             <p className="muted">
-              Saving creates a revision, invalidates the old embedding, and
-              queues a new index. Past run contexts stay unchanged.
+              Your edits update keyword search immediately and refresh meaning
+              search. Earlier revisions remain in history.
             </p>
             <button className="primary" disabled={disabled}>
               Save revision
@@ -1595,7 +1793,7 @@ function App() {
         </Modal>
       )}
       {audit && (
-        <Modal title="Understanding record" close={() => setAudit(null)}>
+        <Modal title="Knowledge entry" close={() => setAudit(null)}>
           <div className="detail-title">
             <h2>{audit.document.title}</h2>
             <button
@@ -1605,7 +1803,7 @@ function App() {
                 setAudit(null);
               }}
             >
-              Edit source
+              Edit entry
             </button>
           </div>
           <p>
@@ -1613,13 +1811,15 @@ function App() {
             {audit.policy.kind}
           </p>
           <Markdown>{audit.document.content}</Markdown>
-          <h3>Embedding chunks</h3>
+          <h3>What meaning search uses</h3>
+          <p>
+            These are the exact title-and-text passages indexed for this entry.
+            Editing the entry rebuilds them.
+          </p>
           {audit.chunks.length ? (
             audit.chunks.map((c: any) => (
               <details key={c.id}>
-                <summary>
-                  Chunk {c.id} · v{c.version} · {c.model}
-                </summary>
+                <summary>Passage · revision {c.version}</summary>
                 <pre>{c.text}</pre>
               </details>
             ))
@@ -2001,11 +2201,11 @@ function ContextView({ context }: { context: Context }) {
         </details>
       )}
       <details>
-        <summary>Conversation and objective</summary>
+        <summary>Conversation and direction</summary>
         <pre>
           {JSON.stringify(
             {
-              objective: context.objective,
+              constitution: context.constitutionRef,
               messages: context.messages,
               work: context.work,
             },
@@ -2202,15 +2402,6 @@ function AutonomySettings({
           onChange={(e) => set({ ...value, enabled: e.target.checked })}
         />{" "}
         Heartbeat enabled
-      </label>
-      <label>
-        Objective
-        <textarea
-          rows={5}
-          required
-          value={value.objective}
-          onChange={(e) => set({ ...value, objective: e.target.value })}
-        />
       </label>
       <label>
         Repository scope

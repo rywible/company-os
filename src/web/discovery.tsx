@@ -3,6 +3,7 @@ import type { CompanyState, Command, Context } from "../domain/model";
 import type { Lens } from "../domain/discovery";
 
 type Props = {
+  mode?: "archive" | "idea" | "settings";
   state: CompanyState;
   disabled: boolean;
   selected: string | null;
@@ -17,7 +18,9 @@ const stamp = (at?: string) =>
   at ? new Date(at).toLocaleString() : "Not checked yet";
 export function DiscoveryPage(p: Props) {
   const d = p.state.discovery;
-  const [tab, setTab] = useState("ideas"),
+  const [tab, setTab] = useState(
+      p.mode === "settings" ? "perspectives" : "ideas",
+    ),
     [filter, setFilter] = useState("active"),
     [reason, setReason] = useState(""),
     [feedback, setFeedback] = useState(""),
@@ -39,82 +42,105 @@ export function DiscoveryPage(p: Props) {
     idea &&
     command({ type: "DecideDiscovery", ideaId: idea.id, action, reason });
   return (
-    <section className="discovery-page">
-      <div className="discovery-summary">
-        <p>
-          {d.enabled && p.state.settings.enabled
-            ? "Discovery on"
-            : "Discovery paused"}{" "}
-          · {pending.length}/{d.maxActiveIdeas} active ideas · {count}/
-          {p.state.settings.dailyBudget} shared runs today
-        </p>
-        <button
-          disabled={p.disabled || !d.enabled || !p.state.settings.enabled}
-          onClick={() => void command({ type: "ExploreDiscovery" })}
+    <section
+      className={
+        "discovery-page " + (p.mode === "idea" ? "discovery-inline" : "")
+      }
+    >
+      {p.mode === "archive" && (
+        <>
+          <div className="discovery-summary">
+            <p>
+              {d.enabled && p.state.settings.enabled
+                ? "Discovery on"
+                : "Discovery paused"}{" "}
+              · {pending.length}/{d.maxActiveIdeas} active ideas · {count}/
+              {p.state.settings.dailyBudget} shared runs today
+            </p>
+            <button
+              disabled={p.disabled || !d.enabled || !p.state.settings.enabled}
+              onClick={() => void command({ type: "ExploreDiscovery" })}
+            >
+              Explore next
+            </button>
+          </div>
+          <p className="muted">
+            A hunch gets investigated before it reaches your inbox. Outcomes
+            feed back into Knowledge.
+          </p>
+        </>
+      )}
+      {p.mode === "settings" && (
+        <div
+          className="discovery-tabs"
+          role="group"
+          aria-label="Discovery views"
         >
-          Explore next
-        </button>
-      </div>
-      <p className="muted">
-        A hunch gets investigated before it reaches your inbox. Outcomes feed
-        back into Memory.
-      </p>
-      <div className="discovery-tabs" role="group" aria-label="Discovery views">
-        {["ideas", "perspectives", "signals"].map((t) => (
-          <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
-            {t[0]!.toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
+          {["perspectives", "signals"].map((t) => (
+            <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
+              {t[0]!.toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+      )}
       {tab === "ideas" && (
         <>
-          <label className="discovery-filter">
-            Show{" "}
-            <select
-              aria-label="Filter ideas"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            >
-              {["active", "ready", "learned", "parked", "discarded", "all"].map(
-                (f) => (
+          {p.mode !== "idea" && (
+            <label className="discovery-filter">
+              Show{" "}
+              <select
+                aria-label="Filter ideas"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              >
+                {[
+                  "active",
+                  "ready",
+                  "learned",
+                  "parked",
+                  "discarded",
+                  "all",
+                ].map((f) => (
                   <option key={f}>{f}</option>
-                ),
-              )}
-            </select>
-          </label>
-          <div className="discovery-layout">
-            <div className="discovery-list">
-              {d.ideas
-                .filter(
-                  (i) =>
-                    filter === "all" ||
-                    (filter === "active"
-                      ? pending.includes(i)
-                      : i.status === filter),
-                )
-                .toReversed()
-                .map((i) => (
-                  <button
-                    key={i.id}
-                    aria-pressed={i.id === p.selected}
-                    onClick={() => {
-                      p.select(i.id);
-                      setReason("");
-                    }}
-                  >
-                    <strong>{i.title}</strong>
-                    <span>
-                      {d.lenses.find((l) => l.id === i.lensId)?.name} ·{" "}
-                      {i.status}
-                    </span>
-                  </button>
                 ))}
-              {!d.ideas.length && (
-                <p className="muted">
-                  No ideas yet. Explore a perspective or leave a signal.
-                </p>
-              )}
-            </div>
+              </select>
+            </label>
+          )}
+          <div className="discovery-layout">
+            {p.mode !== "idea" && (
+              <div className="discovery-list">
+                {d.ideas
+                  .filter(
+                    (i) =>
+                      filter === "all" ||
+                      (filter === "active"
+                        ? pending.includes(i)
+                        : i.status === filter),
+                  )
+                  .toReversed()
+                  .map((i) => (
+                    <button
+                      key={i.id}
+                      aria-pressed={i.id === p.selected}
+                      onClick={() => {
+                        p.select(i.id);
+                        setReason("");
+                      }}
+                    >
+                      <strong>{i.title}</strong>
+                      <span>
+                        {d.lenses.find((l) => l.id === i.lensId)?.name} ·{" "}
+                        {i.status}
+                      </span>
+                    </button>
+                  ))}
+                {!d.ideas.length && (
+                  <p className="muted">
+                    No ideas yet. Explore a perspective or leave a signal.
+                  </p>
+                )}
+              </div>
+            )}
             {idea && (
               <article className="discovery-detail" aria-label="Discovery idea">
                 <div className="discovery-heading">
@@ -209,7 +235,7 @@ export function DiscoveryPage(p: Props) {
                   )}
                   {idea.knowledgeId && (
                     <button onClick={() => p.openKnowledge(idea.knowledgeId!)}>
-                      Memory record ↗
+                      Knowledge entry ↗
                     </button>
                   )}
                 </div>
@@ -337,9 +363,9 @@ export function DiscoveryPage(p: Props) {
           <p className="muted">
             Scouts and their work share the automatic run budget in Settings.
             Exploratory perspectives reserve time for questions without an
-            existing ticket. All perspectives use repository context, Memory and
-            your signals; UI experiments also inspect Chrome. Perspectives can
-            also read current public GitHub releases from up to three
+            existing ticket. All perspectives use repository context, Knowledge
+            and your signals; UI experiments also inspect Chrome. Perspectives
+            can also read current public GitHub releases from up to three
             repositories you choose. General web search is not connected.
           </p>
           <button

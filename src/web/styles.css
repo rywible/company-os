@@ -1048,7 +1048,7 @@ details[open] > summary {
     overflow: visible;
     flex-shrink: 0;
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0;
   }
   .navigation nav button {
@@ -1554,4 +1554,97 @@ details[open] > summary {
     border-top: 1px solid var(--line);
     padding-top: 24px;
   }
+}
+
+.inbox-background {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.inbox-background summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.inbox-background button {
+  margin: 8px 8px 0 0;
+}
+.inbox-drilldown,
+.constitution-setup {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.inbox-drilldown h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.constitution-setup {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.discovery-inline {
+  padding: 0;
+}
+.discovery-inline .discovery-layout {
+  display: block;
+  margin: 0;
+}
+.discovery-inline .discovery-detail {
+  border: 0;
+  padding: 0;
+}
+.discovery-inline .discovery-heading {
+  display: none;
+}
+.discovery-inline .discovery-links {
+  font-size: 12px;
+}
+.knowledge-card {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.knowledge-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.knowledge-title {
+  font-weight: 600;
+  text-align: left;
+  justify-content: flex-start;
+  padding-left: 0;
+  white-space: normal;
+}
+.knowledge-card p {
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+.knowledge-card details {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 12px;
+}
+.knowledge-card summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.knowledge-card small {
+  color: var(--muted);
+}
+.settings-discovery {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 0;
+  margin-bottom: 20px;
+}
+.settings-discovery > summary {
+  cursor: pointer;
+}
+.editor-context-policy > summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 8px 0;
 }

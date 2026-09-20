@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as vec from "sqlite-vec";
-import { initialDocuments } from "./seed";
+import { legacyStarters } from "./legacy-starters";
 import type {
   Document,
   Event,
@@ -48,10 +48,39 @@ export class Store {
    CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(status,available_at);
    CREATE INDEX IF NOT EXISTS chunks_document ON chunks(document_id,version);
   `);
-    if (!this.db.query("SELECT 1 FROM documents LIMIT 1").get())
-      this.db.transaction(() => {
-        for (const d of initialDocuments) this.saveDocument(d, "bootstrap");
-      })();
+    const columns = this.db.query("PRAGMA table_info(documents)").all() as {
+      name: string;
+    }[];
+    if (!columns.some((c) => c.name === "archived_at"))
+      this.db.exec("ALTER TABLE documents ADD COLUMN archived_at TEXT");
+    this.db.transaction(() => {
+      for (const d of this.documents()) {
+        if (
+          d.source !== "bootstrap" ||
+          d.version !== 1 ||
+          !legacyStarters[d.id]
+        )
+          continue;
+        const fingerprint = new Bun.CryptoHasher("sha256")
+          .update(d.title + "\n" + d.content)
+          .digest("hex");
+        if (fingerprint !== legacyStarters[d.id]) continue;
+        this.removeVectors(d.id);
+        this.db.query("DELETE FROM document_fts WHERE document_id=?").run(d.id);
+        this.db
+          .query("UPDATE documents SET archived_at=? WHERE id=?")
+          .run(new Date().toISOString(), d.id);
+        this.db
+          .query(
+            "UPDATE jobs SET status='completed' WHERE entity_id=? AND status='queued'",
+          )
+          .run(d.id);
+        this.event("STARTER_ARCHIVED", "system", d.id, {
+          reason:
+            "Untouched example content removed; revisions retained for history",
+        });
+      }
+    })();
   }
   event(type: string, actor: string, entity: string, payload: unknown = {}) {
     return Number(
@@ -70,7 +99,7 @@ export class Store {
   documents() {
     return this.db
       .query(
-        `SELECT d.*, (SELECT MAX(version) FROM chunks c WHERE c.document_id=d.id) indexed_version FROM documents d ORDER BY CASE level WHEN 'constitution' THEN 0 WHEN 'product' THEN 1 WHEN 'architecture' THEN 2 ELSE 3 END,title`,
+        `SELECT d.*, (SELECT MAX(version) FROM chunks c WHERE c.document_id=d.id) indexed_version FROM documents d WHERE archived_at IS NULL ORDER BY CASE level WHEN 'constitution' THEN 0 WHEN 'product' THEN 1 WHEN 'architecture' THEN 2 ELSE 3 END,title`,
       )
       .all() as Document[];
   }
@@ -113,7 +142,7 @@ export class Store {
         now = new Date().toISOString();
       this.db
         .query(
-          "INSERT INTO documents VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,content=excluded.content,version=excluded.version,updated_at=excluded.updated_at,source=excluded.source",
+          "INSERT INTO documents(id,title,level,content,version,updated_at,source) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,content=excluded.content,version=excluded.version,updated_at=excluded.updated_at,source=excluded.source",
         )
         .run(id, input.title, input.level, input.content, version, now, actor);
       const event = this.event(

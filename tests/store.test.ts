@@ -1,9 +1,10 @@
+import { seedFixture } from "./fixtures/documents";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Store } from "../src/server/store";
 import { chunkDocument } from "../src/server/integrations";
 import type { ForemanOutput } from "../src/contracts";
 let store: Store;
-beforeEach(() => (store = new Store(":memory:")));
+beforeEach(() => (store = seedFixture(new Store(":memory:"))));
 afterEach(() => store.close());
 const vector = (axis: number) =>
   Array.from({ length: 768 }, (_, i) => (i === axis ? 1 : 0));

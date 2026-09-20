@@ -1,3 +1,4 @@
+import { seedFixture } from "./fixtures/documents";
 import { evidenceReferences } from "../src/domain/evidence";
 import { beforeEach, afterEach, test, expect } from "bun:test";
 import {
@@ -60,7 +61,7 @@ const recommend = {
 };
 beforeEach(() => {
   now = new Date("2026-09-20T12:00:00Z");
-  store = new Store(":memory:");
+  store = seedFixture(new Store(":memory:"));
   repo = new SQLiteRepository(store, now.toISOString());
   outputs = [];
   contexts = [];

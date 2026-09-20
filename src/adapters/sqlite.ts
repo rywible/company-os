@@ -1,3 +1,4 @@
+import type { Document } from "../contracts";
 import { initialDiscovery } from "../domain/discovery";
 import { Store } from "../server/store";
 import { initialState, type CompanyState } from "../domain/model";
@@ -103,6 +104,7 @@ export class SQLiteRepository implements Repository {
       lens.inspectUI ??= lens.id === "users";
       lens.sources ??= [];
     }
+    delete s.settings.objective;
     s.settings.requiredReviews ??= 2;
     s.settings.allowCodeChanges ??= false;
     return s;
@@ -217,7 +219,15 @@ export class SQLiteRepository implements Repository {
     return this.store.documents();
   }
   document(id: string, version?: number) {
-    const current = this.store.document(id);
+    const current =
+      this.store.document(id) ||
+      (version
+        ? (this.store.db
+            .query(
+              "SELECT d.*, NULL indexed_version FROM documents d WHERE id=?",
+            )
+            .get(id) as Document | undefined)
+        : undefined);
     if (!current || !version || current.version === version) return current;
     const r = this.store.db
       .query("SELECT * FROM revisions WHERE document_id=? AND version=?")

@@ -85,6 +85,11 @@ test("authenticated mutations require same origin and current document version",
         expectedVersion,
       }),
     });
+  expect(
+    (await (await fetch(base + "/api/company", { headers: { cookie } })).json())
+      .documents,
+  ).toHaveLength(0);
+  expect((await update(base)).status).toBe(200);
   expect((await update("https://untrusted.example", 1)).status).toBe(403);
   expect((await update(base)).status).toBe(409);
   expect((await update(base, 1)).status).toBe(200);

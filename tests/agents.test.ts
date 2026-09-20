@@ -11,7 +11,7 @@ const context: Context = {
   evidenceRefs: [],
   messages: [],
   searchMode: "keyword",
-  objective: "Check recovery",
+  constitutionRef: null,
 };
 const result: AgentResult = {
   message: "Review finished.",
