@@ -108,18 +108,6 @@
   color: var(--muted);
   font-size: 13px;
 }
-.automation-links {
-  display: flex;
-  gap: 4px 18px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 20px;
-}
-.automation-links button {
-  padding-left: 0;
-  padding-right: 0;
-  font-size: 13px;
-}
 .automation-page .discovery-page {
   padding: 0;
   margin: 0;
@@ -326,11 +314,6 @@
 .task-notice button {
   padding-left: 0;
   text-decoration: underline;
-}
-.task-automations .automation-links {
-  border-bottom: 0;
-  border-top: 1px solid var(--line);
-  padding-top: 20px;
 }
 @media (max-width: 760px) {
   .task-heading,

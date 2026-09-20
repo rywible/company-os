@@ -19,16 +19,12 @@ export function AutomationPage({
   command,
   configured,
   hasConstitution,
-  openWork,
-  openIdeas,
 }: {
   state: CompanyState;
   disabled: boolean;
   command: CommandHandler;
   configured: boolean;
   hasConstitution: boolean;
-  openWork(): void;
-  openIdeas(): void;
 }) {
   const [editing, setEditing] = useState<Lens | null>(null),
     [requested, setRequested] = useState<string | null>(null);
@@ -178,7 +174,7 @@ export function AutomationPage({
         </Modal>
       )}
       <div className="task-toolbar">
-        <button disabled={disabled} onClick={create}>
+        <button className="primary" disabled={disabled} onClick={create}>
           Add automation
         </button>
       </div>
@@ -309,10 +305,6 @@ export function AutomationPage({
             </article>
           );
         })}
-      </div>
-      <div className="automation-links">
-        <button onClick={openWork}>Work in progress</button>
-        <button onClick={openIdeas}>Ideas and experiments</button>
       </div>
     </div>
   );

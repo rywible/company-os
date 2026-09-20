@@ -29,7 +29,6 @@ import {
   Plus,
   RefreshCw,
   Settings2,
-  Shield,
   X,
 } from "lucide-react";
 import type { Document, SearchHit } from "../contracts";
@@ -526,6 +525,7 @@ function App() {
     ) : page === "Documents" ? (
       <div className="page-actions">
         <button
+          className="primary"
           disabled={disabled}
           onClick={() =>
             setEditor({
@@ -551,6 +551,7 @@ function App() {
     ) : page === "Knowledge" ? (
       <div className="page-actions">
         <button
+          className="primary"
           disabled={disabled}
           onClick={() =>
             setEditor({
@@ -566,7 +567,11 @@ function App() {
       </div>
     ) : page === "Automation" && inboxView === "work" ? (
       <div className="page-actions">
-        <button disabled={disabled} onClick={() => setWorkForm(true)}>
+        <button
+          className="primary"
+          disabled={disabled}
+          onClick={() => setWorkForm(true)}
+        >
           <Plus size={16} /> New work
         </button>
       </div>
@@ -646,26 +651,6 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="nav-bottom">
-          <span>Ryan’s workspace</span>
-          <button
-            aria-label="Lock workspace"
-            onClick={() =>
-              void perform(async () => {
-                await api("/logout", { method: "POST" });
-                setSession(false);
-                setState(null);
-                setDrafts({});
-                setDraftSubject("");
-                setComposeOpen(false);
-                setAttachment(undefined);
-                markdownCache.clear();
-              })
-            }
-          >
-            <Shield size={16} />
-          </button>
-        </div>
       </aside>
       <div className="main-workspace">
         <div className="mobile-brand">
@@ -1423,8 +1408,6 @@ function App() {
                 hasConstitution={state.documents.some(
                   (d) => d.level === "constitution" && !!d.content.trim(),
                 )}
-                openWork={() => navigate("Work")}
-                openIdeas={() => navigate("Discovery")}
               />
             )}
             {page === "Settings" && (

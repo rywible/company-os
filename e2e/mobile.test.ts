@@ -208,11 +208,7 @@ async function fill(view: Bun.WebView, selector: string, value: string) {
 
 async function nav(view: Bun.WebView, name: string) {
   if (name === "Work" || name === "Discovery") {
-    await nav(view, "Automation");
-    await button(
-      view,
-      name === "Work" ? "Work in progress" : "Ideas and experiments",
-    );
+    await view.evaluate(`location.hash = ${JSON.stringify("#" + name)}`);
     await wait(view, `!!document.querySelector('.inbox-drilldown')`);
     return;
   }
@@ -798,7 +794,17 @@ test("empty workspace: author the constitution without starter documents or inve
   expect(repo.state().threads).toHaveLength(0);
   expect(repo.state().work).toHaveLength(0);
   await fits(view);
+  expect(
+    await view.evaluate<boolean>(
+      `document.querySelector('.nav-bottom') === null && document.querySelector('nav button[aria-label="Open Settings"]') !== null`,
+    ),
+  ).toBe(true);
   await nav(view, "Automation");
+  expect(
+    await view.evaluate<boolean>(
+      `document.querySelector('.task-toolbar button')?.classList.contains('primary') === true && ![...document.querySelectorAll('.automation-page button')].some((b) => ['Work in progress', 'Ideas and experiments'].includes(b.textContent?.trim() || ''))`,
+    ),
+  ).toBe(true);
   expect(
     await view.evaluate<any>(
       `document.querySelector('.task-notice') === null`,
