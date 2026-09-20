@@ -47,6 +47,27 @@ sprite -s company-os-worker exec -- codex login status
 
 The configured Sprite has the `company-os` label. Google connector access is scoped to company Sprites and `/v1beta/models` plus `/v1beta/models/*`; GitHub access is scoped to `/user` and `rywible/company-os`. Connector IDs are configuration, not provider API keys. Subscription limits still apply; expired authentication appears as a failed run with recovery instructions.
 
+### Studio worker baseline
+
+Game-studio Sprites use one credential-free, versioned baseline. It contains the
+common development environment, Chrome-only browser tooling for v1, the
+Rust/WebAssembly toolchain, and the Codex, Claude Code, and Muse Code clients.
+Provider authentication is applied independently after a worker is created; do
+not create a reusable checkpoint from an authenticated worker.
+
+Provision and verify an Ubuntu Sprite with:
+
+```sh
+sprite file push -s <sprite> -p scripts/provision-sprite-v1.sh scripts/verify-sprite-v1.sh /home/sprite/bootstrap/
+sprite -s <sprite> exec -- bash /home/sprite/bootstrap/provision-sprite-v1.sh
+sprite -s <sprite> exec -- bash /home/sprite/bootstrap/verify-sprite-v1.sh
+```
+
+The baseline intentionally omits Firefox and WebKit for v1. GitHub credentials
+remain in the scoped Fly connector rather than on the Sprite filesystem.
+The current validated base is `company-os-studio-base-v1` at checkpoint `v2`;
+its earlier `v1` checkpoint is superseded.
+
 ```sh
 bun run typecheck
 bun test
