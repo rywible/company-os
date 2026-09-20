@@ -7,6 +7,9 @@ import { documentRef } from "../domain/library";
 import "./library.css";
 type Props = {
   state: CompanyState & { documents: Document[] };
+  openId: string | null;
+  preview(d: Document): void;
+  inspect(d: Document): void;
   disabled: boolean;
   command(c: Command): Promise<boolean>;
   edit(d: Document): void;
@@ -16,6 +19,9 @@ type Props = {
 };
 export function KnowledgeLibrary({
   state,
+  openId,
+  preview,
+  inspect,
   disabled,
   command,
   edit,
@@ -38,10 +44,34 @@ export function KnowledgeLibrary({
     state.documents,
     new Date().toISOString(),
   );
-  const pages = state.documents.filter((d) => !!state.library.pages[d.id]);
-  const collections = [
-    ...new Set(pages.map((d) => state.library.pages[d.id]!.collection)),
-  ].sort();
+  useEffect(() => {
+    setSelected(openId);
+    if (openId) {
+      setMatches(null);
+      setQuery("");
+      setWarning("");
+      const opened = state.documents.find((d) => d.id === openId);
+      setEvidence(
+        opened?.level === "knowledge" && !state.library.pages[openId],
+      );
+    }
+  }, [openId]);
+  const pages = state.documents.filter(
+    (d) =>
+      d.level !== "constitution" &&
+      (d.level !== "knowledge" || !!state.library.pages[d.id]),
+  );
+  const collectionOf = (d: Document) =>
+    state.library.pages[d.id]?.collection ||
+    ({
+      product: "Product",
+      architecture: "Architecture",
+      execution: "Execution",
+      knowledge: "Unfiled",
+      constitution: "Constitution",
+    }[d.level] ??
+      "Unfiled");
+  const collections = [...new Set(pages.map(collectionOf))].sort();
   const document = state.documents.find((d) => d.id === selected),
     meta = document && state.library.pages[document.id];
   useEffect(() => {
@@ -49,7 +79,7 @@ export function KnowledgeLibrary({
     setSource(null);
     setLocation(null);
     setError("");
-  }, [selected]);
+  }, [selected, document?.version]);
   const open = (id: string) => {
     setSelected(id);
     setSource(null);
@@ -129,7 +159,9 @@ export function KnowledgeLibrary({
             ? "Maintained by Foreman"
             : meta
               ? "Human edited"
-              : "Source evidence"}
+              : document.level === "knowledge"
+                ? "Source evidence"
+                : "Human-governed document"}
         </p>
         {freshness[document.id] &&
           freshness[document.id]!.status !== "current" && (
@@ -388,6 +420,30 @@ export function KnowledgeLibrary({
             </details>
           ))}
         </details>
+        <details className="context-contract">
+          <summary>Context & usage</summary>
+          <p>
+            {state.policies[document.id]?.status || "active"} ·{" "}
+            {state.policies[document.id]?.inclusion || "relevant"} ·{" "}
+            {state.policies[document.id]?.scope || "company"}
+          </p>
+          <p>
+            {state.policies[document.id]?.status &&
+            state.policies[document.id]?.status !== "active"
+              ? "Excluded from automatic context while " +
+                state.policies[document.id]?.status +
+                "."
+              : state.policies[document.id]?.inclusion === "reference"
+                ? "Only included when explicitly attached to a conversation."
+                : state.policies[document.id]?.inclusion === "always"
+                  ? "Included in matching-scope runs, subject to the context limit."
+                  : "Eligible for retrieval when relevant."}
+          </p>
+          <div className="actions">
+            <button onClick={() => preview(document)}>Preview selection</button>
+            <button onClick={() => inspect(document)}>Records & usage</button>
+          </div>
+        </details>
         <div className="library-footer">
           <button onClick={() => discuss(document)}>
             Discuss with Foreman
@@ -540,7 +596,7 @@ export function KnowledgeLibrary({
       >
         <input
           aria-label="Search knowledge"
-          placeholder={evidence ? "Search evidence" : "Search subjects"}
+          placeholder={evidence ? "Search evidence" : "Search documents"}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -563,10 +619,10 @@ export function KnowledgeLibrary({
       {!shown.length && (
         <p className="library-empty">
           {matches
-            ? "No matching subjects."
+            ? "No matching documents."
             : evidence
               ? "No evidence yet."
-              : "No subjects yet. Add an entry, or let Foreman build the library from your documents and findings."}
+              : "No documents yet. Create a document, or let Foreman build the library from findings."}
         </p>
       )}
       {matches || evidence
@@ -576,9 +632,7 @@ export function KnowledgeLibrary({
               <h2>{collection}</h2>
               {rows(
                 shown
-                  .filter(
-                    (d) => state.library.pages[d.id]!.collection === collection,
-                  )
+                  .filter((d) => collectionOf(d) === collection)
                   .sort((a, b) => a.title.localeCompare(b.title)),
               )}
             </section>

@@ -683,13 +683,13 @@ details[open] > summary { margin-bottom: 10px; }
   :root { --nav-height: calc(70px + env(safe-area-inset-bottom, 0px)); }
   .navigation {
     position: fixed; inset: auto 0 0; width: 100%; height: var(--nav-height);
-    padding: 6px max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom, 0px) max(8px, env(safe-area-inset-left));
+    padding: 6px max(6px, env(safe-area-inset-right)) env(safe-area-inset-bottom, 0px) max(6px, env(safe-area-inset-left));
     border-right: 0; border-top: 1px solid var(--line);
     background: rgb(255 255 255 / 0.94);
     backdrop-filter: blur(16px);
   }
   .navigation > .brand, .nav-hint { display: none; }
-  .navigation nav { overflow: visible; flex: 0 0 auto; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .navigation nav { overflow: visible; flex: 0 0 auto; display: grid; grid-template-columns: minmax(44px, .8fr) minmax(72px, 1.2fr) minmax(64px, 1.1fr) minmax(66px, 1.1fr) minmax(50px, .9fr); gap: 3px; }
   .navigation nav button { flex-direction: column; gap: 5px; min-height: 56px; padding: 8px 2px; font-size: 10px; position: relative; min-width: 0; border-radius: 12px; }
   .navigation nav button span { max-width: 100%; white-space: nowrap; font-size: 10px; }
   .navigation nav .settings-link { margin-top: 0; }
@@ -720,7 +720,4 @@ details[open] > summary { margin-bottom: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
-}
-@media (max-width: 760px) {
-  .navigation nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }

@@ -201,9 +201,6 @@
   border-color: var(--line);
 }
 @media (max-width: 760px) {
-  .navigation nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
   .section-tabs {
     gap: 22px;
     margin-bottom: 24px;

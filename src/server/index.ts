@@ -305,7 +305,8 @@ export const server = Bun.serve({
                 const view = url.searchParams.get("view"),
                   library = repository.state().library;
                 return view === "library"
-                  ? !!library.pages[d.id]
+                  ? d.level !== "constitution" &&
+                      (d.level !== "knowledge" || !!library.pages[d.id])
                   : view === "evidence"
                     ? d.level === "knowledge" && !library.pages[d.id]
                     : true;

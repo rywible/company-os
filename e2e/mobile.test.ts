@@ -4,8 +4,7 @@ import { fixture } from "./fixture";
 import { renderMarkdown } from "../src/server/markdown";
 import { commandSchema } from "../src/domain/model";
 const backends = (process.env.UI_BACKENDS || "chrome").split(",") as (
-  | "chrome"
-  | "webkit"
+  "chrome" | "webkit"
 )[];
 const widths = [
   { name: "small-phone", width: 320, height: 568 },
@@ -64,7 +63,9 @@ async function setup(
               .filter((d) => {
                 const type = url.searchParams.get("view");
                 return type === "library"
-                  ? !!f.repo.state().library.pages[d.id]
+                  ? d.level !== "constitution" &&
+                      (d.level !== "knowledge" ||
+                        !!f.repo.state().library.pages[d.id])
                   : type === "evidence"
                     ? d.level === "knowledge" &&
                       !f.repo.state().library.pages[d.id]
@@ -246,7 +247,7 @@ for (const backend of backends) {
           ),
         ).toEqual([
           "Open Inbox",
-          "Open Documents",
+          "Open Constitution",
           "Open Knowledge",
           "Open Automation",
           "Open Settings",
@@ -339,7 +340,8 @@ for (const backend of backends) {
       }, 30000);
       test("documents, editable understanding, context selection and Mermaid", async () => {
         const { view, repo, errors } = await setup(backend, size);
-        await nav(view, "Documents");
+        await nav(view, "Knowledge");
+        await button(view, "System architecture", ".library-index", false);
         await wait(view, `!!document.querySelector('.diagram svg')`);
         await fits(view);
         await button(view, "Edit");
@@ -391,7 +393,7 @@ for (const backend of backends) {
           view,
           `!!document.querySelector('.document-preview strong')`,
         );
-        await button(view, "Save revision", "dialog");
+        await button(view, "Save", "dialog");
         await wait(view, `!document.querySelector('dialog')`);
         expect(repo.document("architecture")!.version).toBe(2);
         expect(repo.document("architecture")!.indexed_version).toBe(2);
@@ -406,14 +408,16 @@ for (const backend of backends) {
         ).toBe(true);
         await button(view, "Close dialog");
         await wait(view, `!document.querySelector('dialog')`);
-        await nav(view, "Knowledge");
-        // Governing documents have one home; the library contains maintained subjects.
+        await button(view, "← Library");
+        // All non-constitution documents share the library.
         expect(
           await view.evaluate<number>(
             "document.querySelectorAll('.library-row').length",
           ),
-        ).toBe(0);
-        await button(view, "New entry");
+        ).toBe(
+          repo.documents().filter((d) => d.level !== "constitution").length,
+        );
+        await button(view, "New document");
         await fill(view, "dialog input", "Editor behavior");
         await fill(
           view,
@@ -433,7 +437,6 @@ for (const backend of backends) {
         expect(repo.state().library.pages[subject.id]?.collection).toBe(
           "Unfiled",
         );
-        await button(view, "Editor behavior", ".library-index", false);
         await wait(view, "!!document.querySelector('.library-reader')");
         await button(view, "Organize");
         await fill(view, ".library-organize input", "Product");
@@ -445,9 +448,9 @@ for (const backend of backends) {
         await button(view, "Edit", ".library-reader");
         expect(
           await view.evaluate<number>(
-            "document.querySelectorAll('dialog select, dialog details').length",
+            "document.querySelectorAll('dialog .editor-context-policy').length",
           ),
-        ).toBe(0);
+        ).toBe(1);
         await fill(
           view,
           "dialog textarea",
@@ -546,7 +549,9 @@ for (const backend of backends) {
           `document:${source.id}@2`,
         ]);
         await click(view, ".library-review > summary");
-        await view.evaluate(`document.querySelector('input[name="reviewDate"]').value = "2099-01-01"`);
+        await view.evaluate(
+          `document.querySelector('input[name="reviewDate"]').value = "2099-01-01"`,
+        );
         await button(view, "Save review date");
         await wait(
           view,
@@ -601,7 +606,7 @@ for (const backend of backends) {
             `document.querySelector('[aria-label="Message Foreman"]').value`,
           ),
         ).toBe("Keep this reply separate");
-        await nav(view, "Documents");
+        await nav(view, "Constitution");
         await nav(view, "Inbox");
         await button(view, "New message");
         expect(
@@ -806,9 +811,7 @@ test("empty workspace: author the constitution without starter documents or inve
     ),
   ).toBe(true);
   expect(
-    await view.evaluate<any>(
-      `document.querySelector('.task-notice') === null`,
-    ),
+    await view.evaluate<any>(`document.querySelector('.task-notice') === null`),
   ).toBe(true);
   expect(
     await view.evaluate<any>(
@@ -820,8 +823,8 @@ test("empty workspace: author the constitution without starter documents or inve
       `document.querySelector('.automation-page').textContent.includes('Next check')`,
     ),
   ).toBe(false);
-  await nav(view, "Documents");
-  await button(view, "New document");
+  await nav(view, "Constitution");
+  await button(view, "Write constitution");
   await fill(view, "dialog input", "Constitution");
   await fill(
     view,
@@ -833,7 +836,7 @@ test("empty workspace: author the constitution without starter documents or inve
   expect(repo.documents()).toHaveLength(1);
   expect(repo.documents()[0]!.level).toBe("constitution");
   expect(repo.documents()[0]!.indexed_version).toBe(1);
-  await nav(view, "Documents");
+  await nav(view, "Constitution");
   await wait(
     view,
     `document.querySelector('.document-reader')?.textContent.includes('small orchestras')`,
@@ -844,12 +847,12 @@ test("empty workspace: author the constitution without starter documents or inve
       `document.querySelectorAll('.library-row').length`,
     ),
   ).toBe(0);
-  await button(view, "New entry");
+  await button(view, "New document");
   expect(
     await view.evaluate<any>(
-      `document.querySelectorAll('dialog select, dialog details').length`,
+      `document.querySelectorAll('dialog .editor-context-policy').length`,
     ),
-  ).toBe(0);
+  ).toBe(1);
   await fill(view, "dialog input", "Rehearsal timing");
   await fill(view, "dialog textarea", "Leave ten minutes between rehearsals.");
   await button(view, "Save", "dialog");
@@ -857,6 +860,11 @@ test("empty workspace: author the constitution without starter documents or inve
   const entry = repo.documents().find((d) => d.title === "Rehearsal timing")!;
   expect(entry.level).toBe("knowledge");
   expect(entry.indexed_version).toBe(1);
+  await wait(
+    view,
+    `document.querySelector('.library-reader')?.textContent.includes('ten minutes')`,
+  );
+  await button(view, "← Library");
   await fill(view, '[aria-label="Search knowledge"]', "Rehearsal timing");
   await button(view, "Search");
   await wait(view, `document.querySelectorAll('.library-row').length === 1`);
@@ -865,7 +873,7 @@ test("empty workspace: author the constitution without starter documents or inve
       `document.querySelector('.library-row').textContent.includes('ten minutes')`,
     ),
   ).toBe(true);
-  await nav(view, "Documents");
+  await nav(view, "Constitution");
   await click(view, ".context-contract > summary");
   await button(view, "Discuss with Foreman");
   await wait(
@@ -897,6 +905,106 @@ test("empty workspace: author the constitution without starter documents or inve
   await wait(
     view,
     `document.querySelector('nav button[aria-label="Open Inbox"][aria-current="page"]') !== null`,
+  );
+  await fits(view);
+  expect(errors).toEqual([]);
+}, 30000);
+
+test("constitution and knowledge have distinct homes, with searchable editable documents", async () => {
+  const { view, repo, errors } = await setup("chrome", widths[0]!);
+  await nav(view, "Constitution");
+  await wait(
+    view,
+    `document.querySelector('.document-reader')?.textContent.includes('Company constitution')`,
+  );
+  expect(
+    await view.evaluate<any>(
+      `document.querySelector('.document-list') === null`,
+    ),
+  ).toBe(true);
+  await Bun.sleep(250); // Let the active navigation font finish its transition.
+  expect(
+    await view.evaluate<any>(
+      `[...document.querySelectorAll('nav button span')].filter(el => el.scrollWidth > el.clientWidth).map(el => ({label: el.textContent, needed: el.scrollWidth, available: el.clientWidth}))`,
+    ),
+  ).toEqual([]);
+  await fits(view);
+  await Bun.write(
+    ".artifacts/constitution-small-phone.png",
+    await view.screenshot(),
+  );
+  await view.evaluate<any>(
+    `[...document.querySelectorAll('summary')].find(el => el.textContent === 'Revision history').click()`,
+  );
+  await wait(
+    view,
+    `document.querySelector('.document-reader')?.textContent.includes('Revision 1')`,
+  );
+  expect(
+    await view.evaluate<any>(`document.querySelector('dialog') === null`),
+  ).toBe(true);
+  await button(view, "Edit");
+  expect(
+    await view.evaluate<any>(
+      `document.querySelectorAll('dialog select').length`,
+    ),
+  ).toBe(0);
+  await fill(
+    view,
+    "dialog textarea",
+    "Build useful software. Keep human direction explicit.",
+  );
+  await button(view, "Save revision", "dialog");
+  await wait(view, `!document.querySelector('dialog')`);
+  expect(repo.document("constitution")!.version).toBe(2);
+  await nav(view, "Knowledge");
+  expect(
+    await view.evaluate<any>(
+      `document.querySelector('.library-index').textContent.includes('Company constitution')`,
+    ),
+  ).toBe(false);
+  await fill(view, '[aria-label="Search knowledge"]', "Litestream");
+  await button(view, "Search");
+  await wait(view, `document.querySelectorAll('.library-row').length === 1`);
+  await button(view, "System architecture", ".library-index", false);
+  await wait(view, `!!document.querySelector('.library-reader')`);
+  await button(view, "New document");
+  expect(
+    await view.evaluate<any>(
+      `[...document.querySelectorAll('dialog option')].some(o => o.value === 'constitution')`,
+    ),
+  ).toBe(false);
+  await fill(view, "dialog input", "Approved product plan");
+  await view.evaluate<any>(
+    `(() => { const select = document.querySelector('dialog select'); select.value = 'product'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+  );
+  await fill(view, "dialog textarea", "Ship the rehearsal planner first.");
+  await button(view, "Save", "dialog");
+  await wait(
+    view,
+    `!document.querySelector('dialog') && document.querySelector('.library-reader')?.textContent.includes('Approved product plan')`,
+  );
+  const product = repo
+    .documents()
+    .find((d) => d.title === "Approved product plan")!;
+  expect(product.level).toBe("product");
+  expect(repo.state().policies[product.id]!.kind).toBe("document");
+  await button(view, "Edit", ".library-reader");
+  await fill(
+    view,
+    "dialog textarea",
+    "Ship the rehearsal planner with calendar export.",
+  );
+  await button(view, "Save", "dialog");
+  await wait(view, `!document.querySelector('dialog')`);
+  expect(repo.document(product.id)!.version).toBe(2);
+  await view.evaluate<any>(`location.hash = 'Documents'`);
+  await view.reload();
+  await wait(view, `!!document.querySelector('.library-index')`);
+  await button(view, "Approved product plan", ".library-index", false);
+  await wait(
+    view,
+    `document.querySelector('.library-reader')?.textContent.includes('calendar export')`,
   );
   await fits(view);
   expect(errors).toEqual([]);
@@ -952,7 +1060,7 @@ test("browser inspection uses the real accessible names at desktop and phone wid
     const evidence = await browser.inspect("browser-contract-ui-v2");
     expect(evidence.steps).toHaveLength(10);
     expect(evidence.errors).toEqual([]);
-    for (const label of ["Inbox", "Documents", "Knowledge", "Automation"]) {
+    for (const label of ["Inbox", "Constitution", "Knowledge", "Automation"]) {
       expect(
         evidence.steps.some(
           (s) => s.action === "Phone: click " + label && s.title === label,
@@ -975,7 +1083,7 @@ test("library maintenance produces browsable subjects with versioned sources", a
   await nav(view, "Knowledge");
   await wait(
     view,
-    "document.querySelector('.library-collection')?.textContent.includes('Company')",
+    "[...document.querySelectorAll('.library-collection')].some(el => el.textContent.includes('Company'))",
   );
   await button(view, "Working principles", ".library-index", false);
   await wait(

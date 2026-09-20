@@ -6,7 +6,7 @@ Company OS separates decisions about company state from HTTP, SQLite, agents, Gi
 C4Container
   Person(ryan, "Ryan", "Direction, triage, review, auditing")
   System_Boundary(os, "Company OS") {
-    Container(ui, "Workspace", "React · Bun build", "Inbox, Documents, Knowledge, Automation")
+    Container(ui, "Workspace", "React · Bun build", "Inbox, Constitution, Knowledge, Automation")
     Container(app, "Application", "TypeScript · Bun", "Commands, context assembly, durable workflow runner")
     ContainerDb(db, "Company state", "SQLite · FTS5 · sqlite-vec", "State, ordered events, deliveries, revisions, vectors")
     Container(sprite, "Worker Sprite", "Bun · Codex CLI · Chrome", "Agent invocations, read-only browser inspection, correction verification")
@@ -46,7 +46,7 @@ Keep one Fly application Machine. This design does not support multiple worker o
 
 ## Context and present understanding
 
-The primary navigation is Inbox, Documents, Knowledge, and Automation; Settings is a utility control. Automation lists tasks with their own schedules, pause/resume and run-now controls, budgets and investigation limits. Settings separates workspace configuration from review policy. Both human-started conversations and agent requests appear in Inbox. New message opens a subject/body composer; each thread opens on a single reading surface, with replies and archiving. Knowledge exposes subject and content for editing, while versioning, policies and indexing stay behind the application boundary. Work and experiment history are optional drill-downs inside Automation. Developed discovery recommendations expose their decision controls directly in their inbox threads.
+The primary navigation is Inbox, Constitution, Knowledge, and Automation; Settings is a utility control. Automation lists tasks with their own schedules, pause/resume and run-now controls, budgets and investigation limits. Settings separates workspace configuration from review policy. Both human-started conversations and agent requests appear in Inbox. New message opens a subject/body composer; each thread opens on a single reading surface, with replies and archiving. Constitution opens directly into the human-owned company direction, with editing, revision history, and discussion. Knowledge supports creating and editing all other documents, with optional context settings; versioning and indexing stay behind the application boundary. Work and experiment history are optional drill-downs inside Automation. Developed discovery recommendations expose their decision controls directly in their inbox threads.
 
 Documents and observations share a canonical, versioned source. Each record has scope, inclusion (`always`, `relevant`, `reference`) and lifecycle (`active`, `draft`, `retired`). The constitution is the sole source of company direction: Settings has no separate objective. The constitution is always included and can only be edited by a human. Proposals cannot alter it.
 
@@ -75,7 +75,7 @@ A compatibility migration archives only the four original bootstrap documents wh
 
 ## Subject library and agent briefings
 
-`src/application/library.ts` maintains the library through the existing repository, agent and event ports. `CompanyState.library` records subject organization and the pending/processed source revisions. Documents remain the human-governed specifications. Knowledge shows canonical subject pages grouped into collections; raw machine findings remain in Evidence, and are excluded from ordinary retrieval unless explicitly attached. Library relationships expand retrieval through parent guidance and one hop of related subjects. Organization never bypasses scope, retirement or reference-only policies.
+`src/application/library.ts` maintains the library through the existing repository, agent and event ports. `CompanyState.library` records subject organization and the pending/processed source revisions. Product, architecture, and execution documents remain human-governed specifications. Knowledge shows these alongside canonical subject pages grouped into collections; raw machine findings remain in Evidence, and are excluded from ordinary retrieval unless explicitly attached. Library relationships expand retrieval through parent guidance and one hop of related subjects. Organization never bypasses scope, retirement or reference-only policies.
 
 New documents and findings emit `KnowledgeChanged`, which queues both indexing and `QueueLibrarySource`. A dedicated Knowledge library task consumes pending evidence on its own schedule and run allowance. A pass processes up to three sources, receives a bounded subject catalog, and can create or revise up to four subjects. It has no database or free-form search access. Missing full pages can be supplied through one application-controlled supplemental briefing. New assertions must cite supplied evidence, while stale edits, cycles, duplicates and governing-document rewrites are rejected transactionally. The model is responsible for synthesis and identifying semantic contradictions; this is not a deterministic fact checker. Human-edited pages always require approval, irrespective of the model's recommendation.
 

@@ -31,7 +31,7 @@ import {
   Settings2,
   X,
 } from "lucide-react";
-import type { Document, SearchHit } from "../contracts";
+import type { Document } from "../contracts";
 import type {
   CompanyState,
   Command as CompanyCommand,
@@ -246,7 +246,7 @@ function Markdown({ children }: { children: string }) {
 
 const pages = [
   { name: "Inbox", icon: Inbox },
-  { name: "Documents", icon: BookOpen },
+  { name: "Constitution", icon: BookOpen },
   { name: "Knowledge", icon: Brain },
   { name: "Automation", icon: Activity },
   { name: "Settings", icon: Settings2, bottom: true },
@@ -269,7 +269,7 @@ function App() {
         ? "Automation"
         : location.hash === "#Foreman"
           ? "Inbox"
-          : location.hash.slice(1) === "Understanding"
+          : ["Understanding", "Documents"].includes(location.hash.slice(1))
             ? "Knowledge"
             : location.hash.slice(1) || "Inbox",
     ),
@@ -283,11 +283,8 @@ function App() {
         ? "ideas"
         : "requests",
   );
-  const [searchMatches, setSearchMatches] = useState<Record<string, SearchHit>>(
-    {},
-  );
   const [threadId, setThreadId] = useState<string | null>(null),
-    [docId, setDocId] = useState("architecture"),
+    [docId, setDocId] = useState<string | null>(null),
     [drafts, setDrafts] = useState<Record<string, string>>({}),
     [attachment, setAttachment] = useState<
       { id: string; version: number } | undefined
@@ -306,19 +303,12 @@ function App() {
     [selectedWork, setSelectedWork] = useState<string | null>(null),
     [trackFilter, setTrackFilter] = useState("all"),
     [inboxFilter, setInboxFilter] = useState("open"),
-    [query, setQuery] = useState(""),
-    [searchIds, setSearchIds] = useState<string[] | null>(null),
+    [constitutionHistory, setConstitutionHistory] = useState<any[] | null>(
+      null,
+    ),
     [history, setHistory] = useState<any[] | null>(null);
-  useEffect(() => {
-    if (state && !state.documents.some((d) => d.id === docId))
-      setDocId(
-        state.documents.find((d) => d.level === "constitution")?.id ||
-          state.documents.find((d) => d.level !== "knowledge")?.id ||
-          "",
-      );
-  }, [state, docId]);
   const currentThread = state?.threads.find((t) => t.id === threadId),
-    currentDoc = state?.documents.find((d) => d.id === docId),
+    currentDoc = state?.documents.find((d) => d.level === "constitution"),
     work = state?.work.find((w) => w.id === selectedWork);
   const refresh = async () => {
     setState(await api<Workspace>("/company"));
@@ -365,7 +355,8 @@ function App() {
         setInboxView(
           p === "Work" ? "work" : p === "Discovery" ? "ideas" : "requests",
         );
-      } else if (p === "Understanding") setPage("Knowledge");
+      } else if (p === "Understanding" || p === "Documents")
+        setPage("Knowledge");
       else if (p === "Settings" || pages.some((x) => x.name === p)) setPage(p);
     };
     window.addEventListener("hashchange", sync);
@@ -377,13 +368,14 @@ function App() {
         ? "Automation"
         : name === "Foreman"
           ? "Inbox"
-          : name === "Understanding"
+          : name === "Understanding" || name === "Documents"
             ? "Knowledge"
             : name;
     setInboxView(
       name === "Work" ? "work" : name === "Discovery" ? "ideas" : "requests",
     );
     setPage(target);
+    setDocId(null);
     location.hash = target;
     setThreadId(null);
     setSelectedWork(null);
@@ -504,10 +496,11 @@ function App() {
         }}
         inspect={setContext}
         openKnowledge={(id) => {
-          navigate("Understanding");
-          setDocId(id);
           const document = state.documents.find((d) => d.id === id);
-          if (document) setEditor(document);
+          navigate(
+            document?.level === "constitution" ? "Constitution" : "Knowledge",
+          );
+          setDocId(id);
         }}
       />
     ) : null;
@@ -522,30 +515,21 @@ function App() {
           <Plus size={16} /> New message
         </button>
       </div>
-    ) : page === "Documents" ? (
+    ) : page === "Constitution" && !currentDoc ? (
       <div className="page-actions">
         <button
           className="primary"
           disabled={disabled}
           onClick={() =>
             setEditor({
-              level: state?.documents.some((d) => d.level === "constitution")
-                ? "product"
-                : "constitution",
-              policy: {
-                ...freshPolicy,
-                inclusion: state?.documents.some(
-                  (d) => d.level === "constitution",
-                )
-                  ? "relevant"
-                  : "always",
-              },
+              level: "constitution",
+              policy: { ...freshPolicy, inclusion: "always" },
               content: "",
-              title: "",
+              title: "Constitution",
             })
           }
         >
-          <Plus size={16} /> New document
+          <Plus size={16} /> Write constitution
         </button>
       </div>
     ) : page === "Knowledge" ? (
@@ -556,13 +540,13 @@ function App() {
           onClick={() =>
             setEditor({
               level: "knowledge",
-              policy: { ...freshPolicy, kind: "observation" },
+              policy: { ...freshPolicy },
               content: "",
               title: "",
             })
           }
         >
-          <Plus size={16} /> New entry
+          <Plus size={16} /> New document
         </button>
       </div>
     ) : page === "Automation" && inboxView === "work" ? (
@@ -1072,7 +1056,12 @@ function App() {
                     <Evidence
                       refs={work.evidence}
                       open={(id) => {
-                        navigate("Documents");
+                        navigate(
+                          state.documents.find((d) => d.id === id)?.level ===
+                            "constitution"
+                            ? "Constitution"
+                            : "Knowledge",
+                        );
                         setDocId(id);
                       }}
                     />
@@ -1284,29 +1273,12 @@ function App() {
                 )}
               </>
             )}
-            {page === "Documents" && (
-              <div className="document-layout">
-                <div className="document-list">
-                  {state.documents
-                    .filter((d) => d.level !== "knowledge")
-                    .map((d) => (
-                      <button
-                        key={d.id}
-                        className={docId === d.id ? "selected" : ""}
-                        onClick={() => setDocId(d.id)}
-                      >
-                        <small>{d.level}</small>
-                        <strong>{d.title}</strong>
-                        <span>
-                          {d.policy.inclusion} · {d.policy.status}
-                        </span>
-                      </button>
-                    ))}
-                </div>
-                {!state.documents.some((d) => d.level !== "knowledge") && (
+            {page === "Constitution" && (
+              <div className="constitution-layout">
+                {!currentDoc && (
                   <Empty
-                    title="No documents yet"
-                    text="Add the documents that explain how your company operates."
+                    title="Write your constitution"
+                    text="Define the company’s purpose, principles, and direction. Every agent starts here; only you can edit it."
                   />
                 )}
                 {currentDoc && (
@@ -1323,7 +1295,33 @@ function App() {
                     <p className="muted">
                       v{currentDoc.version} · {date(currentDoc.updated_at)}
                     </p>
+                    <p className="muted">
+                      Company direction · Always included · Only you can edit
+                    </p>
                     <Markdown>{currentDoc.content}</Markdown>
+                    <details
+                      className="library-support"
+                      key={currentDoc.version}
+                      onToggle={(e) => {
+                        if (e.currentTarget.open)
+                          void api("/knowledge/" + currentDoc.id)
+                            .then((r) => setConstitutionHistory(r.history))
+                            .catch((e) => setError(e.message));
+                      }}
+                    >
+                      <summary>Revision history</summary>
+                      {constitutionHistory?.map((r) => (
+                        <details key={r.version}>
+                          <summary>
+                            Revision {r.version} · {date(r.created_at)}
+                          </summary>
+                          <Markdown>{r.content}</Markdown>
+                        </details>
+                      ))}
+                    </details>
+                    <button onClick={() => discuss(currentDoc)}>
+                      Discuss with Foreman
+                    </button>
                     <details className="context-contract">
                       <summary>Context & usage</summary>
 
@@ -1342,15 +1340,8 @@ function App() {
                         </span>
                       </div>
                       <p>
-                        {currentDoc.policy.status !== "active"
-                          ? "Excluded from automatic context while " +
-                            currentDoc.policy.status +
-                            "."
-                          : currentDoc.policy.inclusion === "always"
-                            ? "Included in every matching-scope run, subject to the visible context limit."
-                            : currentDoc.policy.inclusion === "reference"
-                              ? "Only included when explicitly attached to a conversation."
-                              : "Eligible for retrieval when relevant. Creating it does not put it in every prompt."}
+                        The current constitution is included in every agent
+                        briefing.
                       </p>
                       <div className="actions">
                         <button
@@ -1371,9 +1362,6 @@ function App() {
                         >
                           Records & usage
                         </button>
-                        <button onClick={() => discuss(currentDoc)}>
-                          Discuss with Foreman
-                        </button>
                       </div>
                     </details>
                   </article>
@@ -1383,6 +1371,17 @@ function App() {
             {page === "Knowledge" && (
               <KnowledgeLibrary
                 state={state}
+                openId={docId}
+                inspect={(d) => {
+                  void api("/knowledge/" + d.id)
+                    .then(setAudit)
+                    .catch((e) => setError(e.message));
+                }}
+                preview={(d) => {
+                  setContext(null);
+                  setPreviewOpen(true);
+                  setContextQuery(d.title);
+                }}
                 disabled={disabled}
                 command={command}
                 edit={(d) =>
@@ -1533,15 +1532,13 @@ function App() {
         <Modal
           className="document-editor-dialog"
           title={
-            page === "Knowledge"
+            editor.level === "constitution"
               ? editor.id
-                ? "Edit entry"
-                : "New entry"
+                ? "Edit constitution"
+                : "Write constitution"
               : editor.id
                 ? "Edit document"
-                : editor.level === "knowledge"
-                  ? "New record"
-                  : "New document"
+                : "New document"
           }
           close={() => setEditor(null)}
         >
@@ -1559,19 +1556,11 @@ function App() {
                   expectedVersion: editor.version,
                   policy: editor.policy || freshPolicy,
                 });
-                setDocId(result.id);
+
+                if (editor.level === "constitution")
+                  setConstitutionHistory(null);
+                if (!editor.id) setDocId(result.id);
                 setEditor(null);
-                if (page === "Knowledge" && query.trim()) {
-                  const matches = await api(
-                    "/search?q=" + encodeURIComponent(query),
-                  );
-                  setSearchIds(matches.results.map((d: SearchHit) => d.id));
-                  setSearchMatches(
-                    Object.fromEntries(
-                      matches.results.map((d: SearchHit) => [d.id, d]),
-                    ),
-                  );
-                }
               });
             }}
           >
@@ -1583,7 +1572,7 @@ function App() {
             <div className="document-form-body">
               <div className="document-meta">
                 <label>
-                  {page === "Knowledge" ? "Subject" : "Title"}
+                  Title
                   <input
                     required
                     maxLength={160}
@@ -1593,7 +1582,7 @@ function App() {
                     }
                   />
                 </label>
-                {!editor.id && page !== "Knowledge" && (
+                {!editor.id && editor.level !== "constitution" && (
                   <label>
                     Type
                     <select
@@ -1606,11 +1595,6 @@ function App() {
                       }
                     >
                       {[
-                        ...(state?.documents.some(
-                          (d) => d.level === "constitution",
-                        )
-                          ? []
-                          : ["constitution"]),
                         "product",
                         "architecture",
                         "execution",
@@ -1628,13 +1612,13 @@ function App() {
                 preview={(content) => <Markdown>{content}</Markdown>}
                 disabled={readOnly}
               />
-              {page !== "Knowledge" && (
+              {editor.level !== "constitution" && (
                 <>
                   <details className="editor-context-policy">
                     <summary>Context settings</summary>
                     <PolicyFields
                       policy={editor.policy || freshPolicy}
-                      protectedRecord={editor.level === "constitution"}
+                      protectedRecord={false}
                       change={(policy) => setEditor({ ...editor, policy })}
                     />
                   </details>
