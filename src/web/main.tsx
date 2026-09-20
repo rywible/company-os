@@ -1560,7 +1560,7 @@ function App() {
                   if (sourceEvidence)
                     setDrafts((drafts) => ({
                       ...drafts,
-                      new: `I want to discuss the evidence entry “${d.title}” without adding its contents to model context. `,
+                      new: `What has the Library learned from the evidence entry “${d.title}”? `,
                     }));
                   setComposeOpen(true);
                 }}

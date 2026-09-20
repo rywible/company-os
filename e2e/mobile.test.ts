@@ -1417,7 +1417,8 @@ test("evidence opens in a view/edit modal and can be deleted", async () => {
   const { view, repo, errors } = await setup("chrome", widths[1]!);
   const evidence = repo.saveDocument(
     {
-      title: "Interview observation",
+      title:
+        "Interview observation with enough detail to compete for horizontal space",
       content: "Three operators lost their place during handoff.",
       level: "knowledge",
     },
@@ -1427,13 +1428,47 @@ test("evidence opens in a view/edit modal and can be deleted", async () => {
   await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
   await nav(view, "Knowledge");
   await button(view, "Evidence", ".library-tools");
-  await button(view, "Interview observation", ".library-index", false);
+  await button(
+    view,
+    "Interview observation with enough detail to compete for horizontal space",
+    ".library-index",
+    false,
+  );
   await wait(view, `!!document.querySelector('dialog .evidence-view')`);
   expect(
     await view.evaluate<boolean>(
       `document.querySelector('dialog')?.textContent.includes('Three operators')`,
     ),
   ).toBe(true);
+  expect(
+    await view.evaluate<boolean>(
+      `(() => {
+        const edit = [...document.querySelectorAll('.evidence-heading button')]
+          .find((button) => button.textContent?.trim() === 'Edit');
+        return !!edit && getComputedStyle(edit).whiteSpace === 'nowrap' && edit.scrollWidth <= edit.clientWidth;
+      })()`,
+    ),
+  ).toBe(true);
+  await button(view, "Discuss with Foreman", "dialog");
+  expect(
+    await view.evaluate<string>(
+      `document.querySelector('[aria-label="New message content"]')?.value`,
+    ),
+  ).toBe(
+    "What has the Library learned from the evidence entry “Interview observation with enough detail to compete for horizontal space”? ",
+  );
+  expect(
+    await view.evaluate<boolean>(
+      `document.querySelector('.mail-compose .attachment') === null`,
+    ),
+  ).toBe(true);
+  await view.evaluate(
+    `[...document.querySelectorAll('button[aria-label="Close dialog"]')].at(-1)?.click()`,
+  );
+  await wait(
+    view,
+    `document.querySelectorAll('dialog[open]').length === 1 && !!document.querySelector('dialog .evidence-view')`,
+  );
   await fits(view);
   await Bun.write(
     `.artifacts/evidence-modal-phone.png`,

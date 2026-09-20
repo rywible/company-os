@@ -230,6 +230,8 @@
   border-bottom: 1px solid var(--line);
   margin-bottom: 22px;
 }
+.evidence-heading > div { min-width: 0; }
+.evidence-heading > button { flex: 0 0 auto; white-space: nowrap; }
 .evidence-heading h2 { margin: 0 0 7px; font-size: 24px; }
 .evidence-heading .library-meta { margin: 0; }
 .evidence-modal-actions {
