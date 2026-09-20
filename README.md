@@ -80,8 +80,10 @@ remain in the scoped Fly connector rather than on the Sprite filesystem.
 The current validated base is `company-os-studio-base-v1` at checkpoint `v2`;
 its earlier `v1` checkpoint is superseded.
 
-The initial pool is `company-os-studio-01` through
-`company-os-studio-10`: three OpenAI, three Anthropic, and four Meta workers.
+The provisioned fleet is `company-os-studio-01` through
+`company-os-studio-10`. The active pool currently contains the three
+authenticated OpenAI workers (`01`–`03`); the remaining Sprites are kept out of
+routing until their future Anthropic or Meta credentials are configured.
 Company OS leases one compatible worker for each invocation and allows up to
 `WORKER_CONCURRENCY` durable deliveries to overlap. Each automation stores its
 provider, model and reasoning effort; Foreman’s defaults are editable in
