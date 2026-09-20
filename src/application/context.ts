@@ -50,7 +50,7 @@ export async function assembleContext(
   embedding: EmbeddingPort,
   state: CompanyState,
   task: string,
-  scope: string,
+  _legacyScope: string,
   now: string,
   run?: Run,
   requested: { subject: string; reason: string }[] = [],
@@ -85,7 +85,6 @@ export async function assembleContext(
         !freshness[d.id] ||
         freshness[d.id]!.status === "current") &&
       p.status === "active" &&
-      (p.scope === "company" || p.scope === scope) &&
       p.inclusion !== "reference" &&
       (d.level !== "knowledge" ||
         !!state.library.pages[d.id] ||
@@ -151,7 +150,7 @@ export async function assembleContext(
     assignment: task,
     subject: input.subject,
     conversationSummary: input.conversationSummary,
-    scope,
+    scope: "company",
     assembledAt: now,
     documents: [],
     entries: [],
@@ -220,10 +219,10 @@ export async function assembleContext(
       reason =
         d.level === "knowledge" && !state.library.pages[d.id]
           ? "Source evidence: available to library maintenance"
-          : "Outside this scope, inactive, or reference-only";
+          : "Inactive or reference-only";
     else if (policy.inclusion === "always") {
       included = true;
-      reason = "Always included in this scope";
+      reason = "Always included";
     } else if (reasons.has(d.id)) {
       included = true;
       reason = reasons.get(d.id)!;

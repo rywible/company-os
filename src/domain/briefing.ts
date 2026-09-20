@@ -20,10 +20,7 @@ export function renderBriefing(context: Context): string {
               ? "Human-owned company direction"
               : d.level !== "knowledge"
                 ? "Governing document"
-                : context.entries.find((e) => e.id === d.id)?.policy.kind ===
-                    "hypothesis"
-                  ? "Tentative hypothesis"
-                  : "Current understanding; assess evidence and uncertainty in the content",
+                : "Current understanding; assess evidence and uncertainty in the content",
         selectedBecause: context.entries.find((e) => e.id === d.id)?.reason,
         content: d.content,
       }));
@@ -53,7 +50,6 @@ export function renderBriefing(context: Context): string {
       JSON.stringify(
         {
           task: context.assignment || context.query,
-          scope: context.scope,
           work: context.work,
           discovery: context.discovery,
           review: context.review,

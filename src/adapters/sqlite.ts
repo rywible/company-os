@@ -2,7 +2,7 @@ import { importLibrary, libraryTask } from "../domain/library";
 import type { Document } from "../contracts";
 import { initialDiscovery } from "../domain/discovery";
 import { Store } from "../server/store";
-import { initialState, type CompanyState } from "../domain/model";
+import { initialState, policySchema, type CompanyState } from "../domain/model";
 import { defaultAgentConfiguration } from "../domain/agents";
 import {
   eventPayloads,
@@ -104,6 +104,14 @@ export class SQLiteRepository implements Repository {
           .get() as { json: string }
       ).json,
     );
+    // Ignore removed policy metadata in existing workspaces; historical run snapshots remain intact.
+    s.policies = Object.fromEntries(
+      Object.entries(s.policies || {}).map(([id, policy]) => [
+        id,
+        policySchema.parse(policy),
+      ]),
+    );
+    delete s.settings.scope;
     s.discovery ||= initialDiscovery();
     if (!s.library) {
       s.library = importLibrary(this.documents());

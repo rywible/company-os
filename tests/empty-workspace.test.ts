@@ -113,8 +113,6 @@ test("direction comes from the current constitution, and exploration waits witho
       policy: {
         inclusion: "always",
         status: "active",
-        scope: "company",
-        kind: "document",
       },
     });
     let context = await assembleContext(
@@ -137,8 +135,6 @@ test("direction comes from the current constitution, and exploration waits witho
       policy: {
         inclusion: "always",
         status: "active",
-        scope: "company",
-        kind: "document",
       },
     });
     context = await assembleContext(

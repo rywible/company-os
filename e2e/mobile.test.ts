@@ -476,12 +476,16 @@ for (const backend of backends) {
         await click(view, ".editor-context-policy > summary");
         await view.evaluate<any>(`(() => {
           const selects = document.querySelectorAll('.editor-context-policy select');
-          ['reference', 'draft', 'decision'].forEach((value, i) => {
+          ['reference', 'draft'].forEach((value, i) => {
             selects[i].value = value;
             selects[i].dispatchEvent(new Event('change', { bubbles: true }));
           });
         })()`);
-        await fill(view, ".editor-context-policy input", "rehearsals");
+        expect(
+          await view.evaluate<any>(
+            `[...document.querySelectorAll('.editor-context-policy label')].map(el => el.childNodes[0].textContent.trim())`,
+          ),
+        ).toEqual(["Inclusion", "Status"]);
         await fits(view);
         await Bun.write(
           `.artifacts/context-settings-${size.name}.png`,
@@ -499,8 +503,6 @@ for (const backend of backends) {
         expect(repo.state().policies[subject.id]).toEqual({
           inclusion: "reference",
           status: "draft",
-          kind: "decision",
-          scope: "rehearsals",
         });
         expect(repo.document(subject.id)?.indexed_version).toBe(2);
         await wait(
@@ -546,8 +548,6 @@ for (const backend of backends) {
           policy: {
             inclusion: "relevant",
             status: "active",
-            scope: "company",
-            kind: "document",
           },
         }) as { id: string };
         const source = repo.document("architecture")!;
@@ -564,8 +564,6 @@ for (const backend of backends) {
           policy: state.policies[source.id] || {
             inclusion: "relevant",
             status: "active",
-            scope: "company",
-            kind: "document",
           },
         });
         await view.reload();
@@ -749,16 +747,9 @@ for (const backend of backends) {
         ).toBe(false);
         expect(
           await view.evaluate<any>(
-            `document.querySelectorAll('.settings-page input').length`,
+            `document.querySelector('.settings-page').textContent.includes('scope')`,
           ),
-        ).toBe(1);
-        await fill(view, ".settings-page input", "rywible/company-os");
-        await button(view, "Save workspace");
-        await wait(
-          view,
-          `document.querySelector('.settings-page [role="status"]')?.textContent === 'Saved'`,
-        );
-        expect(repo.state().settings.scope).toBe("rywible/company-os");
+        ).toBe(false);
         await Bun.write(
           `.artifacts/settings-${size.name}.png`,
           await view.screenshot(),
@@ -1042,7 +1033,10 @@ test("constitution and knowledge have distinct homes, with searchable editable d
     .documents()
     .find((d) => d.title === "Approved product plan")!;
   expect(product.level).toBe("knowledge");
-  expect(repo.state().policies[product.id]!.kind).toBe("document");
+  expect(repo.state().policies[product.id]).toEqual({
+    inclusion: "relevant",
+    status: "active",
+  });
   await button(view, "Edit", ".library-reader");
   await fill(
     view,

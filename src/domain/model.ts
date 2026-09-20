@@ -27,15 +27,11 @@ export const track = z.enum(["research", "bug", "feature"]);
 export const policySchema = z.object({
   inclusion: z.enum(["always", "relevant", "reference"]),
   status: z.enum(["active", "draft", "retired"]),
-  scope: z.string().min(1).max(160),
-  kind: z.enum(["document", "observation", "hypothesis", "decision"]),
 });
 export type Policy = z.infer<typeof policySchema>;
 export const defaultPolicy = (d: Document): Policy => ({
   inclusion: d.level === "constitution" ? "always" : "relevant",
   status: "active",
-  scope: "company",
-  kind: "document",
 });
 export type Note = {
   id: string;
@@ -213,7 +209,6 @@ export type Settings = {
   enabled: boolean;
   intervalMinutes: number;
   dailyBudget: number;
-  scope: string;
   nextHeartbeatAt: string;
   maxOpenWork: number;
   requiredReviews: number;
@@ -249,7 +244,6 @@ export function initialState(now: string): CompanyState {
       requiredReviews: 2,
       allowCodeChanges: false,
       foremanAgent: defaultAgentConfiguration(),
-      scope: "rywible/company-os",
       nextHeartbeatAt: new Date(Date.parse(now) + 3600000).toISOString(),
     },
   };
@@ -348,7 +342,6 @@ export const commandSchema = z.discriminatedUnion("type", [
     proposalId: text,
     action: z.enum(["accept", "dismiss"]),
   }),
-  z.object({ type: z.literal("ConfigureWorkspace"), scope: text.max(160) }),
   z.object({
     type: z.literal("ConfigureForeman"),
     agent: agentConfigurationSchema,
@@ -359,7 +352,6 @@ export const commandSchema = z.discriminatedUnion("type", [
     intervalMinutes: z.number().int().min(15).max(1440),
     dailyBudget: z.number().int().min(1).max(24),
     maxOpenWork: z.number().int().min(1).max(10),
-    scope: text.max(160),
   }),
   z.object({ type: z.literal("Heartbeat") }),
   z.object({

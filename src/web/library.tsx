@@ -183,8 +183,7 @@ export function KnowledgeLibrary({
           <summary>Context & usage</summary>
           <p>
             {state.policies[document.id]?.status || "active"} ·{" "}
-            {state.policies[document.id]?.inclusion || "relevant"} ·{" "}
-            {state.policies[document.id]?.scope || "company"}
+            {state.policies[document.id]?.inclusion || "relevant"}
           </p>
           <p>
             {state.policies[document.id]?.status &&
@@ -195,7 +194,7 @@ export function KnowledgeLibrary({
               : state.policies[document.id]?.inclusion === "reference"
                 ? "Only included when explicitly attached to a conversation."
                 : state.policies[document.id]?.inclusion === "always"
-                  ? "Included in matching-scope runs, subject to the context limit."
+                  ? "Included in agent context, subject to the context limit."
                   : "Eligible for retrieval when relevant."}
           </p>
           <div className="actions">

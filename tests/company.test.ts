@@ -461,7 +461,10 @@ test("browser work records real port evidence and observations remain attributed
     true,
   );
   const observation = repo.documents().find((d) => d.level === "knowledge")!;
-  expect(repo.state().policies[observation.id]!.kind).toBe("observation");
+  expect(repo.state().policies[observation.id]).toEqual({
+    inclusion: "relevant",
+    status: "active",
+  });
   expect(observation.source).toBe("foreman");
 });
 test("failed agent runs become actionable inbox threads and survive worker recovery", async () => {

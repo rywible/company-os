@@ -87,9 +87,7 @@ function save(
     level,
     policy: {
       inclusion: level === "constitution" ? "always" : "relevant",
-      scope: "company",
       status: "active",
-      kind: "document",
     },
   }) as { id: string; version: number };
 }
@@ -223,7 +221,7 @@ test("opening intent survives long conversations and never leaks another thread"
   expect(b.threadId).not.toBe(a.threadId);
 });
 
-test("related pages cannot bypass retired, scope or reference-only policies", async () => {
+test("related pages cannot bypass retired or reference-only policies", async () => {
   const parent = save("Restricted subject", "Secret guidance"),
     child = save(
       "Mobile controls",
@@ -236,7 +234,6 @@ test("related pages cannot bypass retired, scope or reference-only policies", as
   });
   for (const policy of [
     { status: "retired" as const },
-    { scope: "other-company" },
     { inclusion: "reference" as const },
   ]) {
     const s = repo.state();
@@ -731,7 +728,7 @@ test("a new finding about an existing subject still becomes maintenance evidence
   const raw = repo.documents().find((d) => d.source === "foreman")!;
   expect(raw).toBeDefined();
   expect(repo.state().library.pending[raw.id]).toBe(1);
-  expect(repo.state().policies[raw.id]?.kind).toBe("hypothesis");
+  expect(raw.content).toContain("uncertain");
 });
 
 test("import from the original document store preserves human knowledge organization", () => {
@@ -1177,4 +1174,47 @@ test("conversation library updates cannot rewrite the constitution", async () =>
   const job = repo.claim()!;
   await expect(company.deliver(job)).rejects.toThrow("governing");
   expect(repo.document(constitution.id)!.content).toBe("Human direction");
+});
+
+test("removed scope and kind metadata cannot hide knowledge or alter historical snapshots", async () => {
+  const page = save("Architecture", "The API stores records in SQLite.");
+  await drain();
+  company.execute({
+    type: "StartConversation",
+    subject: "Architecture",
+    content: "Explain the architecture",
+    attachment: { id: page.id, version: 1 },
+  });
+  await drain();
+  const state = repo.state();
+  Object.assign(state.policies[page.id]!, {
+    inclusion: "always",
+    scope: "old-project",
+    kind: "hypothesis",
+  });
+  Object.assign(state.settings, { scope: "old-workspace" });
+  const historical = state.runs[0]!.context!;
+  Object.assign(historical.entries.find((e) => e.id === page.id)!.policy, {
+    scope: "old-project",
+    kind: "hypothesis",
+  });
+  const snapshot = JSON.stringify(historical);
+  repo.save(state);
+  const loaded = repo.state();
+  expect(loaded.policies[page.id]).toEqual({
+    inclusion: "always",
+    status: "active",
+  });
+  expect(loaded.settings).not.toHaveProperty("scope");
+  expect(JSON.stringify(loaded.runs[0]!.context)).toBe(snapshot);
+  const context = await company.preview("unrelated query", "different-project");
+  expect(context.documents.map((d) => d.id)).toContain(page.id);
+  expect(context.entries.find((e) => e.id === page.id)!.policy).toEqual({
+    inclusion: "always",
+    status: "active",
+  });
+  expect(renderBriefing(context)).not.toContain("Tentative hypothesis");
+  expect(repo.document(page.id)!.content).toBe(
+    "The API stores records in SQLite.",
+  );
 });

@@ -341,8 +341,7 @@ export class Company {
           if (
             cmd.level === "constitution" &&
             (cmd.policy.inclusion !== "always" ||
-              cmd.policy.status !== "active" ||
-              cmd.policy.scope !== "company")
+              cmd.policy.status !== "active")
           )
             throw new DomainError(
               "The constitution must remain active and always included company-wide.",
@@ -599,15 +598,6 @@ export class Company {
           );
           break;
         }
-        case "ConfigureWorkspace": {
-          state.settings.scope = cmd.scope;
-          this.emit(
-            { type: "WorkspaceConfigured", payload: { scope: cmd.scope } },
-            "human",
-            "workspace",
-          );
-          break;
-        }
         case "ConfigureForeman": {
           state.settings.foremanAgent = cmd.agent;
           this.emit(
@@ -812,7 +802,7 @@ export class Company {
       this.embeddings,
       state,
       query,
-      scope || state.settings.scope,
+      scope || "company",
       this.now(),
       threadId ? ({ threadId } as Run) : undefined,
     );
@@ -965,7 +955,7 @@ export class Company {
         this.embeddings,
         state,
         query,
-        state.settings.scope,
+        "company",
         this.now(),
         run,
       );
@@ -1376,8 +1366,6 @@ export class Company {
         state.policies[d.id] = {
           inclusion: "relevant",
           status: "active",
-          scope: context.scope,
-          kind: observation.kind,
         };
         this.emit(
           {

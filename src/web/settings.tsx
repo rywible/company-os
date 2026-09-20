@@ -14,7 +14,6 @@ export function SettingsPage({
   command: CommandHandler;
 }) {
   const [tab, setTab] = useState("Workspace");
-  const [scope, setScope] = useState(settings.scope);
   const [count, setCount] = useState(settings.requiredReviews);
   const [allow, setAllow] = useState(settings.allowCodeChanges);
   const [foremanAgent, setForemanAgent] = useState(settings.foremanAgent);
@@ -36,42 +35,7 @@ export function SettingsPage({
         ))}
       </div>
       {tab === "Workspace" ? (
-        <>
-          <form
-            className="preference-section editor"
-            onChange={() => setSaved(false)}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void command({
-                type: "ConfigureWorkspace",
-                scope,
-              }).then(setSaved);
-            }}
-          >
-            <div>
-              <h2>Repository</h2>
-              <p className="muted">
-                The repository Foreman works with and keeps in view.
-              </p>
-            </div>
-            <label>
-              Repository scope
-              <input
-                required
-                maxLength={160}
-                value={scope}
-                onChange={(e) => setScope(e.target.value)}
-              />
-            </label>
-            <div className="actions">
-              <button className="primary" disabled={disabled}>
-                Save workspace
-              </button>
-              {saved && <span role="status">Saved</span>}
-            </div>
-          </form>
-          <InstallCard />
-        </>
+        <InstallCard />
       ) : tab === "Foreman" ? (
         <form
           className="preference-section editor"

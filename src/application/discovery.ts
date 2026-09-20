@@ -373,7 +373,6 @@ export class Discovery {
       idea,
       `Human decision: ${action}. ${reason}`,
       idea.evidence,
-      false,
     );
   }
   private learn(
@@ -381,7 +380,6 @@ export class Discovery {
     idea: Idea,
     finding: string,
     evidence: string[],
-    observed: boolean,
   ) {
     const previous = idea.knowledgeId
       ? this.h.repo.document(idea.knowledgeId)
@@ -400,8 +398,6 @@ export class Discovery {
     state.policies[d.id] = {
       inclusion: "relevant",
       status: "active",
-      scope: state.settings.scope,
-      kind: observed ? "observation" : "hypothesis",
     };
     this.h.emit(
       {
@@ -523,7 +519,7 @@ export class Discovery {
           run.id,
         );
       } else idea.status = "parked";
-      this.learn(state, idea, assessment.finding, assessment.evidence, false);
+      this.learn(state, idea, assessment.finding, assessment.evidence);
     } else if (phase === "outcome" && output.outcome === "completed") {
       if (!output.discoveryOutcome)
         throw new DomainError("An outcome check must return its finding.");
@@ -534,7 +530,6 @@ export class Discovery {
         idea,
         output.discoveryOutcome.finding,
         output.discoveryOutcome.evidence,
-        output.discoveryOutcome.verdict !== "inconclusive",
       );
       this.h.emit(
         {
@@ -588,7 +583,7 @@ export class Discovery {
           idea.status = "parked";
           idea.updatedAt = this.h.now();
           idea.decisionReason = `The ${work.discoveryPhase} work was cancelled.`;
-          this.learn(state, idea, idea.decisionReason, idea.evidence, false);
+          this.learn(state, idea, idea.decisionReason, idea.evidence);
           this.h.emit(
             {
               type: "DiscoveryDecided",

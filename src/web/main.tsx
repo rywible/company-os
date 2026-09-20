@@ -254,8 +254,6 @@ const pages = [
 const freshPolicy: Policy = {
   inclusion: "relevant",
   status: "active",
-  scope: "company",
-  kind: "document",
 };
 function App() {
   useMobileViewport();
@@ -1332,7 +1330,6 @@ function App() {
                         <span className="badge">
                           {currentDoc.policy.status}
                         </span>
-                        <span className="badge">{currentDoc.policy.scope}</span>
                         <span className="badge">
                           {currentDoc.indexed_version === currentDoc.version
                             ? "Indexed v" + currentDoc.version
@@ -1645,8 +1642,7 @@ function App() {
             </button>
           </div>
           <p>
-            Source: {audit.document.source} · v{audit.document.version} ·{" "}
-            {audit.policy.kind}
+            Source: {audit.document.source} · v{audit.document.version}
           </p>
           <Markdown>{audit.document.content}</Markdown>
           <h3>What meaning search uses</h3>
@@ -1842,7 +1838,7 @@ function ContextView({ context }: { context: Context }) {
   return (
     <div className="context-view">
       <p className="muted">
-        {date(context.assembledAt)} · {context.searchMode} · {context.scope}
+        {date(context.assembledAt)} · {context.searchMode}
       </p>
       <p>{context.query}</p>
       <p>
@@ -2054,7 +2050,7 @@ function PolicyFields({
             }
           >
             <option value="relevant">Retrieve when relevant</option>
-            <option value="always">Always include in scope</option>
+            <option value="always">Always include</option>
             <option value="reference">Reference only</option>
           </select>
         </label>
@@ -2068,28 +2064,6 @@ function PolicyFields({
             }
           >
             {["active", "draft", "retired"].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Scope
-          <input
-            disabled={protectedRecord}
-            value={policy.scope}
-            required
-            onChange={(e) => change({ ...policy, scope: e.target.value })}
-          />
-        </label>
-        <label>
-          Knowledge kind
-          <select
-            value={policy.kind}
-            onChange={(e) =>
-              change({ ...policy, kind: e.target.value as Policy["kind"] })
-            }
-          >
-            {["document", "observation", "hypothesis", "decision"].map((v) => (
               <option key={v}>{v}</option>
             ))}
           </select>

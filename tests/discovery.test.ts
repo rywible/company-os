@@ -186,7 +186,7 @@ test("scout → investigation → inbox decision → delivery → outcome → in
   );
   expect(repo.document(final.knowledgeId!)!.version).toBe(3);
   expect(repo.document(final.knowledgeId!)!.indexed_version).toBe(3);
-  expect(repo.state().policies[final.knowledgeId!]!.kind).toBe("hypothesis");
+  expect(repo.document(final.knowledgeId!)!.content).toContain("Hypothesis:");
   const names: string[] = repo.events().map((e) => e.type);
   for (const n of [
     "DiscoveryScoutRequested",
