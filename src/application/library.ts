@@ -349,26 +349,8 @@ export class Library {
     );
     return d.id;
   }
-  complete(state: CompanyState, run: Run, output: AgentResult) {
+  applyUpdates(state: CompanyState, run: Run, output: AgentResult) {
     const context = run.context!;
-    if (!context.maintenance)
-      throw new DomainError("Missing library maintenance briefing.");
-    if (
-      output.work.length ||
-      output.observations.length ||
-      output.proposals.length ||
-      output.changes.length ||
-      output.discoveries.length
-    )
-      throw new DomainError(
-        "Library maintenance may only synthesize subjects or request a decision.",
-      );
-    if (
-      output.requests.some((r) =>
-        r.evidence.some((ref) => !context.evidenceRefs.includes(ref)),
-      )
-    )
-      throw new DomainError("Maintenance cited evidence outside its briefing.");
     const ids: string[] = [];
     for (const update of output.libraryUpdates || []) {
       const old = this.validate(state, update, context);
@@ -406,6 +388,29 @@ export class Library {
         });
       } else ids.push(this.apply(state, update));
     }
+    return ids;
+  }
+  complete(state: CompanyState, run: Run, output: AgentResult) {
+    const context = run.context!;
+    if (!context.maintenance)
+      throw new DomainError("Missing library maintenance briefing.");
+    if (
+      output.work.length ||
+      output.observations.length ||
+      output.proposals.length ||
+      output.changes.length ||
+      output.discoveries.length
+    )
+      throw new DomainError(
+        "Library maintenance may only synthesize subjects or request a decision.",
+      );
+    if (
+      output.requests.some((r) =>
+        r.evidence.some((ref) => !context.evidenceRefs.includes(ref)),
+      )
+    )
+      throw new DomainError("Maintenance cited evidence outside its briefing.");
+    const ids = this.applyUpdates(state, run, output);
     // Do not consume evidence when the model explicitly lacks context or reports a blocked pass.
     if (!output.contextRequests?.length && output.outcome === "completed") {
       for (const source of context.maintenance.sources) {

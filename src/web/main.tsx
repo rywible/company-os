@@ -1552,7 +1552,7 @@ function App() {
                   id: editor.id,
                   title: editor.title || "",
                   content: editor.content || "",
-                  level: editor.level || "product",
+                  level: editor.level || "knowledge",
                   expectedVersion: editor.version,
                   policy: editor.policy || freshPolicy,
                 });
@@ -1570,41 +1570,39 @@ function App() {
               </p>
             )}
             <div className="document-form-body">
+              {editor.level !== "constitution" && (
+                <details className="editor-context-policy">
+                  <summary>
+                    Context settings
+                    <span className="context-summary">
+                      {(editor.policy || freshPolicy).inclusion === "always"
+                        ? "Always included"
+                        : (editor.policy || freshPolicy).inclusion ===
+                            "reference"
+                          ? "Reference only"
+                          : "When relevant"}
+                    </span>
+                  </summary>
+                  <PolicyFields
+                    policy={editor.policy || freshPolicy}
+                    change={(policy) => setEditor({ ...editor, policy })}
+                  />
+                </details>
+              )}
               <div className="document-meta">
                 <label>
                   Title
                   <input
                     required
                     maxLength={160}
+                    aria-label="Document title"
+                    placeholder="Untitled document"
                     value={editor.title || ""}
                     onChange={(e) =>
                       setEditor({ ...editor, title: e.target.value })
                     }
                   />
                 </label>
-                {!editor.id && editor.level !== "constitution" && (
-                  <label>
-                    Type
-                    <select
-                      value={editor.level}
-                      onChange={(e) =>
-                        setEditor({
-                          ...editor,
-                          level: e.target.value as Document["level"],
-                        })
-                      }
-                    >
-                      {[
-                        "product",
-                        "architecture",
-                        "execution",
-                        "knowledge",
-                      ].map((x) => (
-                        <option key={x}>{x}</option>
-                      ))}
-                    </select>
-                  </label>
-                )}
               </div>
               <MarkdownEditor
                 value={editor.content || ""}
@@ -1612,20 +1610,14 @@ function App() {
                 preview={(content) => <Markdown>{content}</Markdown>}
                 disabled={readOnly}
               />
-              {editor.level !== "constitution" && (
-                <>
-                  <details className="editor-context-policy">
-                    <summary>Context settings</summary>
-                    <PolicyFields
-                      policy={editor.policy || freshPolicy}
-                      protectedRecord={false}
-                      change={(policy) => setEditor({ ...editor, policy })}
-                    />
-                  </details>
-                </>
-              )}
             </div>
             <footer className="editor-footer">
+              <span className="writing-status">
+                {editor.content?.trim()
+                  ? editor.content.trim().split(/\s+/).length.toLocaleString()
+                  : 0}{" "}
+                words
+              </span>
               <button
                 className="primary"
                 disabled={

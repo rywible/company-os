@@ -358,7 +358,11 @@ for (const backend of backends) {
         await wait(view, `!!document.querySelector('.diagram svg')`);
         await fits(view);
         await button(view, "Edit");
-        await fill(view, "dialog input", "A clearer architecture");
+        await fill(
+          view,
+          '[aria-label="Document title"]',
+          "A clearer architecture",
+        );
         await click(view, '[aria-label="Document content"]');
         await view.evaluate<any>(
           `(() => {const el = document.querySelector('[aria-label="Document content"]'); const start = el.value.indexOf('The application'); el.setSelectionRange(start, start + 15);})()`,
@@ -431,7 +435,7 @@ for (const backend of backends) {
           repo.documents().filter((d) => d.level !== "constitution").length,
         );
         await button(view, "New document");
-        await fill(view, "dialog input", "Editor behavior");
+        await fill(view, '[aria-label="Document title"]', "Editor behavior");
         await fill(
           view,
           "dialog textarea",
@@ -464,6 +468,26 @@ for (const backend of backends) {
             "document.querySelectorAll('dialog .editor-context-policy').length",
           ),
         ).toBe(1);
+        expect(
+          await view.evaluate<any>(
+            `!!(document.querySelector('.editor-context-policy').compareDocumentPosition(document.querySelector('.document-meta')) & Node.DOCUMENT_POSITION_FOLLOWING)`,
+          ),
+        ).toBe(true);
+        await click(view, ".editor-context-policy > summary");
+        await view.evaluate<any>(`(() => {
+          const selects = document.querySelectorAll('.editor-context-policy select');
+          ['reference', 'draft', 'decision'].forEach((value, i) => {
+            selects[i].value = value;
+            selects[i].dispatchEvent(new Event('change', { bubbles: true }));
+          });
+        })()`);
+        await fill(view, ".editor-context-policy input", "rehearsals");
+        await fits(view);
+        await Bun.write(
+          `.artifacts/context-settings-${size.name}.png`,
+          await view.screenshot(),
+        );
+        await click(view, ".editor-context-policy > summary");
         await fill(
           view,
           "dialog textarea",
@@ -472,6 +496,12 @@ for (const backend of backends) {
         await button(view, "Save", "dialog");
         await wait(view, "!document.querySelector('dialog')");
         expect(repo.document(subject.id)?.version).toBe(2);
+        expect(repo.state().policies[subject.id]).toEqual({
+          inclusion: "reference",
+          status: "draft",
+          kind: "decision",
+          scope: "rehearsals",
+        });
         expect(repo.document(subject.id)?.indexed_version).toBe(2);
         await wait(
           view,
@@ -852,7 +882,7 @@ test("empty workspace: author the constitution without starter documents or inve
   ).toBe(false);
   await nav(view, "Constitution");
   await button(view, "Write constitution");
-  await fill(view, "dialog input", "Constitution");
+  await fill(view, '[aria-label="Document title"]', "Constitution");
   await fill(
     view,
     "dialog textarea",
@@ -880,7 +910,7 @@ test("empty workspace: author the constitution without starter documents or inve
       `document.querySelectorAll('dialog .editor-context-policy').length`,
     ),
   ).toBe(1);
-  await fill(view, "dialog input", "Rehearsal timing");
+  await fill(view, '[aria-label="Document title"]', "Rehearsal timing");
   await fill(view, "dialog textarea", "Leave ten minutes between rehearsals.");
   await button(view, "Save", "dialog");
   await wait(view, `!document.querySelector('dialog')`);
@@ -1001,10 +1031,7 @@ test("constitution and knowledge have distinct homes, with searchable editable d
       `[...document.querySelectorAll('dialog option')].some(o => o.value === 'constitution')`,
     ),
   ).toBe(false);
-  await fill(view, "dialog input", "Approved product plan");
-  await view.evaluate<any>(
-    `(() => { const select = document.querySelector('dialog select'); select.value = 'product'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
-  );
+  await fill(view, '[aria-label="Document title"]', "Approved product plan");
   await fill(view, "dialog textarea", "Ship the rehearsal planner first.");
   await button(view, "Save", "dialog");
   await wait(
@@ -1014,7 +1041,7 @@ test("constitution and knowledge have distinct homes, with searchable editable d
   const product = repo
     .documents()
     .find((d) => d.title === "Approved product plan")!;
-  expect(product.level).toBe("product");
+  expect(product.level).toBe("knowledge");
   expect(repo.state().policies[product.id]!.kind).toBe("document");
   await button(view, "Edit", ".library-reader");
   await fill(

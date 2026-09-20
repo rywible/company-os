@@ -1184,9 +1184,9 @@ export class Company {
       });
       return;
     }
-    if (output.libraryUpdates?.length)
+    if (output.libraryUpdates?.length && run!.trigger !== "message")
       throw new DomainError(
-        "Only library maintenance can rewrite subject pages.",
+        "Only conversations and library maintenance can write knowledge documents.",
       );
     if (run!.trigger === "review")
       return this.finishReview(run!.id, output, delivery.event.id);
@@ -1249,6 +1249,11 @@ export class Company {
         run.finishedAt = this.now();
         this.repo.save(state);
         return;
+      }
+      if (output.libraryUpdates?.length) {
+        if (run.trigger !== "message" || context.discovery || context.review)
+          throw new DomainError("This run cannot write knowledge documents.");
+        this.library.applyUpdates(state, run, output);
       }
       let thread = state.threads.find((t) => t.id === run.threadId);
       if (thread) {

@@ -157,7 +157,7 @@ export async function assembleContext(
     entries: [],
     libraryPages: {},
     freshness,
-    evidenceRefs: [],
+    evidenceRefs: input.messages.map((message) => `message:${message.id}`),
     gaps: [],
     additionalRequests: requested,
     messages: input.messages,

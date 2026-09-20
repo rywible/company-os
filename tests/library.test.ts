@@ -1062,3 +1062,119 @@ test("external source withdrawal is explicit and reversible", () => {
   });
   expect(freshness()[page.id]?.status).toBe("current");
 });
+
+test("Foreman creates an indexed architecture document with Mermaid directly from a conversation", async () => {
+  const content =
+    "# Proposed architecture\n\n```mermaid\nflowchart LR\n  Web --> API\n  API --> Database\n```";
+  execute = (context) =>
+    answer({
+      message: "Created the proposed architecture document.",
+      libraryUpdates: [
+        update(
+          "Rehearsal planner architecture",
+          content,
+          `message:${context.messages[0]!.id}`,
+        ),
+      ],
+    });
+  company.execute({
+    type: "StartConversation",
+    subject: "Architecture",
+    content:
+      "Create an architecture diagram for a web app with an API and database.",
+  });
+  await drain();
+  const doc = repo
+    .documents()
+    .find((d) => d.title === "Rehearsal planner architecture")!;
+  expect(doc.content).toBe(content);
+  expect(doc.level).toBe("knowledge");
+  expect(doc.indexed_version).toBe(doc.version);
+  expect(repo.state().library.pages[doc.id]!.managed).toBe(true);
+  expect(repo.state().library.pages[doc.id]!.sources).toEqual([
+    `message:${contexts[0]!.messages[0]!.id}`,
+  ]);
+  expect(
+    repo.state().threads.flatMap((t) => t.libraryProposals || []),
+  ).toHaveLength(0);
+  expect(repo.state().runs[0]!.status).toBe("completed");
+});
+
+test("conversation document changes still require approval for human-edited pages", async () => {
+  const doc = save("Architecture", "Original human architecture");
+  await drain();
+  execute = (context) =>
+    answer({
+      libraryUpdates: [
+        update(
+          "Architecture",
+          "Proposed revised architecture",
+          `message:${context.messages[0]!.id}`,
+          doc.id,
+          1,
+        ),
+      ],
+    });
+  company.execute({
+    type: "StartConversation",
+    subject: "Architecture",
+    content: "Revise the architecture",
+    attachment: { id: doc.id, version: 1 },
+  });
+  await drain();
+  expect(repo.document(doc.id)!.content).toBe("Original human architecture");
+  expect(
+    repo.state().threads.flatMap((t) => t.libraryProposals || []),
+  ).toHaveLength(1);
+  expect(
+    repo.state().threads.flatMap((t) => t.libraryProposals || [])[0]!.status,
+  ).toBe("pending");
+});
+
+test("conversation creation rejects forged sources atomically", async () => {
+  execute = (context) =>
+    answer({
+      libraryUpdates: [
+        update(
+          "Valid draft",
+          "A proposed diagram",
+          `message:${context.messages[0]!.id}`,
+        ),
+        update("Invalid draft", "Invented content", "message:unseen"),
+      ],
+    });
+  company.execute({
+    type: "StartConversation",
+    subject: "Architecture",
+    content: "Document the proposed architecture.",
+  });
+  const job = repo.claim()!;
+  await expect(company.deliver(job)).rejects.toThrow("supplied");
+  expect(repo.documents()).toHaveLength(0);
+  expect(Object.keys(repo.state().library.pages)).toHaveLength(0);
+});
+
+test("conversation library updates cannot rewrite the constitution", async () => {
+  const constitution = save("Constitution", "Human direction", "constitution");
+  await drain();
+  execute = (context) =>
+    answer({
+      libraryUpdates: [
+        update(
+          "Constitution",
+          "Different direction",
+          `message:${context.messages[0]!.id}`,
+          constitution.id,
+          1,
+        ),
+      ],
+    });
+  company.execute({
+    type: "StartConversation",
+    subject: "Direction",
+    content: "Consider a different direction.",
+  });
+  const job = repo.claim()!;
+  await expect(company.deliver(job)).rejects.toThrow("governing");
+  expect(repo.document(constitution.id)!.content).toBe("Human direction");
+});

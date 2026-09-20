@@ -179,6 +179,30 @@ export function KnowledgeLibrary({
               </ul>
             </aside>
           )}
+        <details className="context-contract">
+          <summary>Context & usage</summary>
+          <p>
+            {state.policies[document.id]?.status || "active"} ·{" "}
+            {state.policies[document.id]?.inclusion || "relevant"} ·{" "}
+            {state.policies[document.id]?.scope || "company"}
+          </p>
+          <p>
+            {state.policies[document.id]?.status &&
+            state.policies[document.id]?.status !== "active"
+              ? "Excluded from automatic context while " +
+                state.policies[document.id]?.status +
+                "."
+              : state.policies[document.id]?.inclusion === "reference"
+                ? "Only included when explicitly attached to a conversation."
+                : state.policies[document.id]?.inclusion === "always"
+                  ? "Included in matching-scope runs, subject to the context limit."
+                  : "Eligible for retrieval when relevant."}
+          </p>
+          <div className="actions">
+            <button onClick={() => preview(document)}>Preview selection</button>
+            <button onClick={() => inspect(document)}>Records & usage</button>
+          </div>
+        </details>
         <div className="library-body">{markdown(document.content)}</div>
         {meta?.sources.length ? (
           <details className="library-support">
@@ -419,30 +443,6 @@ export function KnowledgeLibrary({
               {markdown(r.content)}
             </details>
           ))}
-        </details>
-        <details className="context-contract">
-          <summary>Context & usage</summary>
-          <p>
-            {state.policies[document.id]?.status || "active"} ·{" "}
-            {state.policies[document.id]?.inclusion || "relevant"} ·{" "}
-            {state.policies[document.id]?.scope || "company"}
-          </p>
-          <p>
-            {state.policies[document.id]?.status &&
-            state.policies[document.id]?.status !== "active"
-              ? "Excluded from automatic context while " +
-                state.policies[document.id]?.status +
-                "."
-              : state.policies[document.id]?.inclusion === "reference"
-                ? "Only included when explicitly attached to a conversation."
-                : state.policies[document.id]?.inclusion === "always"
-                  ? "Included in matching-scope runs, subject to the context limit."
-                  : "Eligible for retrieval when relevant."}
-          </p>
-          <div className="actions">
-            <button onClick={() => preview(document)}>Preview selection</button>
-            <button onClick={() => inspect(document)}>Records & usage</button>
-          </div>
         </details>
         <div className="library-footer">
           <button onClick={() => discuss(document)}>
