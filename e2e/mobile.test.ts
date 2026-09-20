@@ -219,7 +219,7 @@ async function fits(view: Bun.WebView) {
 for (const backend of backends) {
   for (const size of widths)
     describe(`${backend} ${size.name}`, () => {
-      test("discovery: investigate, triage, learn, edit perspectives and record feedback", async () => {
+      test("task schedules, local limits, manual runs and inbox triage", async () => {
         const { view, repo, errors } = await setup(backend, size);
         const state = repo.state();
         state.settings.enabled = true;
@@ -229,7 +229,7 @@ for (const backend of backends) {
           view,
           `!!document.querySelector('[data-workspace-ready="true"]')`,
         );
-        await nav(view, "Discovery");
+        await nav(view, "Automation");
         await fits(view);
         expect(
           await view.evaluate<any>(
@@ -241,7 +241,7 @@ for (const backend of backends) {
           "Open Knowledge",
           "Open Automation",
         ]);
-        await button(view, "Explore next");
+        await button(view, "Run Users & workflows now");
         await nav(view, "Inbox");
         await button(view, "Make navigation clearer", ".thread-list", false);
         await wait(
@@ -266,72 +266,63 @@ for (const backend of backends) {
         expect(repo.state().discovery.ideas[0]!.status).toBe("learned");
         await fits(view);
         await nav(view, "Automation");
-        await button(view, "Pause automation");
+        expect(
+          await view.evaluate<any>(
+            `document.querySelectorAll('.automation-page .section-tabs').length`,
+          ),
+        ).toBe(0);
+        expect(
+          await view.evaluate<any>(
+            `document.querySelector('.automation-page').textContent.includes('exploratory')`,
+          ),
+        ).toBe(false);
+        await button(view, "Pause Users & workflows");
         await wait(
           view,
-          `document.querySelector('.automation-status h2')?.textContent === 'Foreman is paused'`,
+          `!!document.querySelector('[aria-label="Resume Users & workflows"]')`,
         );
-        expect(repo.state().settings.enabled).toBe(false);
-        await button(view, "Edit schedule");
-        await fill(view, 'input[type="number"][min="15"]', "90");
-        await button(view, "Save schedule");
-        await wait(
-          view,
-          `document.querySelector('.automation-metrics').textContent.includes('90 min')`,
-        );
-        expect(repo.state().settings.intervalMinutes).toBe(90);
-        await button(view, "Adjust limits");
-        await fill(view, 'input[name="capacity"]', "6");
-        await button(view, "Save discovery settings");
-        expect(repo.state().discovery.maxActiveIdeas).toBe(6);
-        await button(view, "Close limits");
-        await button(view, "Resume automation");
-        await wait(
-          view,
-          `document.querySelector('.automation-status h2')?.textContent === 'Foreman is on'`,
-        );
-        await fits(view);
-        await Bun.write(
-          `.artifacts/automation-${size.name}.png`,
-          await view.screenshot(),
-        );
-        await button(view, "Perspectives");
-        await fits(view);
+        expect(
+          repo.state().discovery.lenses.find((l) => l.id === "users")!.enabled,
+        ).toBe(false);
+        expect(
+          repo.state().discovery.lenses.find((l) => l.id === "direction")!
+            .enabled,
+        ).toBe(true);
         await button(view, "Edit Users & workflows");
         await fill(
           view,
-          '[aria-label="Perspective question"]',
+          '[aria-label="Task question"]',
           "Where does the mobile workflow confuse me?",
         );
-        await button(view, "Save perspective");
+        await fill(view, '[aria-label="Hours between runs"]', "12");
+        await fill(view, '[aria-label="Runs per day"]', "8");
+        await fill(view, '[aria-label="Active idea limit"]', "3");
+        await button(view, "Save task");
+        await wait(view, `!document.querySelector('.task-editor')`);
+        const task = repo
+          .state()
+          .discovery.lenses.find((l) => l.id === "users")!;
+        expect(task.intervalHours).toBe(12);
+        expect(task.dailyRunLimit).toBe(8);
+        expect(task.maxActiveIdeas).toBe(3);
+        const count = repo.state().runs.length;
+        await button(view, "Run Users & workflows now");
         await wait(
           view,
-          `!document.querySelector('[aria-label="Edit perspective"]')`,
+          `!!document.querySelector('.task-actions [role="status"]')`,
         );
+        expect(repo.state().runs.length).toBeGreaterThan(count);
         expect(
-          repo.state().discovery.lenses.find((l) => l.id === "users")!.question,
-        ).toContain("mobile workflow");
-        await button(view, "Feedback", ".section-tabs");
-        await fill(
-          view,
-          '[aria-label="Discovery signal"]',
-          "I could not tell which navigation label to use on my phone.",
-        );
-        await button(view, "Add feedback");
+          repo.state().discovery.lenses.find((l) => l.id === "users")!.enabled,
+        ).toBe(false);
+        await button(view, "Resume Users & workflows");
         await wait(
           view,
-          `document.querySelector('.discovery-signal')?.textContent.includes('navigation label')`,
+          `!!document.querySelector('[aria-label="Pause Users & workflows"]')`,
         );
-        expect(
-          repo
-            .state()
-            .discovery.signals.some((s) =>
-              s.detail.includes("navigation label"),
-            ),
-        ).toBe(true);
         await fits(view);
         await Bun.write(
-          `.artifacts/discovery-${size.name}.png`,
+          `.artifacts/tasks-${size.name}.png`,
           await view.screenshot(),
         );
         expect(errors).toEqual([]);
@@ -662,7 +653,25 @@ test("empty workspace: author the constitution without starter documents or inve
   expect(repo.state().threads).toHaveLength(0);
   expect(repo.state().work).toHaveLength(0);
   await fits(view);
-  await button(view, "Write constitution");
+  await nav(view, "Automation");
+  expect(
+    await view.evaluate<any>(
+      `document.querySelector('.task-notice').textContent.includes('Add a constitution')`,
+    ),
+  ).toBe(true);
+  expect(
+    await view.evaluate<any>(
+      `[...document.querySelectorAll('.task-actions .primary')].every(b=>b.disabled)`,
+    ),
+  ).toBe(true);
+  expect(
+    await view.evaluate<any>(
+      `document.querySelector('.automation-page').textContent.includes('Next check')`,
+    ),
+  ).toBe(false);
+  await button(view, "Open Documents", ".task-notice");
+  await button(view, "New document");
+  await fill(view, "dialog input", "Constitution");
   await fill(
     view,
     "dialog textarea",

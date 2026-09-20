@@ -1,9 +1,8 @@
 import React, { useState } from "react";
 import type { CompanyState, Command, Context } from "../domain/model";
-import type { Lens } from "../domain/discovery";
 
 type Props = {
-  mode?: "archive" | "idea" | "perspectives" | "signals" | "limits";
+  mode?: "archive" | "idea";
   state: CompanyState;
   disabled: boolean;
   selected: string | null;
@@ -18,25 +17,14 @@ const stamp = (at?: string) =>
   at ? new Date(at).toLocaleString() : "Not checked yet";
 export function DiscoveryPage(p: Props) {
   const d = p.state.discovery;
-  const tab = ["perspectives", "signals", "limits"].includes(p.mode || "")
-    ? p.mode
-    : "ideas";
   const [filter, setFilter] = useState("active"),
-    [reason, setReason] = useState(""),
-    [feedback, setFeedback] = useState(""),
-    [feedbackLens, setFeedbackLens] = useState("users"),
-    [editing, setEditing] = useState<Lens | null>(null);
+    [reason, setReason] = useState("");
   const idea = d.ideas.find((i) => i.id === p.selected);
   const pending = d.ideas.filter((i) =>
     ["candidate", "investigating", "ready", "pursued", "evaluating"].includes(
       i.status,
     ),
   );
-  const count = p.state.runs.filter(
-    (r) =>
-      r.automatic &&
-      r.createdAt.slice(0, 10) === new Date().toISOString().slice(0, 10),
-  ).length;
   const command = p.command;
   const decide = (action: "pursue" | "park" | "discard" | "revisit") =>
     idea &&
@@ -47,30 +35,7 @@ export function DiscoveryPage(p: Props) {
         "discovery-page " + (p.mode === "idea" ? "discovery-inline" : "")
       }
     >
-      {p.mode === "archive" && (
-        <>
-          <div className="discovery-summary">
-            <p>
-              {d.enabled && p.state.settings.enabled
-                ? "Discovery on"
-                : "Discovery paused"}{" "}
-              · {pending.length}/{d.maxActiveIdeas} active ideas · {count}/
-              {p.state.settings.dailyBudget} shared runs today
-            </p>
-            <button
-              disabled={p.disabled || !d.enabled || !p.state.settings.enabled}
-              onClick={() => void command({ type: "ExploreDiscovery" })}
-            >
-              Explore next
-            </button>
-          </div>
-          <p className="muted">
-            A hunch gets investigated before it reaches your inbox. Outcomes
-            feed back into Knowledge.
-          </p>
-        </>
-      )}
-      {tab === "ideas" && (
+      {
         <>
           {p.mode !== "idea" && (
             <label className="discovery-filter">
@@ -287,300 +252,7 @@ export function DiscoveryPage(p: Props) {
             )}
           </div>
         </>
-      )}
-      {tab === "limits" && (
-        <>
-          <form
-            className="discovery-settings editor"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void command({
-                type: "ConfigureDiscovery",
-                enabled: f.get("enabled") === "on",
-                explorationEvery: Number(f.get("exploration")),
-                maxActiveIdeas: Number(f.get("capacity")),
-                maxInvestigations: Number(f.get("investigations")),
-              });
-            }}
-            key={`${d.enabled}:${d.explorationEvery}:${d.maxActiveIdeas}:${d.maxInvestigations}`}
-          >
-            <label>
-              <input
-                type="checkbox"
-                name="enabled"
-                defaultChecked={d.enabled}
-                disabled={p.disabled}
-              />{" "}
-              Discovery enabled
-            </label>
-            <label>
-              Reserve exploration every{" "}
-              <input
-                name="exploration"
-                type="number"
-                min="1"
-                max="12"
-                defaultValue={d.explorationEvery}
-              />{" "}
-              scouts
-            </label>
-            <label>
-              Active idea limit
-              <input
-                name="capacity"
-                type="number"
-                min="1"
-                max="20"
-                defaultValue={d.maxActiveIdeas}
-              />
-            </label>
-            <label>
-              Investigations per idea
-              <input
-                name="investigations"
-                type="number"
-                min="1"
-                max="3"
-                defaultValue={d.maxInvestigations}
-              />
-            </label>
-            <button disabled={p.disabled}>Save discovery settings</button>
-          </form>
-        </>
-      )}
-      {tab === "perspectives" && (
-        <>
-          <p className="section-intro">
-            Questions Foreman revisits. Choose what it looks into and how often.
-          </p>
-          {!editing && (
-            <button
-              disabled={p.disabled}
-              onClick={() =>
-                setEditing({
-                  id: crypto.randomUUID(),
-                  name: "",
-                  question: "",
-                  enabled: true,
-                  exploratory: true,
-                  inspectUI: false,
-                  intervalHours: 48,
-                  sources: [],
-                })
-              }
-            >
-              Add perspective
-            </button>
-          )}
-          {editing && (
-            <form
-              className="discovery-editor"
-              aria-label="Edit perspective"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void command({
-                  type: "SaveDiscoveryLens",
-                  lens: {
-                    ...editing,
-                    sources: editing.sources
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  },
-                }).then((ok) => {
-                  if (ok) setEditing(null);
-                });
-              }}
-            >
-              <label>
-                Name
-                <input
-                  aria-label="Perspective name"
-                  required
-                  maxLength={80}
-                  value={editing.name}
-                  onChange={(e) =>
-                    setEditing({ ...editing, name: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Question
-                <textarea
-                  aria-label="Perspective question"
-                  required
-                  maxLength={2000}
-                  value={editing.question}
-                  onChange={(e) =>
-                    setEditing({ ...editing, question: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={editing.inspectUI}
-                  onChange={(e) =>
-                    setEditing({ ...editing, inspectUI: e.target.checked })
-                  }
-                />{" "}
-                Inspect the live interface before scouting
-              </label>
-              <label>
-                GitHub release sources (owner/repo, one per line)
-                <textarea
-                  aria-label="Release sources"
-                  value={(editing.sources || []).join("\n")}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      sources: e.target.value.split("\n"),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Hours between checks
-                <input
-                  type="number"
-                  min="1"
-                  max="720"
-                  value={editing.intervalHours}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      intervalHours: Number(e.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={editing.enabled}
-                  onChange={(e) =>
-                    setEditing({ ...editing, enabled: e.target.checked })
-                  }
-                />{" "}
-                Enabled
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={editing.exploratory}
-                  onChange={(e) =>
-                    setEditing({ ...editing, exploratory: e.target.checked })
-                  }
-                />{" "}
-                Exploratory
-              </label>
-              <button disabled={p.disabled} className="primary">
-                Save perspective
-              </button>
-              <button type="button" onClick={() => setEditing(null)}>
-                Cancel
-              </button>
-            </form>
-          )}
-          {!editing && (
-            <div className="discovery-lenses">
-              {d.lenses.map((l) => (
-                <article key={l.id}>
-                  <h3>{l.name}</h3>
-                  <p>{l.question}</p>
-                  <p className="muted">
-                    {l.enabled ? `Every ${l.intervalHours}h` : "Disabled"}
-                    {l.exploratory ? " · exploratory" : ""}
-                    <br />
-                    {stamp(l.lastRunAt)}
-                  </p>
-                  <div>
-                    <button
-                      disabled={p.disabled}
-                      onClick={() => setEditing({ ...l })}
-                    >
-                      Edit {l.name}
-                    </button>
-                    <button
-                      disabled={
-                        p.disabled ||
-                        !l.enabled ||
-                        !d.enabled ||
-                        !p.state.settings.enabled
-                      }
-                      onClick={() =>
-                        void command({ type: "ExploreDiscovery", lensId: l.id })
-                      }
-                    >
-                      Explore {l.name}
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-      {tab === "signals" && (
-        <>
-          <form
-            className="discovery-editor"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void command({
-                type: "RecordDiscoverySignal",
-                lensId: feedbackLens,
-                content: feedback,
-              }).then((ok) => {
-                if (ok) setFeedback("");
-              });
-            }}
-          >
-            <label>
-              What should Foreman look into?
-              <textarea
-                aria-label="Discovery signal"
-                value={feedback}
-                required
-                maxLength={8000}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder="Include the observation, source or link, and why it might matter."
-              />
-            </label>
-            <label>
-              Perspective
-              <select
-                value={feedbackLens}
-                onChange={(e) => setFeedbackLens(e.target.value)}
-              >
-                {d.lenses.map((l) => (
-                  <option value={l.id} key={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button disabled={p.disabled || !feedback.trim()}>
-              Add feedback
-            </button>
-          </form>
-          <p className="muted">
-            Signals bring checks forward after a cooldown. Links are retained as
-            your input; they are not automatically fetched.
-          </p>
-          {d.signals.toReversed().map((s) => (
-            <article className="discovery-signal" key={s.id}>
-              <h3>{s.title}</h3>
-              <p>{s.detail}</p>
-              <small>
-                {stamp(s.at)} ·{" "}
-                {s.consumedBy ? "Considered by a scout" : "Pending"}{" "}
-                {s.count > 1 ? `· ${s.count} occurrences` : ""}
-              </small>
-            </article>
-          ))}
-        </>
-      )}
+      }
     </section>
   );
 }

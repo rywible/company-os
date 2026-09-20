@@ -100,6 +100,29 @@ export class SQLiteRepository implements Repository {
     );
     s.reviewRounds ||= [];
     s.discovery ||= initialDiscovery();
+    if (s.discovery.taskSettingsVersion !== 1) {
+      for (const lens of s.discovery.lenses) {
+        lens.enabled =
+          lens.enabled &&
+          s.settings.enabled !== false &&
+          s.discovery.enabled !== false;
+        lens.dailyRunLimit ??= s.settings.dailyBudget || 6;
+        lens.maxActiveIdeas ??= s.discovery.maxActiveIdeas || 6;
+        lens.maxInvestigations ??= s.discovery.maxInvestigations || 2;
+        lens.maxOpenWork ??= s.settings.maxOpenWork || 4;
+        delete lens.exploratory;
+      }
+      s.discovery.taskSettingsVersion = 1;
+      for (const key of [
+        "enabled",
+        "explorationEvery",
+        "maxActiveIdeas",
+        "maxInvestigations",
+        "scoutsSinceExploration",
+      ])
+        delete s.discovery[key];
+      this.save(s);
+    }
     for (const lens of s.discovery.lenses) {
       lens.inspectUI ??= lens.id === "users";
       lens.sources ??= [];

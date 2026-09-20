@@ -145,6 +145,8 @@ export type BrowserEvidence = {
   errors: string[];
 };
 export type Run = {
+  manual?: boolean;
+  budgetDay?: string;
   discoveryLensId?: string;
   discoverySignalIds?: string[];
   id: string;
@@ -258,6 +260,7 @@ export const commandSchema = z.discriminatedUnion("type", [
     proposalId: text,
     action: z.enum(["accept", "dismiss"]),
   }),
+  z.object({ type: z.literal("ConfigureWorkspace"), scope: text.max(160) }),
   z.object({
     type: z.literal("ConfigureAutonomy"),
     enabled: z.boolean(),

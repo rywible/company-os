@@ -486,10 +486,7 @@ function App() {
     });
     return ok;
   }
-  const renderDiscovery = (
-    mode: "archive" | "idea" | "perspectives" | "signals" | "limits",
-    ideaId = selectedIdea,
-  ) =>
+  const renderDiscovery = (mode: "archive" | "idea", ideaId = selectedIdea) =>
     state ? (
       <DiscoveryPage
         mode={mode}
@@ -1012,40 +1009,6 @@ function App() {
               renderDiscovery("archive")}
             {page === "Automation" && inboxView === "work" && (
               <>
-                <div className="autonomy-strip">
-                  <span
-                    className={
-                      "status-dot " + (state.settings.enabled ? "enabled" : "")
-                    }
-                  />
-                  <span>
-                    Autonomy {state.settings.enabled ? "on" : "paused"} · every{" "}
-                    {state.settings.intervalMinutes} min ·{" "}
-                    {
-                      state.runs.filter(
-                        (r) =>
-                          r.automatic &&
-                          r.createdAt.slice(0, 10) ===
-                            new Date().toISOString().slice(0, 10),
-                      ).length
-                    }
-                    /{state.settings.dailyBudget} runs today
-                  </span>
-                  <button
-                    disabled={disabled}
-                    onClick={() =>
-                      void perform(async () => {
-                        const r = await act({ type: "Heartbeat" });
-                        if (r.skipped) throw Error(r.skipped);
-                      })
-                    }
-                  >
-                    Check now
-                  </button>
-                  <button onClick={() => navigate("Automation")}>
-                    Configure
-                  </button>
-                </div>
                 <div className="filters">
                   {["all", "research", "bug", "feature"].map((t) => (
                     <button
@@ -1484,7 +1447,11 @@ function App() {
                 state={state}
                 disabled={disabled}
                 command={command}
-                discovery={renderDiscovery}
+                configured={state.configured}
+                hasConstitution={state.documents.some(
+                  (d) => d.level === "constitution" && !!d.content.trim(),
+                )}
+                openDocuments={() => navigate("Documents")}
                 openWork={() => navigate("Work")}
                 openIdeas={() => navigate("Discovery")}
               />

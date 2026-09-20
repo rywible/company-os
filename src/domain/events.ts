@@ -53,6 +53,7 @@ export const eventPayloads = {
     requiredReviews: z.number().int().min(1).max(5),
     allowCodeChanges: z.boolean(),
   }),
+  WorkspaceConfigured: z.object({ scope: z.string().min(1).max(160) }),
   AutonomyConfigured: z.object({ enabled: z.boolean() }),
 } as const;
 export type EventType = keyof typeof eventPayloads;

@@ -1,3 +1,9 @@
+import {
+  taskForRun,
+  taskUsage,
+  taskBlocker,
+  runCanProceed,
+} from "../domain/automation";
 import { evidenceReferences } from "../domain/evidence";
 import { Discovery } from "./discovery";
 import {
@@ -94,6 +100,7 @@ export class Company {
       context: null,
       error: null,
       createdAt: this.now(),
+      budgetDay: this.now().slice(0, 10),
     };
     state.runs.push(run);
     return run;
@@ -428,6 +435,15 @@ export class Company {
           );
           break;
         }
+        case "ConfigureWorkspace": {
+          state.settings.scope = cmd.scope;
+          this.emit(
+            { type: "WorkspaceConfigured", payload: { scope: cmd.scope } },
+            "human",
+            "workspace",
+          );
+          break;
+        }
         case "ConfigureAutonomy": {
           state.settings = {
             ...state.settings,
@@ -523,33 +539,38 @@ export class Company {
     );
   }
   private heartbeatIn(state: CompanyState, manual = false, lensId?: string) {
-    if (!state.settings.enabled) return { skipped: "paused" };
-    if (
-      !this.repo
-        .documents()
-        .some((d) => d.level === "constitution" && d.content.trim())
-    )
+    const hasConstitution = this.repo
+      .documents()
+      .some((d) => d.level === "constitution" && d.content.trim());
+    if (!hasConstitution)
       return {
         skipped: "Add a constitution before starting autonomous exploration.",
       };
     if (
-      !manual &&
-      Date.parse(state.settings.nextHeartbeatAt) > this.clock.now().getTime()
+      state.runs.some(
+        (r) =>
+          r.status === "running" ||
+          (r.status === "queued" && runCanProceed(state, r)),
+      )
     )
-      return { skipped: "not due" };
-    if (state.runs.some((r) => ["queued", "running"].includes(r.status)))
       return { skipped: "run active" };
-    if (!this.budgetAvailable(state))
-      return { skipped: "daily budget reached" };
-    state.settings.nextHeartbeatAt = new Date(
-      this.clock.now().getTime() + state.settings.intervalMinutes * 60000,
-    ).toISOString();
+    const requested = lensId
+      ? state.discovery.lenses.find((l) => l.id === lensId)
+      : undefined;
+    if (lensId && !requested) throw new DomainError("Task not found.");
+    if (requested) {
+      const blocked = taskBlocker(
+        state,
+        requested,
+        this.now(),
+        hasConstitution,
+      );
+      if (blocked) return { skipped: blocked };
+    }
     const lens = this.discovery.scout(state, lensId);
-    if (!lens)
-      return {
-        skipped: "Discovery paused, at capacity, or no perspective due",
-      };
+    if (!lens) return { skipped: "No task is due with available capacity." };
     const run = this.run(state, { trigger: "heartbeat", automatic: true });
+    run.manual = manual && !!lensId;
     this.discovery.attach(state, run, lens);
     this.emit(
       {
@@ -618,17 +639,19 @@ export class Company {
           )
         )
           return;
+        const task = taskForRun(state, { workId: work.id });
         if (
+          task &&
+          (!task.enabled ||
+            taskUsage(state, task, this.now()) >= task.dailyRunLimit)
+        )
+          throw new Deferred("Task paused or daily run limit reached.");
+        if (
+          !task &&
           work.origin === "foreman" &&
           (!state.settings.enabled || !this.budgetAvailable(state))
         )
           throw new Deferred("Autonomy paused or daily budget reached.");
-        if (
-          work.discoveryId &&
-          work.discoveryPhase !== "delivery" &&
-          !state.discovery.enabled
-        )
-          throw new Deferred("Discovery paused.");
         const run = this.run(state, {
           trigger: "work",
           workId: work.id,
@@ -669,15 +692,19 @@ export class Company {
     let state = this.repo.state(),
       run = state.runs.find((r) => r.id === effect.runId);
     if (!run || run.status === "completed") return;
-    if (run.automatic && !state.settings.enabled)
-      throw new Deferred("Autonomy paused.");
-    const work = state.work.find((w) => w.id === run!.workId);
+    if (!runCanProceed(state, run)) throw new Deferred("Task paused.");
+    const owner = taskForRun(state, run);
     if (
-      !state.discovery.enabled &&
-      (run.discoveryLensId ||
-        (work?.discoveryId && work.discoveryPhase !== "delivery"))
-    )
-      throw new Deferred("Discovery paused.");
+      owner &&
+      run.automatic &&
+      (run.budgetDay || run.createdAt.slice(0, 10)) !== this.now().slice(0, 10)
+    ) {
+      if (taskUsage(state, owner, this.now()) >= owner.dailyRunLimit)
+        throw new Deferred("Task daily run limit reached.");
+      run.budgetDay = this.now().slice(0, 10);
+      this.repo.save(state);
+    }
+    const work = state.work.find((w) => w.id === run!.workId);
     if (work && ["done", "cancelled"].includes(work.status)) {
       this.repo.transaction(() => {
         const s = this.repo.state(),

@@ -46,7 +46,7 @@ Keep one Fly application Machine. This design does not support multiple worker o
 
 ## Context and present understanding
 
-The primary navigation is Inbox, Documents, Knowledge, and Automation; Settings is a utility control. Automation holds heartbeat scheduling, perspectives, feedback and background work. Settings separates workspace configuration from review policy. Both human-started conversations and agent requests appear in Inbox. New message opens a subject/body composer; each thread opens on a single reading surface, with replies and archiving. Knowledge exposes subject and content for editing, while versioning, policies and indexing stay behind the application boundary. Work and experiment history are optional drill-downs inside Automation. Developed discovery recommendations expose their decision controls directly in their inbox threads.
+The primary navigation is Inbox, Documents, Knowledge, and Automation; Settings is a utility control. Automation lists tasks with their own schedules, pause/resume and run-now controls, budgets and investigation limits. Settings separates workspace configuration from review policy. Both human-started conversations and agent requests appear in Inbox. New message opens a subject/body composer; each thread opens on a single reading surface, with replies and archiving. Knowledge exposes subject and content for editing, while versioning, policies and indexing stay behind the application boundary. Work and experiment history are optional drill-downs inside Automation. Developed discovery recommendations expose their decision controls directly in their inbox threads.
 
 Documents and observations share a canonical, versioned source. Each record has scope, inclusion (`always`, `relevant`, `reference`) and lifecycle (`active`, `draft`, `retired`). The constitution is the sole source of company direction: Settings has no separate objective. The constitution is always included and can only be edited by a human. Proposals cannot alter it.
 
@@ -56,7 +56,7 @@ Knowledge exposes the exact indexed title-and-text passages, keyword/semantic ma
 
 ## Execution boundaries
 
-Discovery uses rotating perspectives and event signals to investigate hypotheses before asking for a decision. Assessments and outcome checks feed versioned understanding through the normal indexing workflow. Its scouts and investigations share the automatic run budget; idea capacity and experiment limits prevent unbounded growth. The deterministic lifecycle is in `src/application/discovery.ts`; selection and novelty rules are in `src/domain/discovery.ts`.
+Discovery uses rotating perspectives and event signals to investigate hypotheses before asking for a decision. Assessments and outcome checks feed versioned understanding through the normal indexing workflow. Each task owns its run allowance, active idea capacity, open-work limit and investigation limit. Scouts and follow-up work charge the owning task; no shared exploration pool or reserved-slot classification remains. Paused queued tasks do not stop other due tasks. The deterministic lifecycle is in `src/application/discovery.ts`; selection and novelty rules are in `src/domain/discovery.ts`.
 
 Pursued work supports research, bug and feature tracks; its executors perform investigation or a bounded live UI inspection. Investigation can discover implementation work and escalate it. General feature implementation and PR creation are not yet executors.
 

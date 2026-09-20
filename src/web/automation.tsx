@@ -1,216 +1,279 @@
 import React, { useState } from "react";
 import type { CompanyState } from "../domain/model";
+import type { Lens } from "../domain/discovery";
+import { taskBlocker, taskDueAt, taskUsage } from "../domain/automation";
 import type { CommandHandler } from "./settings";
+const stamp = (at: string) =>
+  new Date(at).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
 export function AutomationPage({
   state,
   disabled,
   command,
-  discovery,
+  configured,
+  hasConstitution,
+  openDocuments,
   openWork,
   openIdeas,
 }: {
   state: CompanyState;
   disabled: boolean;
   command: CommandHandler;
-  discovery(mode: "perspectives" | "signals" | "limits"): React.ReactNode;
+  configured: boolean;
+  hasConstitution: boolean;
+  openDocuments(): void;
   openWork(): void;
   openIdeas(): void;
 }) {
-  const [tab, setTab] = useState("Overview"),
-    [editing, setEditing] = useState(false),
-    [limits, setLimits] = useState(false);
-  const s = state.settings;
-  const [schedule, setSchedule] = useState({
-    intervalMinutes: s.intervalMinutes,
-    dailyBudget: s.dailyBudget,
-    maxOpenWork: s.maxOpenWork,
-  });
-  const today = state.runs.filter(
-    (r) =>
-      r.automatic &&
-      r.createdAt.slice(0, 10) === new Date().toISOString().slice(0, 10),
-  ).length;
-  return (
-    <div className="automation-page">
-      <div
-        className="section-tabs"
-        role="group"
-        aria-label="Automation sections"
+  const [editing, setEditing] = useState<Lens | null>(null),
+    [requested, setRequested] = useState<string | null>(null);
+  const now = new Date().toISOString();
+  const globalBlock = !hasConstitution
+    ? "Add a constitution before these tasks can run."
+    : !configured
+      ? "Connect the worker before these tasks can run."
+      : null;
+  const create = () =>
+    setEditing({
+      id: crypto.randomUUID(),
+      name: "",
+      question: "",
+      enabled: true,
+      intervalHours: 24,
+      dailyRunLimit: 6,
+      maxActiveIdeas: 6,
+      maxInvestigations: 2,
+      maxOpenWork: 4,
+      inspectUI: false,
+      sources: [],
+    });
+  function editor(lens: Lens) {
+    return (
+      <form
+        className="editor task-editor"
+        aria-label="Edit automated task"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void command({
+            type: "SaveDiscoveryLens",
+            lens: {
+              ...lens,
+              sources: lens.sources.map((s) => s.trim()).filter(Boolean),
+            },
+          }).then((ok) => {
+            if (ok) setEditing(null);
+          });
+        }}
       >
-        {["Overview", "Perspectives", "Feedback"].map((name) => (
-          <button
-            key={name}
-            aria-pressed={tab === name}
-            onClick={() => setTab(name)}
-          >
-            {name}
+        <label>
+          Name
+          <input
+            required
+            maxLength={80}
+            value={lens.name}
+            onChange={(e) => setEditing({ ...lens, name: e.target.value })}
+          />
+        </label>
+        <label>
+          What should Foreman investigate?
+          <textarea
+            aria-label="Task question"
+            required
+            maxLength={2000}
+            value={lens.question}
+            onChange={(e) => setEditing({ ...lens, question: e.target.value })}
+          />
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={lens.enabled}
+            onChange={(e) => setEditing({ ...lens, enabled: e.target.checked })}
+          />{" "}
+          Run on a schedule
+        </label>
+        <div className="form-grid">
+          {[
+            { key: "intervalHours", label: "Hours between runs", max: 720 },
+            { key: "dailyRunLimit", label: "Runs per day", max: 24 },
+            { key: "maxActiveIdeas", label: "Active idea limit", max: 20 },
+            {
+              key: "maxInvestigations",
+              label: "Investigations per idea",
+              max: 3,
+            },
+            { key: "maxOpenWork", label: "Open work limit", max: 10 },
+          ].map((f) => (
+            <label key={f.key}>
+              {f.label}
+              <input
+                aria-label={f.label}
+                type="number"
+                required
+                min={1}
+                max={f.max}
+                value={lens[f.key as "intervalHours"]}
+                onChange={(e) =>
+                  setEditing({ ...lens, [f.key]: Number(e.target.value) })
+                }
+              />
+            </label>
+          ))}
+        </div>
+        <p className="field-help">
+          These limits apply only to this task. The daily limit includes its
+          research, investigations, delivery and outcome checks, and resets at
+          midnight UTC. Runs execute one at a time.
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={lens.inspectUI}
+            onChange={(e) =>
+              setEditing({ ...lens, inspectUI: e.target.checked })
+            }
+          />{" "}
+          Inspect the live interface
+        </label>
+        <label>
+          GitHub release sources (owner/repo, one per line)
+          <textarea
+            aria-label="Release sources"
+            value={lens.sources.join("\n")}
+            onChange={(e) =>
+              setEditing({ ...lens, sources: e.target.value.split("\n") })
+            }
+          />
+        </label>
+        <div className="actions">
+          <button className="primary" disabled={disabled}>
+            Save task
           </button>
-        ))}
+          <button type="button" onClick={() => setEditing(null)}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    );
+  }
+  return (
+    <div className="automation-page task-automations">
+      <div className="task-toolbar">
+        <p className="muted">Each task runs on its own schedule.</p>
+        <button disabled={disabled} onClick={create}>
+          Add task
+        </button>
       </div>
-      {tab === "Overview" ? (
-        <>
-          <section className="automation-status">
-            <div>
-              <h2>{s.enabled ? "Foreman is on" : "Foreman is paused"}</h2>
-              <p className="muted">
-                {s.enabled
-                  ? `Next check ${new Date(s.nextHeartbeatAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.`
-                  : "Scheduled work is paused. A running task can still finish."}
-              </p>
-            </div>
-            <button
-              disabled={disabled}
-              onClick={() =>
-                void command({
-                  ...s,
-                  type: "ConfigureAutonomy",
-                  enabled: !s.enabled,
-                })
-              }
-            >
-              {s.enabled ? "Pause automation" : "Resume automation"}
-            </button>
-          </section>
-          <div className="automation-metrics">
-            <div>
-              <strong>
-                {today} / {s.dailyBudget}
-              </strong>
-              <span>Runs today · UTC</span>
-            </div>
-            <div>
-              <strong>
-                {
-                  state.work.filter(
-                    (w) => !["done", "cancelled"].includes(w.status),
-                  ).length
-                }{" "}
-                / {s.maxOpenWork}
-              </strong>
-              <span>Open work</span>
-            </div>
-            <div>
-              <strong>{s.intervalMinutes} min</strong>
-              <span>Between checks</span>
-            </div>
-          </div>
-          <div className="automation-links">
-            <button onClick={openWork}>Work in progress</button>
-            <button onClick={openIdeas}>Ideas and experiments</button>
-            <button
-              disabled={disabled || !s.enabled}
-              onClick={() => void command({ type: "Heartbeat" })}
-            >
-              Check now
-            </button>
-          </div>
-          <section className="preference-section">
-            <div className="preference-heading">
-              <div>
-                <h2>Schedule & limits</h2>
-                <p className="muted">
-                  Research and delivery share one daily budget.
-                </p>
-              </div>
-              {!editing && (
-                <button
-                  onClick={() => {
-                    setSchedule({
-                      intervalMinutes: s.intervalMinutes,
-                      dailyBudget: s.dailyBudget,
-                      maxOpenWork: s.maxOpenWork,
-                    });
-                    setEditing(true);
-                  }}
-                >
-                  Edit schedule
-                </button>
-              )}
-            </div>
-            {editing && (
-              <form
-                className="editor"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void command({
-                    ...s,
-                    ...schedule,
-                    type: "ConfigureAutonomy",
-                  }).then((ok) => {
-                    if (ok) setEditing(false);
-                  });
-                }}
-              >
-                <div className="form-grid">
-                  {[
-                    {
-                      key: "intervalMinutes",
-                      name: "Minutes between checks",
-                      min: 15,
-                      max: 1440,
-                    },
-                    {
-                      key: "dailyBudget",
-                      name: "Runs per day",
-                      min: 1,
-                      max: 24,
-                    },
-                    {
-                      key: "maxOpenWork",
-                      name: "Open work limit",
-                      min: 1,
-                      max: 10,
-                    },
-                  ].map((f) => (
-                    <label key={f.key}>
-                      {f.name}
-                      <input
-                        type="number"
-                        required
-                        min={f.min}
-                        max={f.max}
-                        value={schedule[f.key as keyof typeof schedule]}
-                        onChange={(e) =>
-                          setSchedule({
-                            ...schedule,
-                            [f.key]: Number(e.target.value),
-                          })
-                        }
-                      />
-                    </label>
-                  ))}
-                </div>
-                <div className="actions">
-                  <button className="primary" disabled={disabled}>
-                    Save schedule
-                  </button>
-                  <button type="button" onClick={() => setEditing(false)}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
-          </section>
-          <section className="preference-section">
-            <div className="preference-heading">
-              <div>
-                <h2>Exploration</h2>
-                <p className="muted">
-                  {state.discovery.enabled
-                    ? "Investigates ideas before bringing a recommendation to your inbox."
-                    : "Scouting new ideas is paused."}
-                </p>
-              </div>
-              <button aria-expanded={limits} onClick={() => setLimits(!limits)}>
-                {limits ? "Close limits" : "Adjust limits"}
-              </button>
-            </div>
-            {limits && discovery("limits")}
-          </section>
-        </>
-      ) : (
-        discovery(tab === "Perspectives" ? "perspectives" : "signals")
+      {globalBlock && (
+        <div className="task-notice">
+          <p>{globalBlock}</p>
+          {!hasConstitution && (
+            <button onClick={openDocuments}>Open Documents</button>
+          )}
+        </div>
       )}
+      {editing && !state.discovery.lenses.some((l) => l.id === editing.id) && (
+        <section className="automated-task">{editor(editing)}</section>
+      )}
+      <div className="task-list">
+        {state.discovery.lenses.map((lens) => {
+          const blocker = taskBlocker(
+            state,
+            lens,
+            now,
+            hasConstitution,
+            configured,
+          );
+          const due = taskDueAt(state, lens);
+          const status = !lens.enabled
+            ? "Paused"
+            : globalBlock
+              ? "Waiting to start"
+              : blocker ||
+                (!due || due <= now
+                  ? "Ready for the next available run"
+                  : `Eligible ${stamp(due)}`);
+          return (
+            <article
+              className="automated-task"
+              key={lens.id}
+              aria-label={lens.name}
+            >
+              <div className="task-heading">
+                <div>
+                  <h2>{lens.name}</h2>
+                  <p>{lens.question}</p>
+                </div>
+                <button
+                  disabled={disabled}
+                  aria-label={`${lens.enabled ? "Pause" : "Resume"} ${lens.name}`}
+                  onClick={() =>
+                    void command({
+                      type: "SaveDiscoveryLens",
+                      lens: { ...lens, enabled: !lens.enabled },
+                    })
+                  }
+                >
+                  {lens.enabled ? "Pause" : "Resume"}
+                </button>
+              </div>
+              <p className="task-schedule">
+                Every {lens.intervalHours}{" "}
+                {lens.intervalHours === 1 ? "hour" : "hours"}.{" "}
+                {taskUsage(state, lens, now)} of {lens.dailyRunLimit} runs used
+                today.
+              </p>
+              <p className="task-status">{status}</p>
+              <div className="task-actions">
+                <button
+                  className="primary"
+                  disabled={disabled || !!blocker}
+                  title={
+                    blocker ||
+                    "Run once now without changing the schedule switch"
+                  }
+                  aria-label={`Run ${lens.name} now`}
+                  onClick={() =>
+                    void command({
+                      type: "ExploreDiscovery",
+                      lensId: lens.id,
+                    }).then((ok) => {
+                      if (ok) setRequested(lens.id);
+                    })
+                  }
+                >
+                  Run now
+                </button>
+                <button
+                  disabled={disabled}
+                  onClick={() => setEditing({ ...lens })}
+                  aria-label={`Edit ${lens.name}`}
+                >
+                  Schedule & limits
+                </button>
+                {requested === lens.id && (
+                  <span role="status">Run requested</span>
+                )}
+              </div>
+              {lens.lastRunAt && (
+                <p className="task-last-run">
+                  Last requested {stamp(lens.lastRunAt)}
+                </p>
+              )}
+              {editing?.id === lens.id && editor(editing)}
+            </article>
+          );
+        })}
+      </div>
+      <div className="automation-links">
+        <button onClick={openWork}>Work in progress</button>
+        <button onClick={openIdeas}>Ideas and experiments</button>
+      </div>
     </div>
   );
 }

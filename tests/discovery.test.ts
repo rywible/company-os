@@ -113,9 +113,8 @@ async function ready() {
   await drain();
   return repo.state().discovery.ideas[0]!;
 }
-test("rotates due perspectives, reacts after cooldown, and reserves exploration", () => {
+test("rotates due tasks and reacts to signals after cooldown", () => {
   const d = initialDiscovery();
-  d.scoutsSinceExploration = 3;
   d.signals.push({
     id: "a",
     key: "a",
@@ -125,8 +124,6 @@ test("rotates due perspectives, reacts after cooldown, and reserves exploration"
     at: now.toISOString(),
     count: 1,
   });
-  expect(selectLens(d, now.toISOString())!.exploratory).toBe(true);
-  d.scoutsSinceExploration = 0;
   expect(selectLens(d, now.toISOString())!.id).toBe("operations");
   for (const l of d.lenses) l.lastRunAt = now.toISOString();
   expect(selectLens(d, now.toISOString())).toBeUndefined();
@@ -351,9 +348,9 @@ test("signals coalesce, replay is idempotent, and discovery does not react to it
     false,
   );
 });
-test("manual scouts share the daily budget and master pause; signals become explicit context", async () => {
+test("manual scouts respect their own task budget; signals become explicit context", async () => {
   const s = repo.state();
-  s.settings.dailyBudget = 1;
+  s.discovery.lenses.find((l) => l.id === "users")!.dailyRunLimit = 1;
   repo.save(s);
   company.execute({
     type: "RecordDiscoverySignal",
@@ -368,15 +365,11 @@ test("manual scouts share the daily budget and master pause; signals become expl
   expect(contexts[0]!.evidenceRefs.some((r) => r.startsWith("signal:"))).toBe(
     true,
   );
-  expect(explore().skipped).toBe("daily budget reached");
-  const paused = repo.state();
-  paused.settings.enabled = false;
-  repo.save(paused);
-  expect(explore().skipped).toBe("paused");
+  expect(explore().skipped).toContain("daily run limit");
 });
 test("pending investigation defers at capacity and resumes without duplication", async () => {
   const s = repo.state();
-  s.settings.maxOpenWork = 1;
+  s.discovery.lenses.find((l) => l.id === "users")!.maxOpenWork = 1;
   repo.save(s);
   outputs.push(
     answer({
@@ -499,16 +492,13 @@ test("pausing discovery keeps queued investigations deferred", async () => {
     repo.acknowledge(job.id);
     if (repo.state().work.length) break;
   }
-  const d = repo.state().discovery;
+  const lens = repo.state().discovery.lenses.find((l) => l.id === "users")!;
   company.execute({
-    type: "ConfigureDiscovery",
-    enabled: false,
-    explorationEvery: d.explorationEvery,
-    maxActiveIdeas: d.maxActiveIdeas,
-    maxInvestigations: d.maxInvestigations,
+    type: "SaveDiscoveryLens",
+    lens: { ...lens, enabled: false },
   });
   const job = repo.claim()!;
-  await expect(company.deliver(job)).rejects.toThrow("Discovery paused");
+  await expect(company.deliver(job)).rejects.toThrow("Task paused");
   expect(contexts).toHaveLength(1);
 });
 
@@ -532,4 +522,142 @@ test("supplied portfolio metadata has stable citations, including older saved co
   expect(refs).not.toContain("github:test/other#2@known-head");
   // Derivation never fetches extra material or mutates the historical prompt.
   expect(context.evidenceRefs).toEqual(["github:test@123"]);
+});
+
+test("tasks schedule independently of the retired master clock and budget", async () => {
+  const s = repo.state();
+  s.settings.enabled = false;
+  s.settings.dailyBudget = 1;
+  s.settings.nextHeartbeatAt = "2099-01-01T00:00:00Z";
+  for (const task of s.discovery.lenses)
+    task.enabled = ["users", "engineering"].includes(task.id);
+  s.discovery.lenses.find((l) => l.id === "users")!.dailyRunLimit = 1;
+  repo.save(s);
+  company.heartbeat();
+  await drain();
+  expect(repo.state().runs[0]!.discoveryLensId).toBe("users");
+  company.heartbeat();
+  await drain();
+  expect(repo.state().runs[1]!.discoveryLensId).toBe("engineering");
+  company.heartbeat();
+  expect(repo.state().runs).toHaveLength(2);
+});
+
+test("Run now can run a paused task once without enabling its schedule", async () => {
+  const s = repo.state();
+  for (const lens of s.discovery.lenses) lens.enabled = false;
+  repo.save(s);
+  company.heartbeat();
+  expect(repo.state().runs).toHaveLength(0);
+  expect(explore().runId).toBeTruthy();
+  await drain();
+  expect(contexts).toHaveLength(1);
+  expect(
+    repo.state().discovery.lenses.find((l) => l.id === "users")!.enabled,
+  ).toBe(false);
+  company.heartbeat();
+  expect(repo.state().runs).toHaveLength(1);
+});
+
+test("a paused queued task cannot stop another task from scheduling", async () => {
+  const result = explore();
+  const s = repo.state();
+  s.runs.find((r) => r.id === result.runId)!.manual = false;
+  s.discovery.lenses.find((l) => l.id === "users")!.enabled = false;
+  repo.save(s);
+  company.heartbeat();
+  expect(repo.state().runs).toHaveLength(2);
+  expect(repo.state().runs[1]!.discoveryLensId).not.toBe("users");
+});
+
+test("task budgets reset by UTC day, and follow-up work uses the same task allowance", async () => {
+  const s = repo.state();
+  s.discovery.lenses.find((l) => l.id === "users")!.dailyRunLimit = 1;
+  repo.save(s);
+  outputs.push(answer({ discoveries: [candidate] }));
+  explore();
+  let deferred: any;
+  for (let n = 0; n < 30; n++) {
+    const job = repo.claim();
+    if (!job) break;
+    try {
+      await company.deliver(job);
+      repo.acknowledge(job.id);
+    } catch (e) {
+      expect(e).toBeInstanceOf(Deferred);
+      deferred = job;
+      break;
+    }
+  }
+  expect(deferred?.effect.type).toBe("ScheduleWork");
+  expect(explore().skipped).toContain("daily run limit");
+  now = new Date("2026-09-21T00:01:00Z");
+  outputs.push(answer({ discoveryAssessment: recommend }));
+  await company.deliver(deferred);
+  repo.acknowledge(deferred.id);
+  await drain();
+  expect(repo.state().runs).toHaveLength(2);
+  expect(explore().skipped).toContain("daily run limit");
+});
+
+test("legacy pause and limits migrate once into independent tasks", () => {
+  const s: any = repo.state();
+  delete s.discovery.taskSettingsVersion;
+  s.settings.enabled = false;
+  s.settings.dailyBudget = 3;
+  s.discovery.enabled = true;
+  s.discovery.maxActiveIdeas = 4;
+  s.discovery.maxInvestigations = 1;
+  s.discovery.explorationEvery = 4;
+  for (const lens of s.discovery.lenses) {
+    delete lens.dailyRunLimit;
+    delete lens.maxActiveIdeas;
+    delete lens.maxInvestigations;
+    delete lens.maxOpenWork;
+    lens.exploratory = true;
+  }
+  repo.save(s);
+  const migrated = repo.state();
+  expect(
+    migrated.discovery.lenses.every(
+      (l) =>
+        !l.enabled &&
+        l.dailyRunLimit === 3 &&
+        l.maxActiveIdeas === 4 &&
+        l.maxInvestigations === 1,
+    ),
+  ).toBe(true);
+  expect("explorationEvery" in migrated.discovery).toBe(false);
+  expect("exploratory" in migrated.discovery.lenses[0]!).toBe(false);
+  company.execute({
+    type: "SaveDiscoveryLens",
+    lens: { ...migrated.discovery.lenses[0]!, enabled: true },
+  });
+  expect(repo.state().discovery.lenses[0]!.enabled).toBe(true);
+  expect(repo.state().discovery.lenses[1]!.enabled).toBe(false);
+});
+
+test("a run queued yesterday charges the day it actually starts", async () => {
+  const s = repo.state();
+  s.discovery.lenses.find((l) => l.id === "users")!.dailyRunLimit = 1;
+  repo.save(s);
+  explore();
+  now = new Date("2026-09-21T00:01:00Z");
+  await drain();
+  expect(repo.state().runs[0]!.budgetDay).toBe("2026-09-21");
+  expect(explore().skipped).toContain("daily run limit");
+});
+
+test("a full task's idea capacity does not occupy another task's capacity", async () => {
+  const s = repo.state();
+  s.discovery.lenses.find((l) => l.id === "users")!.maxActiveIdeas = 1;
+  repo.save(s);
+  await ready();
+  expect(explore().skipped).toContain("active idea limit");
+  const other = company.execute({
+    type: "ExploreDiscovery",
+    lensId: "engineering",
+  }) as { runId?: string };
+  expect(other.runId).toBeTruthy();
+  await drain();
 });
