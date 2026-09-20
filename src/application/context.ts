@@ -202,16 +202,18 @@ export async function assembleContext(
     if (d.level === "constitution") {
       included = true;
       reason = "Constitution: always included";
-    } else if (
-      d.level === "knowledge" &&
-      !state.library.pages[d.id] &&
-      run?.trigger !== "maintenance"
-    ) {
-      reason = "Source evidence: searchable only for Library maintenance";
     } else if (pinned) {
       included = true;
-      reason = `Explicit attachment at v${d.version}`;
-      if (freshness[d.id]?.status !== "current" && freshness[d.id]) {
+      const sourceEvidence =
+        d.level === "knowledge" && !state.library.pages[d.id];
+      reason = sourceEvidence
+        ? `Raw evidence explicitly attached to this conversation at v${d.version}`
+        : `Explicit attachment at v${d.version}`;
+      if (sourceEvidence) {
+        context.gaps!.push(
+          `${d.title} is raw evidence supplied for this conversation, not maintained guidance.`,
+        );
+      } else if (freshness[d.id]?.status !== "current" && freshness[d.id]) {
         reason += "; historical or unreviewed material, not current guidance";
         context.gaps!.push(
           `${d.title} is explicitly attached but ${freshness[d.id]!.status.replaceAll("_", " ")}: ${freshness[d.id]!.reasons.map((r) => r.message).join(" ")}`,
@@ -223,6 +225,12 @@ export async function assembleContext(
           `${d.title} is pinned to v${d.version}; the current revision is v${current.version}. Use the attachment as historical context.`,
         );
       }
+    } else if (
+      d.level === "knowledge" &&
+      !state.library.pages[d.id] &&
+      run?.trigger !== "maintenance"
+    ) {
+      reason = "Source evidence: searchable only for Library maintenance";
     } else if (sharedDocuments.has(d.id) && policy.status === "active") {
       included = true;
       reason = "Approved milestone knowledge or assignment output";

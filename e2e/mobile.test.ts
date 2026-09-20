@@ -1454,12 +1454,10 @@ test("evidence opens in a view/edit modal and can be deleted", async () => {
     await view.evaluate<string>(
       `document.querySelector('[aria-label="New message content"]')?.value`,
     ),
-  ).toBe(
-    "What has the Library learned from the evidence entry “Interview observation with enough detail to compete for horizontal space”? ",
-  );
+  ).toBe("What should we learn from this evidence? ");
   expect(
     await view.evaluate<boolean>(
-      `document.querySelector('.mail-compose .attachment') === null`,
+      `document.querySelector('.mail-compose .attachment')?.textContent.includes('Raw evidence · Included in this conversation only') === true`,
     ),
   ).toBe(true);
   await view.evaluate(

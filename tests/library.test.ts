@@ -946,19 +946,39 @@ test("editing raw evidence keeps it as evidence and invalidates dependents", () 
   expect(freshness()[page.id]?.status).toBe("needs_review");
 });
 
-test("raw evidence cannot be attached to ordinary model context", () => {
+test("raw evidence is excluded by default and included when explicitly attached", async () => {
   const raw = repo.saveDocument(
     { title: "Private observation", content: "Raw notes", level: "knowledge" },
     "foreman",
   );
-  expect(() =>
-    company.execute({
-      type: "StartConversation",
-      subject: "Discuss an observation",
-      content: "What should we learn from this?",
-      attachment: { id: raw.id, version: raw.version },
-    }),
-  ).toThrow("cannot be attached to model context");
+  expect(
+    (await company.preview("Private observation")).documents.some(
+      (document) => document.id === raw.id,
+    ),
+  ).toBe(false);
+  const conversation = company.execute({
+    type: "StartConversation",
+    subject: "Discuss an observation",
+    content: "What should we learn from this?",
+    attachment: { id: raw.id, version: raw.version },
+  }) as { threadId: string };
+  const context = await company.preview(
+    "What should we learn from this?",
+    undefined,
+    conversation.threadId,
+  );
+  expect(context.documents.find((document) => document.id === raw.id)).toEqual(
+    raw,
+  );
+  expect(context.entries.find((entry) => entry.id === raw.id)?.reason).toBe(
+    "Raw evidence explicitly attached to this conversation at v1",
+  );
+  expect(context.gaps).toContain(
+    "Private observation is raw evidence supplied for this conversation, not maintained guidance.",
+  );
+  expect(renderBriefing(context)).toContain(
+    "Raw evidence supplied for this conversation. Assess it directly; do not treat it as maintained guidance.",
+  );
 });
 
 test("deleting evidence removes it from search and maintenance while retaining revision history", () => {

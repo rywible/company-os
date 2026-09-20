@@ -341,6 +341,11 @@ function App() {
   const currentThread = state?.threads.find((t) => t.id === threadId),
     currentDoc = state?.documents.find((d) => d.level === "constitution"),
     work = state?.work.find((w) => w.id === selectedWork);
+  const isSourceEvidence = (id: string) =>
+    Boolean(
+      state?.documents.find((document) => document.id === id)?.level ===
+        "knowledge" && !state.library.pages[id],
+    );
   const refresh = async () => {
     setState(await api<Workspace>("/company"));
     setStale(false);
@@ -894,15 +899,24 @@ function App() {
                         </article>
                       )}
                       {currentThread?.attachment && (
-                        <p className="attachment">
-                          Context:{" "}
-                          {
-                            state.documents.find(
-                              (d) => d.id === currentThread.attachment!.id,
-                            )?.title
-                          }{" "}
-                          · v{currentThread.attachment.version}
-                        </p>
+                        <div className="attachment">
+                          <span>
+                            <strong>
+                              {
+                                state.documents.find(
+                                  (d) =>
+                                    d.id === currentThread.attachment!.id,
+                                )?.title
+                              }{" "}
+                              · v{currentThread.attachment.version}
+                            </strong>
+                            <small>
+                              {isSourceEvidence(currentThread.attachment.id)
+                                ? "Raw evidence · Included in this conversation only"
+                                : "Attached to this conversation"}
+                            </small>
+                          </span>
+                        </div>
                       )}
                       {currentThread?.messages.map((m) => (
                         <article key={m.id} className={"message " + m.role}>
@@ -1551,16 +1565,12 @@ function App() {
                 discuss={(d) => {
                   const sourceEvidence =
                     d.level === "knowledge" && !state.library.pages[d.id];
-                  setAttachment(
-                    sourceEvidence
-                      ? undefined
-                      : { id: d.id, version: d.version },
-                  );
+                  setAttachment({ id: d.id, version: d.version });
                   setDraftSubject(`Discuss ${d.title}`);
                   if (sourceEvidence)
                     setDrafts((drafts) => ({
                       ...drafts,
-                      new: `What has the Library learned from the evidence entry “${d.title}”? `,
+                      new: "What should we learn from this evidence? ",
                     }));
                   setComposeOpen(true);
                 }}
@@ -1623,12 +1633,24 @@ function App() {
               />
             </label>
             {attachment && (
-              <p className="attachment">
-                {state?.documents.find((d) => d.id === attachment.id)?.title}
+              <div className="attachment">
+                <span>
+                  <strong>
+                    {
+                      state?.documents.find((d) => d.id === attachment.id)
+                        ?.title
+                    }
+                  </strong>
+                  <small>
+                    {isSourceEvidence(attachment.id)
+                      ? "Raw evidence · Included in this conversation only"
+                      : "Attached to this conversation"}
+                  </small>
+                </span>
                 <button type="button" onClick={() => setAttachment(undefined)}>
                   Remove
                 </button>
-              </p>
+              </div>
             )}
             <label>
               Message

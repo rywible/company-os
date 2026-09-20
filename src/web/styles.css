@@ -379,7 +379,9 @@ kbd {
   background: var(--wash); padding: 10px 12px; border-radius: 10px; border: 1px dashed var(--line-strong);
   overflow-wrap: anywhere; min-width: 0;
 }
-.attachment button { font-size: 11px; padding: 4px 8px; min-height: 28px; }
+.attachment > span { display: grid; gap: 2px; min-width: 0; }
+.attachment small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.attachment button { margin-left: auto; flex-shrink: 0; font-size: 11px; padding: 4px 8px; min-height: 28px; }
 .composer {
   margin: 16px 0 0;
   border: 1px solid var(--line-strong);

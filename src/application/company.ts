@@ -300,14 +300,6 @@ export class Company {
             !this.repo.document(cmd.attachment.id, cmd.attachment.version)
           )
             throw new DomainError("Attached revision does not exist.");
-          if (
-            cmd.attachment &&
-            !state.library.pages[cmd.attachment.id] &&
-            this.repo.document(cmd.attachment.id)?.level === "knowledge"
-          )
-            throw new DomainError(
-              "Evidence can be searched for Library maintenance, but cannot be attached to model context.",
-            );
           const thread: Thread = {
             id: this.ids.next(),
             kind: "conversation",

@@ -5,25 +5,29 @@ export function renderBriefing(context: Context): string {
   const pages = (constitution: boolean) =>
     context.documents
       .filter((d) => (d.level === "constitution") === constitution)
-      .map((d) => ({
-        subject: d.title,
-        reference: documentRef(d),
-        freshness: context.freshness?.[d.id],
-        authority:
-          (context.freshness?.[d.id] &&
-            context.freshness[d.id]!.status !== "current") ||
-          context.entries
-            .find((e) => e.id === d.id)
-            ?.reason.includes("historical")
-            ? "Historical or unreviewed material. Do not treat it as current guidance."
-            : constitution
-              ? "Human-owned company direction"
-              : d.level !== "knowledge"
-                ? "Governing document"
-                : "Current understanding; assess evidence and uncertainty in the content",
-        selectedBecause: context.entries.find((e) => e.id === d.id)?.reason,
-        content: d.content,
-      }));
+      .map((d) => {
+        const selectedBecause = context.entries.find(
+          (entry) => entry.id === d.id,
+        )?.reason;
+        return {
+          subject: d.title,
+          reference: documentRef(d),
+          freshness: context.freshness?.[d.id],
+          authority: selectedBecause?.startsWith("Raw evidence")
+            ? "Raw evidence supplied for this conversation. Assess it directly; do not treat it as maintained guidance."
+            : (context.freshness?.[d.id] &&
+                  context.freshness[d.id]!.status !== "current") ||
+                selectedBecause?.includes("historical")
+              ? "Historical or unreviewed material. Do not treat it as current guidance."
+              : constitution
+                ? "Human-owned company direction"
+                : d.level !== "knowledge"
+                  ? "Governing document"
+                  : "Current understanding; assess evidence and uncertainty in the content",
+          selectedBecause,
+          content: d.content,
+        };
+      });
   return [
     "# Work coordination\n" +
       JSON.stringify({
