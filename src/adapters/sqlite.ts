@@ -91,7 +91,10 @@ export class SQLiteRepository implements Repository {
       });
   }
   transaction<T>(fn: () => T): T {
-    return this.store.db.transaction(fn)();
+    // These transactions all mutate state. Reserve the write lock before the
+    // first read so a Litestream checkpoint cannot make SQLite fail while a
+    // deferred transaction is being upgraded from reader to writer.
+    return this.store.db.transaction(fn).immediate();
   }
   state(): CompanyState {
     const s = JSON.parse(

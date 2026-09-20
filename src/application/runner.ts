@@ -43,10 +43,10 @@ export class Runner {
           }),
         );
       }
+      await Promise.all(work);
     } finally {
       this.claiming = false;
     }
-    await Promise.all(work);
   }
   private async process(job: NonNullable<ReturnType<Company["repo"]["claim"]>>) {
     try {

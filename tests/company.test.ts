@@ -165,12 +165,21 @@ test("the runner overlaps deliveries up to the configured pool capacity", async 
   };
   create("First", "First");
   create("Second", "Second");
+  const third = create("Third", "Third");
   const runner = new Runner(company, () => true, 2);
   const running = runner.tick();
   await Bun.sleep(10);
   expect(peak).toBe(2);
+  await runner.tick();
+  expect(
+    repo.state().runs.find((run) => run.id === third.runId)!.status,
+  ).toBe("queued");
   release();
   await running;
+  await runner.tick();
+  expect(
+    repo.state().runs.find((run) => run.id === third.runId)!.status,
+  ).toBe("completed");
 });
 test("work escalates into one inbox thread and a reply resumes it with its own context", async () => {
   const { workId } = company.execute({
