@@ -79,12 +79,19 @@ const model = (
 export const seededAgentCatalog = (): AgentCatalog => ({
   openai: [
     model(
+      "gpt-6-astra",
+      "GPT-6-Astra",
+      "Our most capable model for complex, demanding work.",
+      ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "medium",
+      true,
+    ),
+    model(
       "gpt-5.6-sol",
       "GPT-5.6-Sol",
       "Reliable agentic workhorse for everyday tasks.",
       ["low", "medium", "high", "xhigh", "max", "ultra"],
       "low",
-      true,
     ),
     model(
       "gpt-5.6-terra",

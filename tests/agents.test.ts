@@ -114,5 +114,5 @@ test("model selection uses exact dispatch ids and model-specific reasoning", () 
       model: "",
       reasoningEffort: "low",
     })?.id,
-  ).toBe("gpt-5.6-sol");
+  ).toBe("gpt-6-astra");
 });
