@@ -92,6 +92,12 @@ test("the selected provider, model and reasoning effort reach the compatible poo
     model: "llama-studio",
     reasoningEffort: "ultra",
   });
+  expect(payload.prompt).toContain(
+    "Writing style for prose shown to Ryan (the message, request reasons and recommendations):",
+  );
+  expect(payload.prompt).toContain(
+    "Write in clear, precise, natural English.",
+  );
 });
 test("model selection uses exact dispatch ids and model-specific reasoning", () => {
   const catalog = seededAgentCatalog();
