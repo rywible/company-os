@@ -13,6 +13,7 @@ export const lensSchema = z.object({
   name: text.max(80),
   question: text.max(2000),
   enabled: z.boolean(),
+  kind: z.enum(["research", "knowledge"]).optional(),
   intervalHours: z.number().int().min(1).max(720),
   dailyRunLimit: z.number().int().min(1).max(24).default(6),
   maxActiveIdeas: z.number().int().min(1).max(20).default(6),

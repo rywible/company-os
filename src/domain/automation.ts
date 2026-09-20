@@ -24,6 +24,7 @@ export function taskUsage(state: CompanyState, lens: Lens, now: string) {
 }
 export function taskCapacity(state: CompanyState, lens: Lens) {
   return (
+    lens.kind === "knowledge" ||
     state.discovery.ideas.filter((i) => i.lensId === lens.id && activeIdea(i))
       .length < lens.maxActiveIdeas
   );
@@ -68,6 +69,8 @@ export function taskBlocker(
     return "This task already has a run waiting or in progress.";
   if (taskUsage(state, lens, now) >= lens.dailyRunLimit)
     return "This task has reached its daily run limit. Resets at midnight UTC.";
+  if (lens.kind === "knowledge" && !Object.keys(state.library.pending).length)
+    return "The library is up to date. New documents and findings will queue a pass.";
   if (!taskCapacity(state, lens))
     return "This task has reached its active idea limit.";
   if (

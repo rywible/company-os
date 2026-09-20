@@ -9,6 +9,7 @@ export function workflows(event: DomainEvent): Effect[] {
     case "WorkStatusChanged":
     case "RunFailed":
       return [{ type: "ObserveDiscovery" }];
+    case "LibraryMaintenanceRequested":
     case "DiscoveryScoutRequested":
     case "ConversationStarted":
     case "ReplyReceived":
@@ -20,6 +21,11 @@ export function workflows(event: DomainEvent): Effect[] {
       return [{ type: "ScheduleWork", workId: event.payload.workId }];
     case "KnowledgeChanged":
       return [
+        {
+          type: "QueueLibrarySource",
+          documentId: event.payload.documentId,
+          version: event.payload.version,
+        },
         ...(event.actor === "human"
           ? [{ type: "ObserveDiscovery" as const }]
           : []),
@@ -58,6 +64,15 @@ export function workflows(event: DomainEvent): Effect[] {
   }
 }
 export const workflowDefinitions = [
+  {
+    name: "Knowledge library",
+    steps: [
+      "KnowledgeChanged → QueueLibrarySource + IndexKnowledge",
+      "Due maintenance task → LibraryMaintenanceRequested → RunAgent",
+      "Routine synthesis → LibraryMaintained → KnowledgeChanged",
+      "Changed decision or human-edited subject → inbox → LibraryProposalResolved",
+    ],
+  },
   {
     name: "Continuous discovery",
     steps: [

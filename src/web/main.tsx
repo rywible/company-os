@@ -1,3 +1,4 @@
+import { KnowledgeLibrary, ContextUsed } from "./library";
 import { MarkdownEditor } from "./markdown-editor";
 import { SettingsPage } from "./settings";
 import { AutomationPage } from "./automation";
@@ -255,7 +256,8 @@ const pages = [
 const pageMeta: Record<string, { kicker: string; blurb: string }> = {
   Inbox: {
     kicker: "Foreman · triage",
-    blurb: "Decisions, proposals, and replies. Unread first, archive when done.",
+    blurb:
+      "Decisions, proposals, and replies. Unread first, archive when done.",
   },
   Documents: {
     kicker: "Source of truth",
@@ -263,7 +265,7 @@ const pageMeta: Record<string, { kicker: string; blurb: string }> = {
   },
   Knowledge: {
     kicker: "Understanding",
-    blurb: "Searchable memory. Retrieval-aware entries Foreman can cite.",
+    blurb: "Subjects, sources, and the current understanding of your company.",
   },
   Automation: {
     kicker: "Runs itself",
@@ -423,7 +425,9 @@ function App() {
         if (page === "Knowledge") {
           e.preventDefault();
           document
-            .querySelector<HTMLInputElement>('input[aria-label="Search knowledge"]')
+            .querySelector<HTMLInputElement>(
+              'input[aria-label="Search knowledge"]',
+            )
             ?.focus();
         }
       } else if (e.key.toLowerCase() === "c") {
@@ -580,7 +584,9 @@ function App() {
     <>
       <header className="page-header">
         <div>
-          <p className="page-kicker">{pageMeta[page]?.kicker || "Company OS"}</p>
+          <p className="page-kicker">
+            {pageMeta[page]?.kicker || "Company OS"}
+          </p>
           <h1>{page}</h1>
         </div>
         <div className="actions">
@@ -591,68 +597,70 @@ function App() {
           >
             <Search size={16} />
           </button>
-        {page !== "Settings" && (
-          <button
-            aria-label="Open Settings"
-            title="Settings"
-            onClick={() => navigate("Settings")}
-          >
-            <Settings2 size={18} />
-          </button>
-        )}
-        {page === "Inbox" && inboxView === "requests" && (
-          <button
-            className="primary"
-            disabled={disabled}
-            onClick={() => setComposeOpen(true)}
-          >
-            <Plus size={16} /> New message
-          </button>
-        )}
-        {page === "Documents" && (
-          <button
-            disabled={disabled}
-            onClick={() =>
-              setEditor({
-                level: state?.documents.some((d) => d.level === "constitution")
-                  ? "product"
-                  : "constitution",
-                policy: {
-                  ...freshPolicy,
-                  inclusion: state?.documents.some(
+          {page !== "Settings" && (
+            <button
+              aria-label="Open Settings"
+              title="Settings"
+              onClick={() => navigate("Settings")}
+            >
+              <Settings2 size={18} />
+            </button>
+          )}
+          {page === "Inbox" && inboxView === "requests" && (
+            <button
+              className="primary"
+              disabled={disabled}
+              onClick={() => setComposeOpen(true)}
+            >
+              <Plus size={16} /> New message
+            </button>
+          )}
+          {page === "Documents" && (
+            <button
+              disabled={disabled}
+              onClick={() =>
+                setEditor({
+                  level: state?.documents.some(
                     (d) => d.level === "constitution",
                   )
-                    ? "relevant"
-                    : "always",
-                },
-                content: "",
-                title: "",
-              })
-            }
-          >
-            <Plus size={16} /> New document
-          </button>
-        )}
-        {page === "Knowledge" && (
-          <button
-            disabled={disabled}
-            onClick={() =>
-              setEditor({
-                level: "knowledge",
-                policy: { ...freshPolicy, kind: "observation" },
-                content: "",
-                title: "",
-              })
-            }
-          >
-            <Plus size={16} /> New entry
-          </button>
-        )}
-        {page === "Automation" && inboxView === "work" && (
-          <button disabled={disabled} onClick={() => setWorkForm(true)}>
-            <Plus size={16} /> New work
-          </button>
-        )}
+                    ? "product"
+                    : "constitution",
+                  policy: {
+                    ...freshPolicy,
+                    inclusion: state?.documents.some(
+                      (d) => d.level === "constitution",
+                    )
+                      ? "relevant"
+                      : "always",
+                  },
+                  content: "",
+                  title: "",
+                })
+              }
+            >
+              <Plus size={16} /> New document
+            </button>
+          )}
+          {page === "Knowledge" && (
+            <button
+              disabled={disabled}
+              onClick={() =>
+                setEditor({
+                  level: "knowledge",
+                  policy: { ...freshPolicy, kind: "observation" },
+                  content: "",
+                  title: "",
+                })
+              }
+            >
+              <Plus size={16} /> New entry
+            </button>
+          )}
+          {page === "Automation" && inboxView === "work" && (
+            <button disabled={disabled} onClick={() => setWorkForm(true)}>
+              <Plus size={16} /> New work
+            </button>
+          )}
         </div>
       </header>
       {pageMeta[page]?.blurb && (
@@ -784,7 +792,8 @@ function App() {
                   <p>
                     Give Foreman direction with a constitution.
                     <small>
-                      One page on what matters. Foreman reads it before every run.
+                      One page on what matters. Foreman reads it before every
+                      run.
                     </small>
                   </p>
                   <button
@@ -930,6 +939,22 @@ function App() {
                       )}
                     </div>
                     <div className="conversation-messages">
+                      {state.runs
+                        .filter(
+                          (r) =>
+                            r.threadId === currentThread.id &&
+                            ["queued", "running"].includes(r.status),
+                        )
+                        .map((r) => (
+                          <ContextUsed
+                            key={r.id}
+                            run={r}
+                            documents={state.documents}
+                            markdown={(content) => (
+                              <Markdown>{content}</Markdown>
+                            )}
+                          />
+                        ))}
                       {currentThread?.reason && (
                         <article className="message email-original foreman">
                           <div className="message-meta">
@@ -959,10 +984,7 @@ function App() {
                       {currentThread?.messages.map((m) => (
                         <article key={m.id} className={"message " + m.role}>
                           <div className="message-meta">
-                            <span
-                              className="avatar"
-                              aria-hidden="true"
-                            >
+                            <span className="avatar" aria-hidden="true">
                               {m.role === "human"
                                 ? "Y"
                                 : m.role === "system"
@@ -979,7 +1001,31 @@ function App() {
                             <time>{date(m.at)}</time>
                           </div>
                           <Markdown>{m.content}</Markdown>
+                          {m.role === "foreman" && (
+                            <ContextUsed
+                              run={state.runs.find((r) => r.id === m.runId)}
+                              documents={state.documents}
+                              markdown={(content) => (
+                                <Markdown>{content}</Markdown>
+                              )}
+                            />
+                          )}
                         </article>
+                      ))}
+                      {currentThread.libraryProposals?.map((p) => (
+                        <button
+                          className="mail-attachment"
+                          key={p.id}
+                          onClick={() => setProposalId(p.id)}
+                        >
+                          <FileText size={16} />
+                          {p.title}
+                          <span>
+                            {p.status === "pending"
+                              ? "Review knowledge revision"
+                              : p.status}
+                          </span>
+                        </button>
                       ))}
                       {currentThread?.proposals.map((p) => (
                         <button
@@ -1475,83 +1521,24 @@ function App() {
               </div>
             )}
             {page === "Knowledge" && (
-              <>
-                <form
-                  className="search-form"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void perform(async () => {
-                      const result = await api(
-                        "/search?q=" + encodeURIComponent(query),
-                      );
-                      setSearchIds(result.results.map((d: Document) => d.id));
-                      setSearchMatches(
-                        Object.fromEntries(
-                          result.results.map((d: SearchHit) => [d.id, d]),
-                        ),
-                      );
-                    });
-                  }}
-                >
-                  <input
-                    aria-label="Search knowledge"
-                    placeholder="Search knowledge"
-                    value={query}
-                    onChange={(e) => {
-                      setQuery(e.target.value);
-                      if (!e.target.value) setSearchIds(null);
-                    }}
-                  />
-                  <button className="primary" disabled={busy || !online}>
-                    Search
-                  </button>
-                </form>
-                <div className="knowledge-list">
-                  {state.documents
-                    .filter((d) => !searchIds || searchIds.includes(d.id))
-                    .sort((a, b) =>
-                      searchIds
-                        ? searchIds.indexOf(a.id) - searchIds.indexOf(b.id)
-                        : 0,
-                    )
-                    .map((d) => (
-                      <article key={d.id} className="knowledge-card">
-                        <div className="knowledge-card-heading">
-                          <button
-                            className="knowledge-title"
-                            onClick={() => setEditor(d)}
-                          >
-                            {d.title}
-                          </button>
-                          <button
-                            disabled={disabled}
-                            aria-label={"Edit " + d.title}
-                            onClick={() => setEditor(d)}
-                          >
-                            <Pencil size={14} /> Edit
-                          </button>
-                        </div>
-                        <p>
-                          {(searchIds
-                            ? searchMatches[d.id]?.excerpt
-                            : d.content
-                          )
-                            ?.replace(/^#+ /gm, "")
-                            .slice(0, searchIds ? 450 : 180)}
-                        </p>
-                      </article>
-                    ))}
-                  {!state.documents.length && (
-                    <Empty
-                      title="No knowledge yet"
-                      text="Documents and findings will appear here as they’re created."
-                    />
-                  )}
-                  {!!state.documents.length && searchIds?.length === 0 && (
-                    <p className="muted">No matching entries.</p>
-                  )}
-                </div>
-              </>
+              <KnowledgeLibrary
+                state={state}
+                disabled={disabled}
+                command={command}
+                edit={(d) =>
+                  setEditor(
+                    state.documents.find((current) => current.id === d.id)!,
+                  )
+                }
+                discuss={(d) => {
+                  setAttachment({ id: d.id, version: d.version });
+                  setDraftSubject(d.title);
+                  setComposeOpen(true);
+                }}
+                automation={() => navigate("Automation")}
+                markdown={(content) => <Markdown>{content}</Markdown>}
+                api={api}
+              />
             )}
             {page === "Automation" && inboxView === "requests" && (
               <AutomationPage
@@ -1635,15 +1622,20 @@ function App() {
       {proposalId &&
         currentThread &&
         (() => {
-          const proposal = currentThread.proposals.find(
+          const libraryProposal = currentThread.libraryProposals?.find(
             (p) => p.id === proposalId,
           );
+          const proposal =
+            libraryProposal ||
+            currentThread.proposals.find((p) => p.id === proposalId);
           if (!proposal) return null;
           return (
             <Modal
               title={
+                libraryProposal?.title ||
                 state?.documents.find((d) => d.id === proposal.documentId)
-                  ?.title || "Proposed revision"
+                  ?.title ||
+                "Proposed revision"
               }
               close={() => setProposalId(null)}
             >
@@ -1658,7 +1650,9 @@ function App() {
                       onClick={() =>
                         void perform(async () => {
                           await act({
-                            type: "ResolveProposal",
+                            type: libraryProposal
+                              ? "ResolveLibraryProposal"
+                              : "ResolveProposal",
                             threadId: currentThread.id,
                             proposalId: proposal.id,
                             action,
@@ -1679,9 +1673,7 @@ function App() {
         })()}
       {editor && (
         <Modal
-          className={
-            page === "Knowledge" ? undefined : "document-editor-dialog"
-          }
+          className="document-editor-dialog"
           title={
             page === "Knowledge"
               ? editor.id
@@ -1696,7 +1688,7 @@ function App() {
           close={() => setEditor(null)}
         >
           <form
-            className={page === "Knowledge" ? "editor" : "editor document-form"}
+            className="editor document-form"
             onSubmit={(e) => {
               e.preventDefault();
               void perform(async () => {
@@ -1772,27 +1764,12 @@ function App() {
                   </label>
                 )}
               </div>
-              {page === "Knowledge" ? (
-                <label>
-                  Content
-                  <textarea
-                    required
-                    rows={12}
-                    maxLength={24000}
-                    value={editor.content || ""}
-                    onChange={(e) =>
-                      setEditor({ ...editor, content: e.target.value })
-                    }
-                  />
-                </label>
-              ) : (
-                <MarkdownEditor
-                  value={editor.content || ""}
-                  change={(content) => setEditor({ ...editor, content })}
-                  preview={(content) => <Markdown>{content}</Markdown>}
-                  disabled={readOnly}
-                />
-              )}
+              <MarkdownEditor
+                value={editor.content || ""}
+                change={(content) => setEditor({ ...editor, content })}
+                preview={(content) => <Markdown>{content}</Markdown>}
+                disabled={readOnly}
+              />
               {page !== "Knowledge" && (
                 <>
                   <details className="editor-context-policy">

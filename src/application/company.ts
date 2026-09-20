@@ -1,3 +1,5 @@
+import { Library } from "./library";
+import { documentRef } from "../domain/library";
 import {
   taskForRun,
   taskUsage,
@@ -36,6 +38,7 @@ import { reviewOutcome } from "../domain/reviews";
 import { chunkDocument } from "../domain/knowledge";
 export class Company {
   private discovery: Discovery;
+  private library: Library;
   constructor(
     readonly repo: Repository,
     readonly agent: AgentPort,
@@ -46,6 +49,13 @@ export class Company {
     readonly pullRequests?: PullRequestPort,
     readonly researchSources?: ResearchSourcesPort,
   ) {
+    this.library = new Library({
+      repo: this.repo,
+      now: () => this.now(),
+      id: () => this.ids.next(),
+      emit: (...args) => this.emit(...args),
+      inbox: (state, input, cause) => this.inbox(state, input, cause),
+    });
     this.discovery = new Discovery({
       repo: this.repo,
       now: () => this.now(),
@@ -333,6 +343,19 @@ export class Company {
             );
           const d = this.repo.saveDocument(cmd);
           state.policies[d.id] = cmd.policy;
+          if (d.level === "knowledge") {
+            const old = state.library.pages[d.id];
+            const location = cmd.library ||
+              old || { collection: "Unfiled", parentId: null, relatedIds: [] };
+            this.library.location(state, d.id, location);
+            state.library.pages[d.id] = {
+              ...location,
+              sources: old?.sources || [],
+              managed: false,
+              updatedAt: this.now(),
+            };
+            delete state.library.pending[d.id];
+          }
           this.emit(
             {
               type: "KnowledgeChanged",
@@ -432,6 +455,53 @@ export class Company {
             },
             "human",
             "reviews",
+          );
+          break;
+        }
+        case "OrganizeKnowledge": {
+          if (!state.library.pages[cmd.documentId])
+            throw new DomainError("Subject not found.");
+          this.library.location(state, cmd.documentId, cmd.location);
+          Object.assign(state.library.pages[cmd.documentId]!, cmd.location, {
+            updatedAt: this.now(),
+          });
+          this.emit(
+            {
+              type: "LibraryOrganized",
+              payload: { documentId: cmd.documentId },
+            },
+            "human",
+            cmd.documentId,
+          );
+          break;
+        }
+        case "ResolveLibraryProposal": {
+          const thread = this.thread(state, cmd.threadId);
+          const proposal = thread.libraryProposals?.find(
+            (p) => p.id === cmd.proposalId,
+          );
+          if (!proposal || proposal.status !== "pending")
+            throw new DomainError("Proposal is already resolved or missing.");
+          if (cmd.action === "accept")
+            this.library.apply(state, proposal, true);
+          proposal.status = cmd.action === "accept" ? "accepted" : "dismissed";
+          thread.updatedAt = this.now();
+          if (
+            !thread.libraryProposals!.some((p) => p.status === "pending") &&
+            !thread.proposals.some((p) => p.status === "pending")
+          )
+            thread.status = "resolved";
+          this.emit(
+            {
+              type: "LibraryProposalResolved",
+              payload: {
+                threadId: thread.id,
+                proposalId: proposal.id,
+                action: cmd.action,
+              },
+            },
+            "human",
+            thread.id,
           );
           break;
         }
@@ -567,6 +637,38 @@ export class Company {
       );
       if (blocked) return { skipped: blocked };
     }
+    for (const id of Object.keys(state.library.pending))
+      if (
+        !this.repo.document(id) ||
+        (state.policies[id]?.status || "active") !== "active"
+      )
+        delete state.library.pending[id];
+    const maintenance = state.discovery.lenses.find(
+      (l) => l.kind === "knowledge",
+    );
+    if (
+      maintenance &&
+      (requested?.id === maintenance.id ||
+        (!requested &&
+          maintenance.enabled &&
+          (!maintenance.lastRunAt ||
+            Date.parse(maintenance.lastRunAt) +
+              maintenance.intervalHours * 3600000 <=
+              Date.parse(this.now())) &&
+          !taskBlocker(state, maintenance, this.now(), hasConstitution)))
+    ) {
+      const run = this.run(state, { trigger: "maintenance", automatic: true });
+      run.discoveryLensId = maintenance.id;
+      run.manual = manual && !!lensId;
+      maintenance.lastRunAt = this.now();
+      maintenance.lastRunId = run.id;
+      this.emit(
+        { type: "LibraryMaintenanceRequested", payload: { runId: run.id } },
+        manual ? "human" : "system",
+        run.id,
+      );
+      return { runId: run.id };
+    }
     const lens = this.discovery.scout(state, lensId);
     if (!lens) return { skipped: "No task is due with available capacity." };
     const run = this.run(state, { trigger: "heartbeat", automatic: true });
@@ -666,6 +768,14 @@ export class Company {
         this.repo.save(state);
       });
     }
+    if (effect.type === "QueueLibrarySource") {
+      this.repo.transaction(() => {
+        const state = this.repo.state();
+        this.library.queue(state, effect.documentId, effect.version);
+        this.repo.save(state);
+      });
+      return;
+    }
     if (effect.type === "IndexKnowledge") {
       const d = this.repo.document(effect.documentId);
       if (!d || d.version !== effect.version) return;
@@ -717,6 +827,15 @@ export class Company {
     }
     const thread = state.threads.find((t) => t.id === run!.threadId);
     const query =
+      (run.trigger === "maintenance"
+        ? Object.keys(state.library.pending)
+            .slice(0, 3)
+            .map((id) => {
+              const d = this.repo.document(id);
+              return d ? d.title + "\n" + d.content.slice(0, 1600) : "";
+            })
+            .join("\n")
+        : undefined) ||
       thread?.messages.at(-1)?.content ||
       work?.instruction ||
       (run.discoveryLensId
@@ -736,7 +855,8 @@ export class Company {
         this.now(),
         run,
       );
-      this.discovery.context(state, run, context);
+      if (run.trigger === "maintenance") this.library.prepare(state, context);
+      else this.discovery.context(state, run, context);
       if (context.discovery?.lens.sources?.length && this.researchSources) {
         context.externalSources = await this.researchSources.read(
           context.discovery.lens.sources,
@@ -840,11 +960,118 @@ export class Company {
         this.repo.save(s);
       });
     }
-    const output = await this.agent.execute(
+    // Each attempt records exactly what was supplied. Expansion is bounded and is performed by the application.
+    this.repo.transaction(() => {
+      const s = this.repo.state(),
+        r = s.runs.find((r) => r.id === run!.id)!;
+      r.contextHistory ||= [structuredClone(context!)];
+      this.repo.save(s);
+    });
+    let output = await this.agent.execute(
       run!.id,
       context,
       run!.trigger === "heartbeat",
     );
+    if (output.contextRequests?.length) {
+      const requests = output.contextRequests.slice(0, 3);
+      const savedExpansion = this.repo
+        .state()
+        .runs.find((r) => r.id === run!.id)?.contextHistory?.[1];
+      if (savedExpansion) context = savedExpansion;
+      else {
+        const extra = await assembleContext(
+          this.repo,
+          this.embeddings,
+          this.repo.state(),
+          query,
+          context.scope,
+          this.now(),
+          run,
+          requests,
+        );
+        // Existing supplied revisions remain fixed, including the constitution and pinned attachments.
+        const combined = structuredClone(context);
+        let remaining = Math.max(
+          0,
+          60000 - combined.documents.reduce((n, d) => n + d.content.length, 0),
+        );
+        for (const d of extra.documents) {
+          if (
+            combined.documents.some((old) => old.id === d.id) ||
+            d.content.length > remaining
+          )
+            continue;
+          combined.documents.push(d);
+          remaining -= d.content.length;
+          combined.entries = combined.entries.filter((e) => e.id !== d.id);
+          combined.entries.push(extra.entries.find((e) => e.id === d.id)!);
+          if (extra.libraryPages?.[d.id])
+            (combined.libraryPages ||= {})[d.id] = extra.libraryPages[d.id]!;
+          combined.evidenceRefs.push(documentRef(d));
+        }
+        combined.additionalRequests = requests;
+        combined.gaps = [
+          ...new Set([...(combined.gaps || []), ...(extra.gaps || [])]),
+        ];
+        context = combined;
+        this.repo.transaction(() => {
+          const s = this.repo.state(),
+            r = s.runs.find((r) => r.id === run!.id)!;
+          r.context = combined;
+          r.contextHistory!.push(structuredClone(combined));
+          this.repo.save(s);
+        });
+      }
+      output = await this.agent.execute(
+        run!.id + "-context-1",
+        context,
+        run!.trigger === "heartbeat",
+      );
+      if (output.contextRequests?.length) {
+        if (run!.trigger === "review")
+          throw new DomainError(
+            "Review still needs context after the supplemental briefing.",
+          );
+        output.work = [];
+        output.changes = [];
+        output.proposals = [];
+        output.libraryUpdates = [];
+        output.discoveries = [];
+        output.discoveryAssessment = null;
+        output.discoveryOutcome = null;
+        output.outcome = "needs_input";
+        output.message +=
+          "\n\nThe supplied context is still incomplete: " +
+          output.contextRequests.map((r) => r.subject).join(", ") +
+          ".";
+      }
+    }
+    if (run!.trigger === "maintenance") {
+      this.repo.transaction(() => {
+        const s = this.repo.state(),
+          r = s.runs.find((r) => r.id === run!.id)!;
+        this.library.complete(s, r, output);
+        for (const request of output.requests) this.inbox(s, request, r.id);
+        if (output.outcome !== "completed" && !output.requests.length)
+          this.inbox(
+            s,
+            {
+              subject: "Knowledge library needs context",
+              reason: output.message,
+              recommendation:
+                "Supply the missing evidence and run the Knowledge library task again.",
+              evidence: context.evidenceRefs,
+            },
+            r.id,
+          );
+        this.repo.save(s);
+      });
+      return;
+    }
+    if (output.libraryUpdates?.length)
+      throw new DomainError(
+        "Only library maintenance can rewrite subject pages.",
+      );
     if (run!.trigger === "review")
       return this.finishReview(run!.id, output, delivery.event.id);
     if (
@@ -909,6 +1136,12 @@ export class Company {
       }
       let thread = state.threads.find((t) => t.id === run.threadId);
       if (thread) {
+        if (output.conversationSummary?.trim())
+          thread.summary = {
+            content: output.conversationSummary,
+            runId,
+            updatedAt: this.now(),
+          };
         thread.messages.push({
           id: this.ids.next(),
           role: "foreman",
@@ -1001,7 +1234,13 @@ export class Company {
       for (const observation of context.discovery ? [] : output.observations) {
         const duplicate = this.repo
           .documents()
-          .some((d) => workKey(d.title) === workKey(observation.title));
+          .some(
+            (d) =>
+              d.level === "knowledge" &&
+              !state.library.pages[d.id] &&
+              workKey(d.title) === workKey(observation.title) &&
+              d.content.startsWith(observation.content + "\n\nSources:"),
+          );
         if (duplicate) continue;
         const d = this.repo.saveDocument(
           {

@@ -177,12 +177,10 @@ export const server = Bun.serve({
         if (path === "/api/company" && req.method === "GET")
           return json({
             ...repository.state(),
-            documents: repository
-              .documents()
-              .map((d) => ({
-                ...d,
-                policy: repository.state().policies[d.id] || defaultPolicy(d),
-              })),
+            documents: repository.documents().map((d) => ({
+              ...d,
+              policy: repository.state().policies[d.id] || defaultPolicy(d),
+            })),
             deliveryErrors: repository.deliveryErrors(),
             configured: !!process.env.SPRITES_TOKEN,
             workflows: workflowDefinitions,
@@ -205,7 +203,11 @@ export const server = Bun.serve({
           );
         const knowledge = path.match(/^\/api\/knowledge\/([^/]+)$/);
         if (knowledge && req.method === "GET") {
-          const d = repository.document(knowledge[1]!);
+          const versionParam = url.searchParams.get("version");
+          const version = versionParam
+            ? z.coerce.number().int().positive().parse(versionParam)
+            : undefined;
+          const d = repository.document(knowledge[1]!, version);
           if (!d) return json({ error: "Not found" }, 404);
           return json({
             document: d,
@@ -292,7 +294,22 @@ export const server = Bun.serve({
               "Semantic search is unavailable. Showing keyword matches.";
           }
           return json({
-            results: store.search(query, vector, model),
+            results: store
+              .search(
+                query,
+                vector,
+                model,
+                url.searchParams.has("view") ? 60 : 6,
+              )
+              .filter((d) => {
+                const view = url.searchParams.get("view"),
+                  library = repository.state().library;
+                return view === "library"
+                  ? !!library.pages[d.id]
+                  : view === "evidence"
+                    ? d.level === "knowledge" && !library.pages[d.id]
+                    : true;
+              }),
             mode: vector ? "hybrid" : "keyword",
             warning,
           });

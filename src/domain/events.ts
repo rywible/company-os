@@ -30,6 +30,14 @@ export const eventPayloads = {
   }),
   RunFailed: z.object({ runId: id, error: z.string() }),
   InputRequested: z.object({ threadId: id, workId: id.optional() }),
+  LibraryMaintenanceRequested: z.object({ runId: id }),
+  LibraryOrganized: z.object({ documentId: id }),
+  LibraryMaintained: z.object({ runId: id, documentIds: z.array(id) }),
+  LibraryProposalResolved: z.object({
+    threadId: id,
+    proposalId: id,
+    action: z.enum(["accept", "dismiss"]),
+  }),
   KnowledgeChanged: z.object({ documentId: id, version }),
   KnowledgeIndexed: z.object({ documentId: id, version }),
   ProposalResolved: z.object({
@@ -74,6 +82,7 @@ export type EventInput = {
   [K in EventType]: { type: K; payload: z.infer<(typeof eventPayloads)[K]> };
 }[EventType];
 export type Effect =
+  | { type: "QueueLibrarySource"; documentId: string; version: number }
   | { type: "ObserveDiscovery" }
   | { type: "InvestigateDiscovery"; ideaId: string }
   | { type: "StartReview"; workId: string }

@@ -7,8 +7,8 @@ A private workspace for steering a software company through its Foreman. The fir
 - One inbox for conversations with Foreman, questions, blockers and document proposals. New message starts a thread; replies stay in that thread.
 - Research, bug and feature work tracks, independently scheduled, bounded research tasks, and read-only Chrome UI inspection on the Sprite.
 - Configurable independent PR reviews, commit-specific quorum, worker feedback, verified corrections and new review rounds.
-- Human-readable, editable understanding records with context policies, revision history, semantic/keyword search and reindexing on edits.
-- Context previews and pinned run manifests showing document inclusion, exclusions, repository evidence and screenshots.
+- A subject library with collections, parent/related subjects, versioned sources, Markdown editing and reindexing on edits. Foreman maintains it from new documents and findings; human-edited pages and proposed changes of direction go to the inbox for review.
+- Automatic briefings ordered as constitution, relevant knowledge, conversation and assignment. Inbox replies show exact saved revisions and selection reasons under Context used; later turns refresh knowledge.
 - Typed domain events, explicit workflow triggers and a transactional outbox with inspectable failures and retries.
 - Private login, mobile UI, installable PWA, SQLite volume and Litestream backups to Tigris.
 

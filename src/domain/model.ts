@@ -1,3 +1,10 @@
+import {
+  libraryLocationSchema,
+  libraryUpdateSchema,
+  initialLibrary,
+  type LibraryState,
+  type LibraryProposal,
+} from "./library";
 import { z } from "zod";
 import {
   discoveryCommands,
@@ -42,6 +49,7 @@ export type RevisionProposal = {
   status: "pending" | "accepted" | "dismissed";
 };
 export type Thread = {
+  summary?: { content: string; runId: string; updatedAt: string };
   id: string;
   kind: "conversation" | "inbox";
   subject: string;
@@ -55,6 +63,7 @@ export type Thread = {
   attachment?: { id: string; version: number };
   messages: Note[];
   proposals: RevisionProposal[];
+  libraryProposals?: LibraryProposal[];
   createdAt: string;
   updatedAt: string;
 };
@@ -89,6 +98,23 @@ export type ContextEntry = {
   indexedVersion: number | null;
 };
 export type Context = {
+  subject?: string;
+  conversationSummary?: string;
+  assignment?: string;
+  gaps?: string[];
+  additionalRequests?: { subject: string; reason: string }[];
+  libraryPages?: Record<string, import("./library").LibraryPage>;
+  maintenance?: {
+    sourcePolicies: Record<string, Policy>;
+    sources: Document[];
+    catalog: {
+      id: string;
+      title: string;
+      version: number;
+      collection: string;
+      parentId: string | null;
+    }[];
+  };
   externalSources?: import("./discovery").ResearchSource[];
   discovery?: {
     lens: Lens;
@@ -151,13 +177,20 @@ export type Run = {
   discoverySignalIds?: string[];
   id: string;
   automatic: boolean;
-  trigger: "message" | "heartbeat" | "work" | "review" | "revision";
+  trigger:
+    | "message"
+    | "heartbeat"
+    | "work"
+    | "review"
+    | "revision"
+    | "maintenance";
   status: "queued" | "running" | "completed" | "failed";
   threadId?: string;
   workId?: string;
   reviewRoundId?: string;
   reviewId?: string;
   context: Context | null;
+  contextHistory?: Context[];
   result?: AgentResult;
   error: string | null;
   createdAt: string;
@@ -174,6 +207,7 @@ export type Settings = {
   allowCodeChanges: boolean;
 };
 export type CompanyState = {
+  library: LibraryState;
   version: 1;
   discovery: DiscoveryState;
   reviewRounds: ReviewRound[];
@@ -186,6 +220,7 @@ export type CompanyState = {
 export function initialState(now: string): CompanyState {
   return {
     version: 1,
+    library: initialLibrary(),
     discovery: initialDiscovery(),
     reviewRounds: [],
     threads: [],
@@ -207,6 +242,17 @@ export function initialState(now: string): CompanyState {
 const text = z.string().trim().min(1);
 export const commandSchema = z.discriminatedUnion("type", [
   ...discoveryCommands,
+  z.object({
+    type: z.literal("OrganizeKnowledge"),
+    documentId: text,
+    location: libraryLocationSchema,
+  }),
+  z.object({
+    type: z.literal("ResolveLibraryProposal"),
+    threadId: text,
+    proposalId: text,
+    action: z.enum(["accept", "dismiss"]),
+  }),
   z.object({
     type: z.literal("StartConversation"),
     subject: text.max(160),
@@ -241,6 +287,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("SaveKnowledge"),
+    library: libraryLocationSchema.optional(),
     id: text.optional(),
     title: text.max(160),
     level: z.enum([
@@ -287,6 +334,12 @@ export const commandSchema = z.discriminatedUnion("type", [
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export const agentResultSchema = z.object({
+  conversationSummary: z.string().max(6000).optional(),
+  libraryUpdates: z.array(libraryUpdateSchema).max(4).optional(),
+  contextRequests: z
+    .array(z.object({ subject: text.max(400), reason: text.max(800) }))
+    .max(3)
+    .optional(),
   discoveries: z.array(candidateSchema).max(2).default([]),
   discoveryAssessment: assessmentSchema.nullable().default(null),
   discoveryOutcome: outcomeSchema.nullable().default(null),

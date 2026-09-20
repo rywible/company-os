@@ -1,3 +1,4 @@
+import { importLibrary, libraryTask } from "../domain/library";
 import type { Document } from "../contracts";
 import { initialDiscovery } from "../domain/discovery";
 import { Store } from "../server/store";
@@ -70,6 +71,7 @@ export class SQLiteRepository implements Repository {
             createdAt: p.created_at,
             updatedAt: p.resolved_at || p.created_at,
           });
+        state.library = importLibrary(this.documents());
         this.save(state);
         for (const d of this.documents())
           if (d.indexed_version !== d.version)
@@ -98,6 +100,20 @@ export class SQLiteRepository implements Repository {
           .get() as { json: string }
       ).json,
     );
+    s.discovery ||= initialDiscovery();
+    if (!s.library) {
+      s.library = importLibrary(this.documents());
+      const task = libraryTask();
+      task.enabled = s.settings.enabled !== false;
+      s.discovery ||= initialDiscovery();
+      if (!s.discovery.lenses.some((l: any) => l.id === task.id))
+        s.discovery.lenses.push(task);
+      this.save(s);
+    }
+    if (!s.discovery.lenses.some((l: any) => l.id === "knowledge-library")) {
+      s.discovery.lenses.push(libraryTask());
+      this.save(s);
+    }
     s.reviewRounds ||= [];
     s.discovery ||= initialDiscovery();
     if (s.discovery.taskSettingsVersion !== 1) {
@@ -191,7 +207,7 @@ export class SQLiteRepository implements Repository {
     return this.transaction(() => {
       const row = this.store.db
         .query(
-          "SELECT * FROM deliveries WHERE status='pending' AND available_at<=? ORDER BY CASE WHEN json_extract(effect_json,'$.type')='IndexKnowledge' THEN 1 ELSE 0 END,rowid LIMIT 1",
+          "SELECT * FROM deliveries WHERE status='pending' AND available_at<=? ORDER BY CASE WHEN json_extract(effect_json,'$.type') IN ('IndexKnowledge','QueueLibrarySource') THEN 1 ELSE 0 END,rowid LIMIT 1",
         )
         .get(Date.now()) as any;
       if (!row) return null;
@@ -269,8 +285,8 @@ export class SQLiteRepository implements Repository {
   saveDocument(input: Parameters<Store["saveDocument"]>[0], actor = "human") {
     return this.store.saveDocument(input, actor, false);
   }
-  search(query: string, vector?: number[], model?: string) {
-    return this.store.search(query, vector, model);
+  search(query: string, vector?: number[], model?: string, limit = 6) {
+    return this.store.search(query, vector, model, limit);
   }
   index(...args: Parameters<Store["indexDocument"]>) {
     return this.store.indexDocument(...args);

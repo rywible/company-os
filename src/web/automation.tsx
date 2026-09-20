@@ -108,48 +108,59 @@ export function AutomationPage({
               max: 3,
             },
             { key: "maxOpenWork", label: "Open work limit", max: 10 },
-          ].map((f) => (
-            <label key={f.key}>
-              {f.label}
+          ]
+            .filter(
+              (f) =>
+                lens.kind !== "knowledge" ||
+                ["intervalHours", "dailyRunLimit"].includes(f.key),
+            )
+            .map((f) => (
+              <label key={f.key}>
+                {f.label}
+                <input
+                  aria-label={f.label}
+                  type="number"
+                  required
+                  min={1}
+                  max={f.max}
+                  value={lens[f.key as "intervalHours"]}
+                  onChange={(e) =>
+                    setEditing({ ...lens, [f.key]: Number(e.target.value) })
+                  }
+                />
+              </label>
+            ))}
+        </div>
+        <p className="field-help">
+          {lens.kind === "knowledge"
+            ? "Maintenance runs only when new evidence is waiting. Each pass processes up to three sources. "
+            : "These limits cover this task’s research, investigations, delivery and outcome checks. "}
+          The daily limit resets at midnight UTC. Runs execute one at a time.
+        </p>
+        {lens.kind !== "knowledge" && (
+          <>
+            <label className="check">
               <input
-                aria-label={f.label}
-                type="number"
-                required
-                min={1}
-                max={f.max}
-                value={lens[f.key as "intervalHours"]}
+                type="checkbox"
+                checked={lens.inspectUI}
                 onChange={(e) =>
-                  setEditing({ ...lens, [f.key]: Number(e.target.value) })
+                  setEditing({ ...lens, inspectUI: e.target.checked })
+                }
+              />{" "}
+              Inspect the live interface
+            </label>
+            <label>
+              GitHub release sources (owner/repo, one per line)
+              <textarea
+                aria-label="Release sources"
+                value={lens.sources.join("\n")}
+                onChange={(e) =>
+                  setEditing({ ...lens, sources: e.target.value.split("\n") })
                 }
               />
             </label>
-          ))}
-        </div>
-        <p className="field-help">
-          These limits apply only to this task. The daily limit includes its
-          research, investigations, delivery and outcome checks, and resets at
-          midnight UTC. Runs execute one at a time.
-        </p>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={lens.inspectUI}
-            onChange={(e) =>
-              setEditing({ ...lens, inspectUI: e.target.checked })
-            }
-          />{" "}
-          Inspect the live interface
-        </label>
-        <label>
-          GitHub release sources (owner/repo, one per line)
-          <textarea
-            aria-label="Release sources"
-            value={lens.sources.join("\n")}
-            onChange={(e) =>
-              setEditing({ ...lens, sources: e.target.value.split("\n") })
-            }
-          />
-        </label>
+          </>
+        )}
         <div className="actions">
           <button className="primary" disabled={disabled}>
             Save task

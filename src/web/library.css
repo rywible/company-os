@@ -1,0 +1,229 @@
+.library-index,
+.library-reader {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.library-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 22px;
+}
+.library-tools button:last-child {
+  margin-left: auto;
+}
+.library-tools button[aria-pressed="true"] {
+  background: var(--ink, #111);
+  color: var(--bg, #fff);
+}
+.library-collection {
+  margin: 30px 0;
+}
+.library-collection h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+.library-row {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 18px 0;
+  background: transparent;
+}
+.library-row > span {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.library-row strong {
+  font-size: 17px;
+  font-weight: 600;
+}
+.library-row span span,
+.library-row small,
+.library-meta,
+.library-path {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.library-row small {
+  flex-shrink: 0;
+}
+.library-empty {
+  padding: 36px 0;
+  max-width: 55ch;
+  line-height: 1.8;
+  color: var(--muted);
+}
+.library-queue {
+  margin-top: 30px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.library-reader {
+  max-width: 760px;
+}
+.library-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 14px 0 8px;
+}
+.library-title h2 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+.library-meta {
+  margin-bottom: 32px;
+}
+.library-body {
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.library-body > :first-child {
+  margin-top: 0;
+}
+.library-support {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.library-support li {
+  margin: 8px 0;
+}
+.library-support button,
+.library-path button {
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+  background: transparent;
+  border: 0;
+}
+.library-support details {
+  margin: 14px 0;
+}
+.library-related {
+  margin-top: 26px;
+}
+.library-related h3 {
+  font-size: 14px;
+}
+.library-related button {
+  margin: 0 8px 8px 0;
+}
+.library-footer {
+  display: flex;
+  gap: 10px;
+  margin: 30px 0;
+}
+.library-organize {
+  display: grid;
+  gap: 18px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+.library-organize label {
+  display: grid;
+  gap: 8px;
+}
+.library-organize label.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+}
+.library-organize fieldset {
+  border: 1px solid var(--line);
+  padding: 16px;
+}
+.library-organize input[type="checkbox"] {
+  width: 18px;
+}
+.context-used {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.context-used > summary {
+  display: list-item;
+  cursor: pointer;
+  width: fit-content;
+}
+.context-used > summary > span {
+  margin-left: 8px;
+}
+.briefing-snapshot {
+  color: var(--ink);
+  max-width: 70ch;
+  padding: 18px 0 0;
+  overflow-wrap: anywhere;
+}
+.briefing-snapshot > section {
+  margin: 16px 0;
+}
+.briefing-snapshot h4 {
+  font-size: 13px;
+  margin: 14px 0 8px;
+  font-weight: 600;
+}
+.briefing-snapshot details {
+  margin: 12px 0;
+}
+.briefing-page {
+  border-left: 2px solid var(--line);
+  padding-left: 14px;
+}
+.briefing-page summary span {
+  color: var(--muted);
+  margin-left: 6px;
+}
+.briefing-gaps {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 8px;
+}
+.briefing-pending {
+  color: var(--muted);
+  font-size: 12px;
+}
+.library-reader pre,
+.briefing-snapshot pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+@media (max-width: 600px) {
+  .library-title h2 {
+    font-size: 24px;
+  }
+  .library-tools {
+    gap: 4px;
+  }
+  .library-tools button {
+    padding: 8px 10px;
+  }
+  .library-row {
+    gap: 12px;
+  }
+}
+.library-reader > .back {
+  display: inline-flex;
+  padding: 6px 0;
+  margin-bottom: 16px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--muted);
+}

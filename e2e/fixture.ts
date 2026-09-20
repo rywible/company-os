@@ -28,6 +28,28 @@ export function fixture(empty = false) {
       repository: async () => ({ ref: "github:example@abc", head: "abc" }),
       execute: async (_id, c) => ({
         ...answer,
+        ...(c.maintenance
+          ? {
+              libraryUpdates: [
+                {
+                  documentId: null,
+                  expectedVersion: null,
+                  title: "Working principles",
+                  content:
+                    "The company prioritizes a complete, auditable workflow. Implementation details remain open questions.",
+                  collection: "Company",
+                  parentId: null,
+                  relatedIds: [],
+                  sources: c.maintenance.sources.map(
+                    (d) => `document:${d.id}@${d.version}`,
+                  ),
+                  needsApproval: false,
+                  reason:
+                    "Consolidate the supplied direction into a subject overview.",
+                },
+              ],
+            }
+          : {}),
         ...(c.discovery?.phase === "scout"
           ? {
               discoveries: [

@@ -207,7 +207,12 @@ export class Store {
       return true;
     })();
   }
-  search(query: string, vector?: number[], model?: string): SearchHit[] {
+  search(
+    query: string,
+    vector?: number[],
+    model?: string,
+    limit = 6,
+  ): SearchHit[] {
     const terms = query.match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 20) || [];
     const fts = terms
       .map((t) => '"' + t.replaceAll('"', '""') + '"')
@@ -261,7 +266,7 @@ export class Store {
         excerpt: rank.get(d.id)!.excerpt || d.content.slice(0, 450),
       }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 6);
+      .slice(0, Math.min(60, limit));
   }
   direction(content: string, key: string) {
     return this.db.transaction(() => {

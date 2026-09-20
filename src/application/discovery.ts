@@ -57,8 +57,10 @@ export class Discovery {
     const d = state.discovery;
     if (cmd.type === "SaveDiscoveryLens") {
       const lens = d.lenses.find((l) => l.id === cmd.lens.id);
-      if (lens) Object.assign(lens, cmd.lens);
+      if (lens) Object.assign(lens, { ...cmd.lens, kind: lens.kind });
       else {
+        if (cmd.lens.kind === "knowledge")
+          throw new DomainError("The library already has a maintenance task.");
         if (d.lenses.length >= 30)
           throw new DomainError("At most 30 perspectives are supported.");
         d.lenses.push(cmd.lens);
@@ -118,6 +120,7 @@ export class Discovery {
   scout(state: CompanyState, requested?: string): Lens | undefined {
     const d = state.discovery;
     const eligible = (lens: Lens) =>
+      lens.kind !== "knowledge" &&
       taskUsage(state, lens, this.h.now()) < lens.dailyRunLimit &&
       taskCapacity(state, lens);
     if (requested) {

@@ -38,7 +38,12 @@ export interface Repository {
     },
     actor?: string,
   ): Document;
-  search(query: string, vector?: number[], model?: string): SearchHit[];
+  search(
+    query: string,
+    vector?: number[],
+    model?: string,
+    limit?: number,
+  ): SearchHit[];
   index(
     id: string,
     version: number,

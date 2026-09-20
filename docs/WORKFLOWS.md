@@ -96,3 +96,30 @@ Signals coalesce pending repeats and retain the newest 200 entries. Scout contex
 `KnowledgeChanged(documentId, version)` → `IndexKnowledge` → `KnowledgeIndexed(documentId, version)`.
 
 Every human edit or accepted proposal creates a revision. Old vectors disappear immediately. Indexing a superseded version does nothing. The document view explains eligibility; Knowledge exposes source, chunks, versions and actual run usage. Context preview explains inclusion and exclusion; historical run contexts show exactly what was supplied.
+
+
+## Library maintenance
+
+```mermaid
+flowchart TD
+  C[Document or finding changed] --> E[KnowledgeChanged]
+  E --> I[IndexKnowledge]
+  E --> Q[QueueLibrarySource]
+  Q --> P[Pending source revision]
+  P --> T[Knowledge library task: due, enabled, allowance available]
+  T --> R[LibraryMaintenanceRequested]
+  R --> A[RunAgent with maintenance briefing]
+  A --> V[Validate sources, version and subject relationships]
+  V --> S[Routine synthesis: save subject revision]
+  V --> H[Human-edited page or changed decision: inbox proposal]
+  H --> D[ResolveLibraryProposal]
+  D --> S
+  S --> K[KnowledgeChanged: reindex subject]
+  K --> N[Existing library page: no recursive maintenance]
+```
+
+Maintenance is a separate task in Automation, with Pause/Resume, interval, runs per day and Run now. It only runs with pending source material and a constitution. A successful pass marks only the exact supplied source revisions as processed; newer edits remain queued. Failed passes retain evidence for retry, and incomplete briefings reach the inbox. Processing is bounded to three sources and four page changes per pass. Ordinary agents contribute observations; only the maintenance workflow can apply library updates. Governing-document proposals retain their existing human approval workflow.
+
+## Conversation context
+
+Before each run, the application retrieves eligible subjects using the assignment and conversation intent, expands parent/related guidance, and renders the constitution → knowledge → conversation → assignment briefing. The model can identify a missing subject in `contextRequests`; the application makes one additional retrieval pass and stores the expanded snapshot before a second invocation. Unresolved requests stop proposed actions and are reported explicitly. Review invocations cannot approve a PR with an unresolved context request. Inbox Context used displays the exact supplied pages, revisions, selection reasons, excerpts, summary and assignment. Previous replies retain their own context even after a page is edited and re-embedded.

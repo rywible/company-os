@@ -139,7 +139,7 @@ test("old state gets perspectives without losing documents or settings", () => {
   delete old.discovery;
   old.settings.dailyBudget = 3;
   repo.save(old);
-  expect(repo.state().discovery.lenses).toHaveLength(9);
+  expect(repo.state().discovery.lenses).toHaveLength(10);
   expect(repo.state().settings.dailyBudget).toBe(3);
   expect(repo.documents().length).toBeGreaterThan(0);
   const legacy: any = answer();
