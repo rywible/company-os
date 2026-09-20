@@ -1,0 +1,75 @@
+import { z } from "zod";
+const id = z.string().min(1),
+  version = z.number().int().positive();
+export const eventPayloads = {
+  ConversationStarted: z.object({ threadId: id, runId: id }),
+  ReplyReceived: z.object({ threadId: id, runId: id, workId: id.optional() }),
+  ThreadStatusChanged: z.object({ threadId: id, status: z.string() }),
+  WorkCreated: z.object({ workId: id }),
+  WorkQueued: z.object({ workId: id }),
+  WorkStatusChanged: z.object({ workId: id, status: z.string() }),
+  HeartbeatDue: z.object({ runId: id }),
+  RunRequested: z.object({ runId: id }),
+  RunStarted: z.object({ runId: id }),
+  RunCompleted: z.object({
+    runId: id,
+    threadId: id.optional(),
+    workId: id.optional(),
+  }),
+  RunFailed: z.object({ runId: id, error: z.string() }),
+  InputRequested: z.object({ threadId: id, workId: id.optional() }),
+  KnowledgeChanged: z.object({ documentId: id, version }),
+  KnowledgeIndexed: z.object({ documentId: id, version }),
+  ProposalResolved: z.object({
+    threadId: id,
+    proposalId: id,
+    action: z.enum(["accept", "dismiss"]),
+  }),
+  WorkCompleted: z.object({
+    workId: id,
+    repository: id,
+    number: z.number().int().positive(),
+    head: id,
+  }),
+  ReviewRoundStarted: z.object({ roundId: id, runIds: z.array(id) }),
+  ReviewSubmitted: z.object({ roundId: id, reviewId: id, head: id }),
+  ReviewCompleted: z.object({ roundId: id, workId: id, approved: z.boolean() }),
+  ReviewSuperseded: z.object({ roundId: id, workId: id, head: id }),
+  WorkerSignalled: z.object({ runId: id, workId: id, roundId: id }),
+  PullRequestUpdated: z.object({ workId: id, head: id }),
+  ReviewPolicyConfigured: z.object({
+    requiredReviews: z.number().int().min(1).max(5),
+    allowCodeChanges: z.boolean(),
+  }),
+  AutonomyConfigured: z.object({ enabled: z.boolean() }),
+} as const;
+export type EventType = keyof typeof eventPayloads;
+export type DomainEvent = {
+  [K in EventType]: {
+    id: string;
+    sequence: number;
+    schemaVersion: 1;
+    type: K;
+    at: string;
+    actor: "human" | "foreman" | "system";
+    correlationId: string;
+    causationId: string | null;
+    payload: z.infer<(typeof eventPayloads)[K]>;
+  };
+}[EventType];
+export type EventInput = {
+  [K in EventType]: { type: K; payload: z.infer<(typeof eventPayloads)[K]> };
+}[EventType];
+export type Effect =
+  | { type: "StartReview"; workId: string }
+  | { type: "SignalWorker"; roundId: string }
+  | { type: "PublishReview"; roundId: string; reviewId: string }
+  | { type: "RunAgent"; runId: string }
+  | { type: "ScheduleWork"; workId: string }
+  | { type: "IndexKnowledge"; documentId: string; version: number };
+export type Delivery = {
+  id: string;
+  event: DomainEvent;
+  effect: Effect;
+  attempts: number;
+};

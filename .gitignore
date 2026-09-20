@@ -111,3 +111,14 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Company OS local state and credentials
+.env.*
+!.env.example
+data/
+*.sqlite-*
+*.db
+*.db-*
+playwright-report/
+test-results/
+.artifacts/

@@ -1,0 +1,15 @@
+*
+!package.json
+!bun.lock
+!tsconfig.json
+!index.html
+!src
+!src/**
+!deploy
+!deploy/**
+
+!public
+!public/**
+
+!scripts
+!scripts/**

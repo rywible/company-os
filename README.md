@@ -1,1 +1,108 @@
-# company-os
+# Company OS
+
+A private workspace for steering a software company through its Foreman. The first working loop is **direction → contextual recommendation → proposal → human acceptance → versioned understanding**.
+
+## What works
+
+- Dedicated, isolated Foreman conversations and an inbox for questions, blockers and document proposals.
+- Research, bug and feature work tracks, bounded autonomous heartbeats, and read-only Chrome UI inspection on the Sprite.
+- Configurable independent PR reviews, commit-specific quorum, worker feedback, verified corrections and new review rounds.
+- Human-readable, editable understanding records with context policies, revision history, semantic/keyword search and reindexing on edits.
+- Context previews and pinned run manifests showing document inclusion, exclusions, repository evidence and screenshots.
+- Typed domain events, explicit workflow triggers and a transactional outbox with inspectable failures and retries.
+- Private login, mobile UI, installable PWA, SQLite volume and Litestream backups to Tigris.
+
+General engineering implementation, PR creation, merge and deployment executors are still outside the application. Linked PR review and bounded source corrections are implemented. Agent reviewers currently use the same model and GitHub account; their comments are not GitHub branch-protection approvals. Correction authority defaults off.
+
+## Stack and architecture
+
+TypeScript and Bun 1.4.2: native HTTP, SQLite, bundling, Markdown, test runner and WebView. React renders the UI; Mermaid renders diagrams; sqlite-vec supplies vectors. The Sprites SDK, Zod and Lucide remain. Bun has no replacement for those remaining capabilities. No Vite, Vitest or Playwright.
+
+See [Architecture](docs/ARCHITECTURE.md) for the C4 diagram and hexagonal boundaries, and [Workflows](docs/WORKFLOWS.md) for event contracts, PR review/correction, heartbeats and understanding.
+
+The production entry point is `src/server/index.ts`. Domain rules live in `src/domain`, use cases and ports in `src/application`, and integration implementations in `src/adapters`. The original SQLite document store is reused for migration and retrieval; the original worker is no longer wired into production.
+
+Agents return structured results. They do not receive database access. Provider credentials stay in Sprite connectors; Codex authentication stays on the worker Sprite. One agent invocation runs at a time. Reviews resume the original assignment with its saved result and feedback in a new invocation.
+
+## Local development
+
+Use Bun 1.4.2 (pinned in `.bun-version` and Docker). macOS also needs Homebrew SQLite for loadable extensions: `brew install sqlite`.
+
+```sh
+bun install --frozen-lockfile
+cp .env.example .env # Only when .env does not already exist
+bun run dev
+```
+
+Open `http://127.0.0.1:3000`. One Bun process serves both the interface and API. Development binds to loopback and bypasses login. To serve the built interface directly, run `bun run build` and open `http://127.0.0.1:3000` after starting `bun run start`.
+
+Set `SPRITES_TOKEN`, `SPRITE_NAME`, `GEMINI_CONNECTOR_ID`, and `GITHUB_CONNECTOR_ID` in `.env`. Without a Sprite token, documents and keyword search work, but queued agent/indexing work waits for configuration. Production also requires `ADMIN_PASSWORD`, `SESSION_SECRET`, and `PUBLIC_ORIGIN`.
+
+Authenticate Codex on the worker:
+
+```sh
+sprite -s company-os-worker exec -- codex login --device-auth
+sprite -s company-os-worker exec -- codex login status
+```
+
+The configured Sprite has the `company-os` label. Google connector access is scoped to company Sprites and `/v1beta/models` plus `/v1beta/models/*`; GitHub access is scoped to `/user` and `rywible/company-os`. Connector IDs are configuration, not provider API keys. Subscription limits still apply; expired authentication appears as a failed run with recovery instructions.
+
+```sh
+bun run typecheck
+bun test
+bun run build
+```
+
+Backend tests cover transactional document acceptance, context isolation, embedding races, heartbeat limits, review quorums, commit invalidation, correction loops, authentication and read-only inspection sessions. Chrome tests exercise the UI against real application workflows with fake external ports.
+
+## Deployment and recovery
+
+Configured resources:
+
+- App: `company-os-rywible`, region `ord`, one shared CPU / 512 MB.
+- Persistent volume: `company_data`, 1 GB.
+- Tigris bucket: `company-os-rywible-backups` (private).
+- Worker Sprite: `company-os-worker`.
+
+The Fly app requires the credentials from `.env` as Fly secrets. `fly storage create` attaches the Tigris credentials and `BUCKET_NAME`. Neither `.env` nor local data is sent in Docker builds. Deploy with:
+
+```sh
+fly deploy --remote-only --ha=false
+```
+
+**Keep exactly one application Machine.** It is the sole SQLite writer and job owner. Litestream is asynchronous disaster recovery, not high availability or zero-loss replication. There is no automatic failover. The app stays running so durable jobs can advance. This provisions billable Fly/Sprite/Tigris resources; it does not use Cloud SQL.
+
+Startup restores only when `/data/company.sqlite` is absent. Missing backups are allowed on first boot; other restore errors stop startup. The explicit Tigris endpoint is necessary for compatible request signing. Litestream 0.5.17 and its release checksum are pinned in the Dockerfile.
+
+To verify a backup without touching the live database:
+
+```sh
+fly ssh console --app company-os-rywible
+litestream restore -config /etc/litestream.yml -o /tmp/recovery-check.sqlite /data/company.sqlite
+sqlite3 /tmp/recovery-check.sqlite 'SELECT count(*) FROM documents; SELECT count(*) FROM events;'
+```
+
+For recovery, stop the writer first and preserve any existing database plus WAL before replacing data. A new empty mounted volume will restore on startup. Don't run two writers against one backup prefix. Codex run output lives separately under `/home/sprite/company-os/v2-runs/<run-id>`; completed responses are reused on retry. If a Sprite dies with a `running` marker but no result, inspect its process/logs before removing that marker and retrying.
+
+Work exposes workflow history, runs and delivery failures; all events and revisions remain in SQLite. Multi-user permissions, workspace configuration, pagination, schema migrations, and automated backup monitoring are future work.
+
+## Mobile and installation
+
+The interface uses a monochrome palette, compact headings, plain labels, document rows, and a small stamped wordmark. It uses a dedicated bottom navigation on phones and tablets, a full-screen Foreman conversation, 44px controls, safe-area spacing, and keyboard-aware viewport sizing. On phones, document editing and context inspection open full-screen; diagrams scroll horizontally to preserve readable labels. The interface uses system fonts without external font requests.
+
+Company OS is an installable PWA. Open **Settings** for installation:
+
+- iPhone/iPad: open in Safari, then **Share → Add to Home Screen**.
+- Android/desktop: use the **Install app** button when offered, or the browser's installation menu.
+
+The service worker caches only public icons and an offline reconnect screen. API responses, company documents, conversations, and mutations are never cached by the service worker. Offline changes are not queued. Existing in-memory content is marked offline; saving and sending wait for a connection. Bump the `company-os-public-*` cache version in `public/sw.js` when changing offline assets. Updated workers take over after existing app windows close, avoiding a forced reload during an edit.
+
+```sh
+bun run test:ui
+# Optional: add system WebKit coverage on macOS
+UI_BACKENDS=webkit,chrome bun run test:ui
+```
+
+Browser tests use `bun test` with built-in `Bun.WebView` and a private fixture server; no Playwright or live company data is involved. `bun test` runs backend tests, while `bun run test:ui` builds the app and runs browser tests in Chrome by default, including PWA offline checks. Bun uses an installed Chrome/Chromium; set `BUN_CHROME_PATH` if necessary. On macOS, `UI_BACKENDS=webkit,chrome` runs both engines, and `UI_BACKENDS=webkit` selects system WebKit alone.
+
+The suite covers 320–1440px viewports, document editing/reindexing, Mermaid rendering, context preview, inbox proposals, navigation, draft preservation, review configuration and a complete PR review round. Chrome additionally checks PWA icons, cache privacy, offline fallback, and reconnect. Bun’s WebView API is experimental. These are viewport tests, not device emulation; keyboard checks simulate the visual viewport shrinking. Physical-device behavior and native installation prompts still need device testing. Failure screenshots are saved in `.artifacts/`.

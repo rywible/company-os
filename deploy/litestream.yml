@@ -1,0 +1,4 @@
+dbs:
+  - path: /data/company.sqlite
+    replica:
+      url: s3://${BUCKET_NAME}/company.sqlite?endpoint=fly.storage.tigris.dev&region=auto
