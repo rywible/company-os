@@ -11,7 +11,6 @@ type Props = {
   command(c: Command): Promise<boolean>;
   edit(d: Document): void;
   discuss(d: Document): void;
-  automation(): void;
   markdown(content: string): React.ReactNode;
   api(path: string): Promise<any>;
 };
@@ -21,7 +20,6 @@ export function KnowledgeLibrary({
   command,
   edit,
   discuss,
-  automation,
   markdown,
   api,
 }: Props) {
@@ -519,7 +517,6 @@ export function KnowledgeLibrary({
         >
           Evidence
         </button>
-        <button onClick={automation}>Maintenance</button>
       </div>
       <form
         className="search-form"

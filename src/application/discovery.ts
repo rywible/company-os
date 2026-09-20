@@ -65,17 +65,23 @@ export class Discovery {
           throw new DomainError("At most 30 perspectives are supported.");
         d.lenses.push(cmd.lens);
       }
+      this.h.emit(
+        { type: "DiscoveryConfigured", payload: { lensId: cmd.lens.id } },
+        "human",
+        "discovery",
+      );
+    } else if (cmd.type === "DeleteDiscoveryLens") {
+      const index = d.lenses.findIndex((l) => l.id === cmd.lensId);
+      if (index < 0) throw new DomainError("Automation not found.");
+      if (d.lenses[index]!.kind === "knowledge")
+        throw new DomainError("The library automation cannot be deleted.");
+      d.lenses.splice(index, 1);
+      this.h.emit(
+        { type: "DiscoveryDeleted", payload: { lensId: cmd.lensId } },
+        "human",
+        "discovery",
+      );
     } else return false;
-    this.h.emit(
-      {
-        type: "DiscoveryConfigured",
-        payload: {
-          lensId: cmd.type === "SaveDiscoveryLens" ? cmd.lens.id : undefined,
-        },
-      },
-      "human",
-      "discovery",
-    );
     return true;
   }
   signal(

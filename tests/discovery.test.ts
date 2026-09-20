@@ -502,6 +502,25 @@ test("pausing discovery keeps queued investigations deferred", async () => {
   expect(contexts).toHaveLength(1);
 });
 
+test("custom automations can be deleted while library automation stays protected", () => {
+  expect(repo.state().discovery.lenses.some((l) => l.id === "users")).toBe(true);
+  company.execute({ type: "DeleteDiscoveryLens", lensId: "users" });
+  expect(repo.state().discovery.lenses.some((l) => l.id === "users")).toBe(false);
+  expect(
+    repo.events().some(
+      (event) =>
+        event.type === "DiscoveryDeleted" && event.payload.lensId === "users",
+    ),
+  ).toBe(true);
+  expect(
+    () =>
+      company.execute({
+        type: "DeleteDiscoveryLens",
+        lensId: "knowledge-library",
+      }),
+  ).toThrow("library automation");
+});
+
 test("supplied portfolio metadata has stable citations, including older saved contexts", async () => {
   const idea = await ready();
   const context = structuredClone(contexts[1]!);

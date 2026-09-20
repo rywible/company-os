@@ -103,7 +103,7 @@ test("direction comes from the current constitution, and exploration waits witho
     );
     expect(
       (company.execute({ type: "ExploreDiscovery" }) as any).skipped,
-    ).toContain("constitution");
+    ).toContain("company direction");
     company.execute({
       type: "SaveKnowledge",
       id: "my-constitution",

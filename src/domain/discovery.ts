@@ -231,6 +231,7 @@ export function duplicateIdea(
 }
 export const discoveryCommands = [
   z.object({ type: z.literal("SaveDiscoveryLens"), lens: lensSchema }),
+  z.object({ type: z.literal("DeleteDiscoveryLens"), lensId: text }),
   z.object({ type: z.literal("ExploreDiscovery"), lensId: text.optional() }),
   z.object({
     type: z.literal("RecordDiscoverySignal"),

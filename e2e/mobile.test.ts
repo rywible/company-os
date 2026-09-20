@@ -219,7 +219,7 @@ async function nav(view: Bun.WebView, name: string) {
   await button(view, "Open " + name);
   await wait(
     view,
-    `document.querySelector('h1')?.textContent===${JSON.stringify(name)}`,
+    `[...document.querySelectorAll('nav[aria-label="Workspace navigation"] button')].some(b => b.getAttribute('aria-current') === 'page' && b.getAttribute('aria-label') === ${JSON.stringify("Open " + name)})`,
   );
 }
 async function fits(view: Bun.WebView) {
@@ -253,6 +253,7 @@ for (const backend of backends) {
           "Open Documents",
           "Open Knowledge",
           "Open Automation",
+          "Open Settings",
         ]);
         await button(view, "Run Users & workflows now");
         await nav(view, "Inbox");
@@ -784,7 +785,10 @@ for (const backend of backends) {
         `document.querySelector('h1')?.textContent === 'Offline'`,
       );
       reconnect();
-      await wait(view, `document.querySelector('h1')?.textContent === 'Inbox'`);
+      await wait(
+        view,
+        `document.querySelector('nav button[aria-label="Open Inbox"][aria-current="page"]') !== null`,
+      );
     }, 30000);
 }
 
@@ -797,7 +801,7 @@ test("empty workspace: author the constitution without starter documents or inve
   await nav(view, "Automation");
   expect(
     await view.evaluate<any>(
-      `document.querySelector('.task-notice').textContent.includes('Add a constitution')`,
+      `document.querySelector('.task-notice') === null`,
     ),
   ).toBe(true);
   expect(
@@ -810,7 +814,7 @@ test("empty workspace: author the constitution without starter documents or inve
       `document.querySelector('.automation-page').textContent.includes('Next check')`,
     ),
   ).toBe(false);
-  await button(view, "Open Documents", ".task-notice");
+  await nav(view, "Documents");
   await button(view, "New document");
   await fill(view, "dialog input", "Constitution");
   await fill(
@@ -863,8 +867,10 @@ test("empty workspace: author the constitution without starter documents or inve
     `!!document.querySelector('dialog[aria-label="New message"]')`,
   );
   expect(
-    await view.evaluate<any>(`document.querySelector('h1').textContent`),
-  ).toBe("Inbox");
+    await view.evaluate<any>(
+      `document.querySelector('nav button[aria-label="Open Inbox"][aria-current="page"]') !== null`,
+    ),
+  ).toBe(true);
   expect(
     await view.evaluate<any>(
       `document.querySelector('dialog .attachment').textContent.includes('Constitution')`,
@@ -882,7 +888,10 @@ test("empty workspace: author the constitution without starter documents or inve
     version: 1,
   });
   await view.evaluate<any>(`location.hash = 'Foreman'`);
-  await wait(view, `document.querySelector('h1')?.textContent === 'Inbox'`);
+  await wait(
+    view,
+    `document.querySelector('nav button[aria-label="Open Inbox"][aria-current="page"]') !== null`,
+  );
   await fits(view);
   expect(errors).toEqual([]);
 }, 30000);
@@ -934,7 +943,7 @@ test("browser inspection uses the real accessible names at desktop and phone wid
       "https://inspection.example",
       "test-secret",
     );
-    const evidence = await browser.inspect("browser-contract");
+    const evidence = await browser.inspect("browser-contract-ui-v2");
     expect(evidence.steps).toHaveLength(10);
     expect(evidence.errors).toEqual([]);
     for (const label of ["Inbox", "Documents", "Knowledge", "Automation"]) {

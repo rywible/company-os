@@ -702,7 +702,8 @@ export class Company {
       .some((d) => d.level === "constitution" && d.content.trim());
     if (!hasConstitution)
       return {
-        skipped: "Add a constitution before starting autonomous exploration.",
+        skipped:
+          "Waiting for company direction before starting autonomous exploration.",
       };
     if (
       state.runs.some(

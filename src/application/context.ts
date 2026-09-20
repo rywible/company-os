@@ -264,7 +264,7 @@ export async function assembleContext(
     );
   if (!context.constitutionRef)
     context.gaps!.push(
-      "No constitution has been supplied. Do not invent company direction.",
+      "No company direction has been supplied. Keep recommendations grounded in available evidence.",
     );
   if (!context.documents.some((d) => state.library.pages[d.id]))
     context.gaps!.push(

@@ -3,6 +3,8 @@ import type { CompanyState } from "../domain/model";
 import type { Lens } from "../domain/discovery";
 import { taskBlocker, taskDueAt, taskUsage } from "../domain/automation";
 import type { CommandHandler } from "./settings";
+import { Modal } from "./modal";
+import { Pencil, Trash2 } from "lucide-react";
 const stamp = (at: string) =>
   new Date(at).toLocaleString(undefined, {
     month: "short",
@@ -17,7 +19,6 @@ export function AutomationPage({
   command,
   configured,
   hasConstitution,
-  openDocuments,
   openWork,
   openIdeas,
 }: {
@@ -26,18 +27,12 @@ export function AutomationPage({
   command: CommandHandler;
   configured: boolean;
   hasConstitution: boolean;
-  openDocuments(): void;
   openWork(): void;
   openIdeas(): void;
 }) {
   const [editing, setEditing] = useState<Lens | null>(null),
     [requested, setRequested] = useState<string | null>(null);
   const now = new Date().toISOString();
-  const globalBlock = !hasConstitution
-    ? "Add a constitution before these tasks can run."
-    : !configured
-      ? "Connect the worker before these tasks can run."
-      : null;
   const create = () =>
     setEditing({
       id: crypto.randomUUID(),
@@ -174,23 +169,19 @@ export function AutomationPage({
   }
   return (
     <div className="automation-page task-automations">
+      {editing && (
+        <Modal
+          title={editing.name ? "Edit automation" : "New automation"}
+          close={() => setEditing(null)}
+        >
+          {editor(editing)}
+        </Modal>
+      )}
       <div className="task-toolbar">
-        <p className="muted">Each task runs on its own schedule.</p>
         <button disabled={disabled} onClick={create}>
-          Add task
+          Add automation
         </button>
       </div>
-      {globalBlock && (
-        <div className="task-notice">
-          <p>{globalBlock}</p>
-          {!hasConstitution && (
-            <button onClick={openDocuments}>Open Documents</button>
-          )}
-        </div>
-      )}
-      {editing && !state.discovery.lenses.some((l) => l.id === editing.id) && (
-        <section className="automated-task">{editor(editing)}</section>
-      )}
       <div className="task-list">
         {state.discovery.lenses.map((lens) => {
           const blocker = taskBlocker(
@@ -208,13 +199,11 @@ export function AutomationPage({
           );
           const status = !lens.enabled
             ? "Paused"
-            : globalBlock
-              ? "Waiting to start"
-              : blocker ||
-                (!due || due <= now
-                  ? "Ready for the next available run"
-                  : `Eligible ${stamp(due)}`);
-          const live = lens.enabled && !globalBlock && !blocker;
+            : blocker ||
+              (!due || due <= now
+                ? "Ready for the next available run"
+                : `Eligible ${stamp(due)}`);
+          const live = lens.enabled && !blocker;
           return (
             <article
               className="automated-task"
@@ -226,10 +215,12 @@ export function AutomationPage({
                   <p style={{ margin: "0 0 8px" }}>
                     <span
                       className="badge"
-                      data-status={live ? "running" : "queued"}
+                      data-status={
+                        live ? "running" : lens.enabled ? "queued" : "paused"
+                      }
                     >
                       <span className="dot" aria-hidden="true" />
-                      {live ? "live" : "held"}
+                      {live ? "live" : "paused"}
                     </span>
                   </p>
                   <h2>{lens.name}</h2>
@@ -285,9 +276,27 @@ export function AutomationPage({
                   disabled={disabled}
                   onClick={() => setEditing({ ...lens })}
                   aria-label={`Edit ${lens.name}`}
+                  title="Edit automation"
+                  className="icon-button"
                 >
-                  Schedule & limits
+                  <Pencil size={16} />
                 </button>
+                {lens.kind !== "knowledge" && (
+                  <button
+                    disabled={disabled}
+                    onClick={() =>
+                      void command({
+                        type: "DeleteDiscoveryLens",
+                        lensId: lens.id,
+                      })
+                    }
+                    aria-label={`Delete ${lens.name}`}
+                    title="Delete automation"
+                    className="icon-button danger"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
                 {requested === lens.id && (
                   <span role="status">Run requested</span>
                 )}
@@ -297,7 +306,6 @@ export function AutomationPage({
                   Last requested {stamp(lens.lastRunAt)}
                 </p>
               )}
-              {editing?.id === lens.id && editor(editing)}
             </article>
           );
         })}

@@ -3,6 +3,7 @@ import { MarkdownEditor } from "./markdown-editor";
 import { SettingsPage } from "./settings";
 import { AutomationPage } from "./automation";
 import { DiscoveryPage } from "./discovery";
+import { Modal } from "./modal";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { MarkdownNode } from "../markdown-types";
@@ -12,13 +13,11 @@ import {
   Brain,
   Activity,
   ArrowDownLeft,
-  ArrowRight,
   BookOpen,
   Check,
   ChevronDown,
   ChevronRight,
   CircleDot,
-  Command,
   ExternalLink,
   FileText,
   GitBranch,
@@ -29,7 +28,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Search,
   Settings2,
   Shield,
   X,
@@ -248,34 +246,12 @@ function Markdown({ children }: { children: string }) {
 }
 
 const pages = [
-  { name: "Inbox", icon: Inbox, key: "1" },
-  { name: "Documents", icon: BookOpen, key: "2" },
-  { name: "Knowledge", icon: Brain, key: "3" },
-  { name: "Automation", icon: Activity, key: "4" },
+  { name: "Inbox", icon: Inbox },
+  { name: "Documents", icon: BookOpen },
+  { name: "Knowledge", icon: Brain },
+  { name: "Automation", icon: Activity },
+  { name: "Settings", icon: Settings2, bottom: true },
 ];
-const pageMeta: Record<string, { kicker: string; blurb: string }> = {
-  Inbox: {
-    kicker: "Foreman · triage",
-    blurb:
-      "Decisions, proposals, and replies. Unread first, archive when done.",
-  },
-  Documents: {
-    kicker: "Source of truth",
-    blurb: "Constitution first. Everything Foreman does traces back to here.",
-  },
-  Knowledge: {
-    kicker: "Understanding",
-    blurb: "Subjects, sources, and the current understanding of your company.",
-  },
-  Automation: {
-    kicker: "Runs itself",
-    blurb: "Scheduled tasks, work in progress, and ideas on a loop.",
-  },
-  Settings: {
-    kicker: "Workspace",
-    blurb: "Repository scope, review policy, and app install.",
-  },
-};
 const freshPolicy: Policy = {
   inclusion: "relevant",
   status: "active",
@@ -334,7 +310,6 @@ function App() {
     [query, setQuery] = useState(""),
     [searchIds, setSearchIds] = useState<string[] | null>(null),
     [history, setHistory] = useState<any[] | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     if (state && !state.documents.some((d) => d.id === docId))
       setDocId(
@@ -397,49 +372,6 @@ function App() {
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
-  useEffect(() => {
-    if (!session) return;
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const typing =
-        !!target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT" ||
-          target.isContentEditable);
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
-        return;
-      }
-      if (typing || paletteOpen) {
-        if (e.key === "Escape" && paletteOpen) setPaletteOpen(false);
-        return;
-      }
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const byKey = pages.find((p) => p.key === e.key);
-      if (byKey) {
-        e.preventDefault();
-        navigate(byKey.name);
-      } else if (e.key === "/") {
-        if (page === "Knowledge") {
-          e.preventDefault();
-          document
-            .querySelector<HTMLInputElement>(
-              'input[aria-label="Search knowledge"]',
-            )
-            ?.focus();
-        }
-      } else if (e.key.toLowerCase() === "c") {
-        if (page === "Inbox" && inboxView === "requests") {
-          e.preventDefault();
-          setComposeOpen(true);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [session, page, inboxView, paletteOpen]);
   function navigate(name: string) {
     const target =
       name === "Work" || name === "Discovery"
@@ -580,94 +512,65 @@ function App() {
         }}
       />
     ) : null;
-  const heading = (
-    <>
-      <header className="page-header">
-        <div>
-          <p className="page-kicker">
-            {pageMeta[page]?.kicker || "Company OS"}
-          </p>
-          <h1>{page}</h1>
-        </div>
-        <div className="actions">
-          <button
-            aria-label="Quick switcher"
-            title="Quick switcher (⌘K)"
-            onClick={() => setPaletteOpen(true)}
-          >
-            <Search size={16} />
-          </button>
-          {page !== "Settings" && (
-            <button
-              aria-label="Open Settings"
-              title="Settings"
-              onClick={() => navigate("Settings")}
-            >
-              <Settings2 size={18} />
-            </button>
-          )}
-          {page === "Inbox" && inboxView === "requests" && (
-            <button
-              className="primary"
-              disabled={disabled}
-              onClick={() => setComposeOpen(true)}
-            >
-              <Plus size={16} /> New message
-            </button>
-          )}
-          {page === "Documents" && (
-            <button
-              disabled={disabled}
-              onClick={() =>
-                setEditor({
-                  level: state?.documents.some(
-                    (d) => d.level === "constitution",
-                  )
-                    ? "product"
-                    : "constitution",
-                  policy: {
-                    ...freshPolicy,
-                    inclusion: state?.documents.some(
-                      (d) => d.level === "constitution",
-                    )
-                      ? "relevant"
-                      : "always",
-                  },
-                  content: "",
-                  title: "",
-                })
-              }
-            >
-              <Plus size={16} /> New document
-            </button>
-          )}
-          {page === "Knowledge" && (
-            <button
-              disabled={disabled}
-              onClick={() =>
-                setEditor({
-                  level: "knowledge",
-                  policy: { ...freshPolicy, kind: "observation" },
-                  content: "",
-                  title: "",
-                })
-              }
-            >
-              <Plus size={16} /> New entry
-            </button>
-          )}
-          {page === "Automation" && inboxView === "work" && (
-            <button disabled={disabled} onClick={() => setWorkForm(true)}>
-              <Plus size={16} /> New work
-            </button>
-          )}
-        </div>
-      </header>
-      {pageMeta[page]?.blurb && (
-        <p className="page-description">{pageMeta[page]?.blurb}</p>
-      )}
-    </>
-  );
+  const pageActions =
+    page === "Inbox" && inboxView === "requests" ? (
+      <div className="page-actions">
+        <button
+          className="primary"
+          disabled={disabled}
+          onClick={() => setComposeOpen(true)}
+        >
+          <Plus size={16} /> New message
+        </button>
+      </div>
+    ) : page === "Documents" ? (
+      <div className="page-actions">
+        <button
+          disabled={disabled}
+          onClick={() =>
+            setEditor({
+              level: state?.documents.some((d) => d.level === "constitution")
+                ? "product"
+                : "constitution",
+              policy: {
+                ...freshPolicy,
+                inclusion: state?.documents.some(
+                  (d) => d.level === "constitution",
+                )
+                  ? "relevant"
+                  : "always",
+              },
+              content: "",
+              title: "",
+            })
+          }
+        >
+          <Plus size={16} /> New document
+        </button>
+      </div>
+    ) : page === "Knowledge" ? (
+      <div className="page-actions">
+        <button
+          disabled={disabled}
+          onClick={() =>
+            setEditor({
+              level: "knowledge",
+              policy: { ...freshPolicy, kind: "observation" },
+              content: "",
+              title: "",
+            })
+          }
+        >
+          <Plus size={16} /> New entry
+        </button>
+      </div>
+    ) : page === "Automation" && inboxView === "work" ? (
+      <div className="page-actions">
+        <button disabled={disabled} onClick={() => setWorkForm(true)}>
+          <Plus size={16} /> New work
+        </button>
+      </div>
+    ) : null;
   if (session === null)
     return <div className="loading">{error || "Loading…"}</div>;
   if (!session)
@@ -718,10 +621,12 @@ function App() {
             <button
               key={p.name}
               aria-label={"Open " + p.name}
-              aria-keyshortcuts={p.key}
-              title={`${p.name} (${p.key})`}
+              title={p.name}
               aria-current={page === p.name ? "page" : undefined}
-              className={page === p.name ? "active" : ""}
+              className={
+                (page === p.name ? "active " : "") +
+                (p.bottom ? "settings-link" : "")
+              }
               onClick={() => navigate(p.name)}
             >
               <p.icon size={19} />
@@ -741,9 +646,6 @@ function App() {
             </button>
           ))}
         </nav>
-        <p className="nav-hint">
-          <Command size={12} /> K to jump · 1–4 to switch · / to search
-        </p>
         <div className="nav-bottom">
           <span>Ryan’s workspace</span>
           <button
@@ -783,34 +685,7 @@ function App() {
           <p className="loading">Loading workspace…</p>
         ) : (
           <main>
-            {heading}
-            {page === "Inbox" &&
-              !state.documents.some((d) => d.level === "constitution") &&
-              inboxView === "requests" &&
-              !currentThread && (
-                <div className="constitution-setup">
-                  <p>
-                    Give Foreman direction with a constitution.
-                    <small>
-                      One page on what matters. Foreman reads it before every
-                      run.
-                    </small>
-                  </p>
-                  <button
-                    disabled={disabled}
-                    onClick={() =>
-                      setEditor({
-                        level: "constitution",
-                        title: "Constitution",
-                        content: "",
-                        policy: { ...freshPolicy, inclusion: "always" },
-                      })
-                    }
-                  >
-                    Write constitution
-                  </button>
-                </div>
-              )}
+            {pageActions}
             {page === "Automation" && inboxView !== "requests" && (
               <div className="inbox-drilldown">
                 <button onClick={() => navigate("Automation")}>
@@ -1446,7 +1321,7 @@ function App() {
                 {!state.documents.some((d) => d.level !== "knowledge") && (
                   <Empty
                     title="No documents yet"
-                    text="Start with your constitution. Other documents can grow from the work."
+                    text="Add the documents that explain how your company operates."
                   />
                 )}
                 {currentDoc && (
@@ -1535,7 +1410,6 @@ function App() {
                   setDraftSubject(d.title);
                   setComposeOpen(true);
                 }}
-                automation={() => navigate("Automation")}
                 markdown={(content) => <Markdown>{content}</Markdown>}
                 api={api}
               />
@@ -1549,7 +1423,6 @@ function App() {
                 hasConstitution={state.documents.some(
                   (d) => d.level === "constitution" && !!d.content.trim(),
                 )}
-                openDocuments={() => navigate("Documents")}
                 openWork={() => navigate("Work")}
                 openIdeas={() => navigate("Discovery")}
               />
@@ -1928,132 +1801,6 @@ function App() {
           />
         </Modal>
       )}
-      {paletteOpen && state && (
-        <Palette
-          close={() => setPaletteOpen(false)}
-          go={(name) => {
-            navigate(name);
-            setPaletteOpen(false);
-          }}
-          compose={() => {
-            navigate("Inbox");
-            setComposeOpen(true);
-            setPaletteOpen(false);
-          }}
-          newWork={() => {
-            navigate("Work");
-            setWorkForm(true);
-            setPaletteOpen(false);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-function Palette({
-  close,
-  go,
-  compose,
-  newWork,
-}: {
-  close(): void;
-  go(name: string): void;
-  compose(): void;
-  newWork(): void;
-}) {
-  const [q, setQ] = useState("");
-  const [sel, setSel] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => inputRef.current?.focus(), []);
-  const items = [
-    ...pages.map((p) => ({
-      label: "Go to " + p.name,
-      hint: p.key,
-      icon: p.icon,
-      run: () => go(p.name),
-    })),
-    {
-      label: "Go to Settings",
-      hint: "S",
-      icon: Settings2,
-      run: () => go("Settings"),
-    },
-    {
-      label: "Go to Work in progress",
-      hint: "W",
-      icon: ArrowRight,
-      run: () => go("Work"),
-    },
-    {
-      label: "Go to Ideas and experiments",
-      hint: "D",
-      icon: ArrowRight,
-      run: () => go("Discovery"),
-    },
-    {
-      label: "New message to Foreman",
-      hint: "C",
-      icon: Plus,
-      run: compose,
-    },
-    { label: "New work", hint: "", icon: Plus, run: newWork },
-  ].filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()));
-  useEffect(() => setSel(0), [q]);
-  return (
-    <div
-      className="palette-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
-    >
-      <div className="palette" role="dialog" aria-label="Quick switcher">
-        <input
-          ref={inputRef}
-          aria-label="Quick switcher"
-          placeholder="Jump to Inbox, Documents, Work…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setSel((s) => Math.min(s + 1, items.length - 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setSel((s) => Math.max(s - 1, 0));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              items[sel]?.run();
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              close();
-            }
-          }}
-        />
-        <div className="palette-list">
-          {items.map((item, i) => (
-            <button
-              key={item.label}
-              className={i === sel ? "sel" : ""}
-              onMouseEnter={() => setSel(i)}
-              onClick={item.run}
-            >
-              <item.icon size={16} />
-              {item.label}
-              {item.hint ? <small>{item.hint}</small> : null}
-            </button>
-          ))}
-          {!items.length && (
-            <p className="muted" style={{ padding: "12px" }}>
-              No matches.
-            </p>
-          )}
-        </div>
-        <div className="palette-foot">
-          <span>↑↓ to move</span>
-          <span>↵ to open</span>
-          <span>esc to close</span>
-        </div>
-      </div>
     </div>
   );
 }
@@ -2073,42 +1820,6 @@ function Empty({ title, text }: { title: string; text: string }) {
       <h3>{title}</h3>
       {text ? <p>{text}</p> : null}
     </div>
-  );
-}
-function Modal({
-  title,
-  className,
-  close,
-  children,
-}: {
-  title: string;
-  className?: string;
-  close: () => void;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    ref.current?.showModal();
-    return () => ref.current?.close();
-  }, []);
-  return (
-    <dialog
-      ref={ref}
-      className={className}
-      aria-label={title}
-      onCancel={(e) => {
-        e.preventDefault();
-        close();
-      }}
-    >
-      <header>
-        <h2>{title}</h2>
-        <button aria-label="Close dialog" onClick={close}>
-          <X size={19} />
-        </button>
-      </header>
-      <div className="modal-body">{children}</div>
-    </dialog>
   );
 }
 function Evidence({

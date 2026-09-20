@@ -14,6 +14,7 @@ export const eventPayloads = {
   DiscoveryLearned: z.object({ ideaId: id, verdict: z.string() }),
   DiscoverySignalRecorded: z.object({ signalId: id }),
   DiscoveryConfigured: z.object({ lensId: id.optional() }),
+  DiscoveryDeleted: z.object({ lensId: id }),
   ConversationStarted: z.object({ threadId: id, runId: id }),
   ReplyReceived: z.object({ threadId: id, runId: id, workId: id.optional() }),
   ThreadStatusChanged: z.object({ threadId: id, status: z.string() }),

@@ -62,7 +62,7 @@ export function taskBlocker(
   documents = state.documents || [],
 ) {
   if (!hasConstitution)
-    return "Add a constitution in Documents before running this task.";
+    return "Waiting for company direction before running this task.";
   if (!configured) return "Connect the worker before running this task.";
   if (
     state.runs.some(

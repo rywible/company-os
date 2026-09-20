@@ -2,16 +2,13 @@
 .library-reader {
   width: 100%;
   max-width: 900px;
-  margin: 0 auto;
+  margin: 0;
 }
 .library-tools {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-bottom: 22px;
-}
-.library-tools button:last-child {
-  margin-left: auto;
+  margin-bottom: 18px;
 }
 .library-tools button[aria-pressed="true"] {
   background: var(--ink, #111);

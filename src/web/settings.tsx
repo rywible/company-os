@@ -49,8 +49,7 @@ export function SettingsPage({
             <div>
               <h2>Repository</h2>
               <p className="muted">
-                The repository Foreman works with. Direction comes from your
-                constitution.
+                The repository Foreman works with and keeps in view.
               </p>
             </div>
             <label>
