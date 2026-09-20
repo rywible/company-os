@@ -1,3 +1,4 @@
+import { evidenceReferences } from "../src/domain/evidence";
 import { beforeEach, afterEach, test, expect } from "bun:test";
 import {
   initialDiscovery,
@@ -508,4 +509,26 @@ test("pausing discovery keeps queued investigations deferred", async () => {
   const job = repo.claim()!;
   await expect(company.deliver(job)).rejects.toThrow("Discovery paused");
   expect(contexts).toHaveLength(1);
+});
+
+test("supplied portfolio metadata has stable citations, including older saved contexts", async () => {
+  const idea = await ready();
+  const context = structuredClone(contexts[1]!);
+  const work = context.work!;
+  work.pullRequest = {
+    repository: "test/repo",
+    number: 2,
+    head: "known-head",
+    branch: "codex/test",
+    url: "https://github.com/test/repo/pull/2",
+    description: "A recorded implementation proposal",
+  };
+  context.evidenceRefs = ["github:test@123"];
+  const refs = evidenceReferences(context);
+  expect(refs).toContain(`work:${work.id}`);
+  expect(refs).toContain("github:test/repo#2@known-head");
+  expect(refs).not.toContain("github:test/repo#2@invented-head");
+  expect(refs).not.toContain("github:test/other#2@known-head");
+  // Derivation never fetches extra material or mutates the historical prompt.
+  expect(context.evidenceRefs).toEqual(["github:test@123"]);
 });

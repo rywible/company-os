@@ -1838,6 +1838,41 @@ function ContextView({ context }: { context: Context }) {
         {total.toLocaleString()} characters in knowledge context. This shows
         supplied material, not model influence.
       </p>
+      {context.portfolio && (
+        <details>
+          <summary>
+            Work portfolio · {context.portfolio.work.length} records
+          </summary>
+          {context.portfolio.work.map((w) => (
+            <section key={w.id}>
+              <h3>
+                {w.title} · {w.status}
+              </h3>
+              <p>
+                <code>work:{w.id}</code>
+              </p>
+              <Markdown>{w.result || "No result recorded"}</Markdown>
+              {w.pullRequest && (
+                <>
+                  <p>
+                    <a
+                      href={w.pullRequest.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      PR #{w.pullRequest.number}
+                    </a>{" "}
+                    · metadata at {w.pullRequest.head}
+                  </p>
+                  <Markdown>
+                    {w.pullRequest.description || "No PR description supplied"}
+                  </Markdown>
+                </>
+              )}
+            </section>
+          ))}
+        </details>
+      )}
       {context.externalSources?.map((s) => (
         <details key={s.repository}>
           <summary>

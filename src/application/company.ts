@@ -1,3 +1,4 @@
+import { evidenceReferences } from "../domain/evidence";
 import { Discovery } from "./discovery";
 import {
   commandSchema,
@@ -860,7 +861,7 @@ export class Company {
         ...output.proposals.map((p) => p.evidence),
         ...output.observations.map((o) => o.evidence),
       ])
-        if (refs.some((ref) => !context.evidenceRefs.includes(ref)))
+        if (refs.some((ref) => !evidenceReferences(context).includes(ref)))
           throw new DomainError("Agent cited evidence it did not receive.");
       run.result = output;
       const work = state.work.find((w) => w.id === run!.workId);

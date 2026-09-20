@@ -1,3 +1,4 @@
+import { evidenceReferences } from "../domain/evidence";
 import {
   defaultPolicy,
   type CompanyState,
@@ -107,5 +108,6 @@ export async function assembleContext(
       indexedVersion: current.indexed_version,
     });
   }
+  context.evidenceRefs = evidenceReferences(context);
   return context;
 }

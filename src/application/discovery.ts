@@ -1,3 +1,4 @@
+import { evidenceReferences } from "../domain/evidence";
 import {
   duplicateIdea,
   selectLens,
@@ -418,7 +419,7 @@ export class Discovery {
         : []),
       ...(output.discoveryOutcome ? [output.discoveryOutcome.evidence] : []),
     ]) {
-      if (refs.some((ref) => !context.evidenceRefs.includes(ref)))
+      if (refs.some((ref) => !evidenceReferences(context).includes(ref)))
         throw new DomainError("Discovery cited evidence it did not receive.");
     }
     if (phase === "scout") {
