@@ -1,3 +1,5 @@
+import type { Document } from "../contracts";
+import { hasLibraryWork, libraryFreshness } from "./freshness";
 import type { CompanyState, Run } from "./model";
 import type { Lens } from "./discovery";
 export const activeIdea = (idea: { status: string }) =>
@@ -52,11 +54,12 @@ export function runCanProceed(state: CompanyState, run: Run) {
     : !run.automatic || state.settings.enabled;
 }
 export function taskBlocker(
-  state: CompanyState,
+  state: CompanyState & { documents?: Document[] },
   lens: Lens,
   now: string,
   hasConstitution: boolean,
   configured = true,
+  documents = state.documents || [],
 ) {
   if (!hasConstitution)
     return "Add a constitution in Documents before running this task.";
@@ -71,8 +74,12 @@ export function taskBlocker(
     return "This task already has a run waiting or in progress.";
   if (taskUsage(state, lens, now) >= lens.dailyRunLimit)
     return "This task has reached its daily run limit. Resets at midnight UTC.";
-  if (lens.kind === "knowledge" && !Object.keys(state.library.pending).length)
-    return "The library is up to date. New documents and findings will queue a pass.";
+  if (lens.kind === "knowledge" && !hasLibraryWork(state, documents, now))
+    return Object.values(libraryFreshness(state, documents, now)).some(
+      (f) => f.status === "needs_review",
+    )
+      ? "Waiting for a decision or review of a source subject."
+      : "The library is up to date. New evidence or a scheduled review will queue a pass.";
   if (!taskCapacity(state, lens))
     return "This task has reached its active idea limit.";
   if (

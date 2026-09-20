@@ -1,3 +1,4 @@
+import { libraryFreshness, reviewTargets } from "../domain/freshness";
 import type { Repository } from "./ports";
 import {
   defaultPolicy,
@@ -10,6 +11,7 @@ import {
 } from "../domain/model";
 import {
   documentRef,
+  parseDocumentRef,
   subjectKey,
   type LibraryUpdate,
   type LibraryPage,
@@ -78,12 +80,91 @@ export class Library {
     }
   }
   prepare(state: CompanyState, context: Context) {
-    const sources = Object.entries(state.library.pending)
-      .slice(0, 3)
-      .flatMap(([id]) => {
-        const d = this.h.repo.document(id);
-        return d ? [d] : [];
+    const documents = this.h.repo.documents();
+    const freshness = libraryFreshness(state, documents, this.h.now());
+    const targets = reviewTargets(state, documents, this.h.now()).slice(0, 2);
+    // Target dependent subjects explicitly; relevance ranking must not decide which stale page is repaired.
+    const targetDocs = targets.flatMap((id) => {
+      const d = this.h.repo.document(id);
+      return d ? [d] : [];
+    });
+    const ordered = [
+      ...context.documents.filter((d) => d.level === "constitution"),
+      ...targetDocs,
+      ...context.documents.filter(
+        (d) => d.level !== "constitution" && !targets.includes(d.id),
+      ),
+    ];
+    let documentRoom = 60000;
+    context.documents = ordered.filter((d) => {
+      if (d.content.length > documentRoom && d.level !== "constitution")
+        return false;
+      documentRoom -= d.content.length;
+      return true;
+    });
+    for (const d of targetDocs) {
+      if (!context.documents.some((included) => included.id === d.id)) continue;
+      context.entries = context.entries.filter((e) => e.id !== d.id);
+      context.entries.push({
+        id: d.id,
+        title: d.title,
+        version: d.version,
+        included: true,
+        reason:
+          "Dependency or scheduled review: " +
+          freshness[d.id]!.reasons.map((r) => r.message).join(" "),
+        characters: d.content.length,
+        policy: state.policies[d.id] || defaultPolicy(d),
+        indexedVersion: d.indexed_version,
       });
+      (context.libraryPages ||= {})[d.id] = structuredClone(
+        state.library.pages[d.id]!,
+      );
+    }
+    context.entries = context.entries.map((e) =>
+      context.documents.some((d) => d.id === e.id)
+        ? e
+        : {
+            ...e,
+            included: false,
+            characters: 0,
+            reason: e.included
+              ? "Replaced by required review context"
+              : e.reason,
+          },
+    );
+    context.evidenceRefs = context.evidenceRefs.filter(
+      (ref) =>
+        !parseDocumentRef(ref) ||
+        context.documents.some((d) => documentRef(d) === ref),
+    );
+    for (const d of context.documents)
+      if (!context.evidenceRefs.includes(documentRef(d)))
+        context.evidenceRefs.push(documentRef(d));
+    const sourceIds = [
+      ...new Set([
+        ...targets.flatMap((id) =>
+          state.library.pages[id]!.sources.flatMap((ref) => {
+            const d = parseDocumentRef(ref);
+            return d ? [d.id] : [];
+          }),
+        ),
+        ...Object.keys(state.library.pending).slice(0, 3),
+      ]),
+    ];
+    let sourceRoom = 60000;
+    const sources = sourceIds.flatMap((id) => {
+      const d = this.h.repo.document(id);
+      if (!d) return [];
+      if (d.content.length > sourceRoom) {
+        (context.gaps ||= []).push(
+          `Source ${d.title} did not fit in the maintenance briefing.`,
+        );
+        return [];
+      }
+      sourceRoom -= d.content.length;
+      return [d];
+    });
     const catalog = Object.entries(state.library.pages)
       .flatMap(([id, meta]) => {
         const d = this.h.repo.document(id);
@@ -102,21 +183,33 @@ export class Library {
       .slice(0, 200);
     context.maintenance = {
       sources,
+      reviewTargets: targets
+        .filter((id) => context.documents.some((d) => d.id === id))
+        .map((documentId) => ({
+          documentId,
+          signature: freshness[documentId]!.signature,
+          reasons: freshness[documentId]!.reasons.map((r) => r.message),
+        })),
       catalog,
       sourcePolicies: Object.fromEntries(
         sources.map((d) => [d.id, state.policies[d.id] || defaultPolicy(d)]),
       ),
     };
     context.assignment =
-      "Maintain the subject library from the supplied new evidence. Consolidate into existing pages when appropriate. No new finding is required.";
+      "Review the explicitly targeted subjects and maintain the subject library from the supplied evidence. Consolidate into existing pages when appropriate. No new finding is required.";
     // Sources are a separate, explicitly attributed evidence section. Avoid showing them twice.
     context.documents = context.documents.filter(
-      (d) => d.level === "constitution" || !sources.some((s) => s.id === d.id),
+      (d) =>
+        d.level === "constitution" ||
+        targets.includes(d.id) ||
+        !sources.some((s) => s.id === d.id),
     );
     context.entries = context.entries.filter(
       (e) =>
         context.documents.some(
-          (d) => d.id === e.id && d.level === "constitution",
+          (d) =>
+            d.id === e.id &&
+            (d.level === "constitution" || targets.includes(d.id)),
         ) || !sources.some((s) => s.id === e.id),
     );
     for (const source of sources) {
@@ -170,9 +263,47 @@ export class Library {
         )
       )
         throw new DomainError("Request the full subject before revising it.");
-      if (update.sources.some((ref) => !context.evidenceRefs.includes(ref)))
+      if (
+        update.sources.some(
+          (ref) =>
+            !context.evidenceRefs.includes(ref) &&
+            !(
+              update.disposition === "withdrawn" &&
+              old &&
+              state.library.pages[old.id]!.sources.includes(ref)
+            ),
+        )
+      )
         throw new DomainError(
           "Library sources must be evidence supplied in this briefing.",
+        );
+    }
+    if (update.disposition !== "withdrawn") {
+      if (
+        update.reviewAfter &&
+        Date.parse(update.reviewAfter) <= Date.parse(this.h.now())
+      )
+        throw new DomainError(
+          "Choose a future review date or clear it after review.",
+        );
+      const candidateId = old?.id || "new-subject";
+      const proposedState = structuredClone(state);
+      proposedState.library.pages[candidateId] = {
+        ...update,
+        managed: true,
+        updatedAt: this.h.now(),
+        withdrawn: false,
+        reviewAfter: update.reviewAfter || null,
+      };
+      const status = libraryFreshness(
+        proposedState,
+        this.h.repo.documents(),
+        this.h.now(),
+      )[candidateId]!;
+      if (status.status !== "current")
+        throw new DomainError(
+          "Review the current sources before confirming this subject: " +
+            status.reasons.map((r) => r.message).join(" "),
         );
     }
     return old;
@@ -200,6 +331,9 @@ export class Library {
           ? state.library.pages[old.id]!.managed
           : true,
       updatedAt: this.h.now(),
+      reviewedAt: this.h.now(),
+      reviewAfter: update.reviewAfter || null,
+      withdrawn: update.disposition === "withdrawn",
     };
     state.policies[d.id] = old
       ? state.policies[d.id] || defaultPolicy(d)
@@ -255,6 +389,11 @@ export class Library {
         thread.libraryProposals ||= [];
         thread.libraryProposals.push({
           ...update,
+          reviewSignature: old
+            ? libraryFreshness(state, this.h.repo.documents(), this.h.now())[
+                old.id
+              ]?.signature
+            : undefined,
           id: this.h.id(),
           status: "pending",
         });

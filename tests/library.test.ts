@@ -1,3 +1,4 @@
+import { libraryFreshness, reviewTargets } from "../src/domain/freshness";
 import { agentOutputSchema } from "../src/adapters/agents";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Store } from "../src/server/store";
@@ -747,4 +748,317 @@ test("import from the original document store preserves human knowledge organiza
   } finally {
     oldStore.close();
   }
+});
+
+function linked(title: string, sources: string[], managed = true) {
+  const d = save(title, `${title} current account`);
+  const s = repo.state();
+  s.library.pages[d.id] = { ...s.library.pages[d.id]!, sources, managed };
+  repo.save(s);
+  return d;
+}
+function editSource(id: string, content = "Changed findings") {
+  const d = repo.document(id)!;
+  return company.execute({
+    type: "SaveKnowledge",
+    ...d,
+    expectedVersion: d.version,
+    content,
+    policy: defaultPolicy(d),
+  }) as { id: string; version: number };
+}
+const freshness = () => libraryFreshness(repo.state(), repo.documents(), now);
+
+test("source edits immediately withhold transitive subjects, including always-included pages", async () => {
+  const source = save("Constitution", "Direction", "constitution");
+  const a = linked("Operating model", [documentRef(source)]);
+  const b = linked("Mobile decisions", [documentRef(a)]);
+  const c = linked("Mobile controls", []);
+  const state = repo.state();
+  state.policies[a.id]!.inclusion = "always";
+  state.library.pages[c.id]!.parentId = a.id;
+  state.library.pages[c.id]!.relatedIds = [b.id];
+  state.library.pending = {};
+  state.discovery.lenses.forEach((l) => (l.enabled = false));
+  repo.save(state);
+  editSource(source.id);
+  expect(freshness()[a.id]?.status).toBe("needs_review");
+  expect(freshness()[b.id]?.status).toBe("needs_review");
+  const context = await company.preview("Mobile controls Mobile decisions");
+  expect(context.documents.map((d) => d.id)).not.toContain(a.id);
+  expect(context.documents.map((d) => d.id)).not.toContain(b.id);
+  expect(context.entries.find((e) => e.id === a.id)?.reason).toContain(
+    "v1 to v2",
+  );
+  expect(reviewTargets(repo.state(), repo.documents(), now)).toEqual([a.id]);
+});
+
+test("maintenance targets stale subjects explicitly; reaffirmation refreshes indexing and downstream review", async () => {
+  const source = save("Constitution", "Direction", "constitution");
+  const a = linked("Unrelated substrate", [documentRef(source)]);
+  const b = linked("Derived conclusion", [documentRef(a)]);
+  await drain();
+  const revised = editSource(source.id);
+  await drain();
+  outputs.push(
+    answer({
+      libraryUpdates: [
+        update(
+          "Unrelated substrate",
+          "Still supported after checking",
+          documentRef(revised),
+          a.id,
+          1,
+        ),
+      ],
+    }),
+  );
+  runLibrary();
+  await drain();
+  expect(
+    contexts.at(-1)!.maintenance?.reviewTargets?.map((t) => t.documentId),
+  ).toEqual([a.id]);
+  expect(contexts.at(-1)!.documents.some((d) => d.id === a.id)).toBe(true);
+  expect(
+    contexts
+      .at(-1)!
+      .maintenance?.sources.some((d) => d.id === source.id && d.version === 2),
+  ).toBe(true);
+  expect(freshness()[a.id]?.status).toBe("current");
+  expect(repo.document(a.id)?.indexed_version).toBe(2);
+  expect(repo.history(a.id)).toHaveLength(2);
+  expect(reviewTargets(repo.state(), repo.documents(), now)).toEqual([b.id]);
+});
+
+test("scheduled reviews run without pending evidence and a no-op cannot clear them", async () => {
+  save("Constitution", "Direction", "constitution");
+  const page = linked("Time sensitive behavior", []);
+  await drain();
+  let s = repo.state();
+  s.library.pending = {};
+  repo.save(s);
+  company.execute({
+    type: "ScheduleKnowledgeReview",
+    documentId: page.id,
+    expectedVersion: 1,
+    reviewAfter: "2026-09-19T12:00:00.000Z",
+  });
+  expect(freshness()[page.id]?.status).toBe("needs_review");
+  expect(runLibrary().runId).toBeDefined();
+  await drain();
+  expect(contexts.at(-1)!.maintenance?.reviewTargets?.[0]?.documentId).toBe(
+    page.id,
+  );
+  expect(freshness()[page.id]?.status).toBe("needs_review");
+  company.execute({
+    type: "ReviewKnowledge",
+    documentId: page.id,
+    expectedVersion: 1,
+    action: "confirm",
+    sources: [],
+    reviewAfter: null,
+  });
+  await drain();
+  expect(freshness()[page.id]?.status).toBe("current");
+  expect(repo.document(page.id)?.indexed_version).toBe(2);
+  expect(runLibrary().skipped).toContain("up to date");
+  expect(
+    libraryFreshness(
+      repo.state(),
+      repo.documents(),
+      "2036-01-01T00:00:00.000Z",
+    )[page.id]?.status,
+  ).toBe("current");
+});
+
+test("retired, missing, and explicitly withdrawn sources invalidate pages while history remains", async () => {
+  const raw = repo.saveDocument(
+    { title: "Experiment", content: "Observed behavior", level: "knowledge" },
+    "foreman",
+  );
+  const page = linked("Conclusion", [documentRef(raw)]);
+  company.execute({
+    type: "SetEvidenceStatus",
+    documentId: raw.id,
+    expectedVersion: 1,
+    status: "retired",
+  });
+  expect(freshness()[page.id]?.reasons.some((r) => r.code === "inactive")).toBe(
+    true,
+  );
+  expect(() =>
+    company.execute({
+      type: "ReviewKnowledge",
+      documentId: page.id,
+      expectedVersion: 1,
+      action: "confirm",
+      sources: [documentRef(raw)],
+      reviewAfter: null,
+    }),
+  ).toThrow("current sources");
+  company.execute({
+    type: "SetEvidenceStatus",
+    documentId: raw.id,
+    expectedVersion: 1,
+    status: "active",
+  });
+  expect(freshness()[page.id]?.status).toBe("current");
+  company.execute({
+    type: "WithdrawEvidenceReference",
+    reference: documentRef(raw),
+    reason: "Measurement was flawed",
+    withdrawn: true,
+  });
+  expect(freshness()[page.id]?.reasons[0]?.message).toContain(
+    "Measurement was flawed",
+  );
+  expect(
+    libraryFreshness(
+      repo.state(),
+      repo.documents().filter((d) => d.id !== raw.id),
+      now,
+    )[page.id]?.status,
+  ).toBe("needs_review");
+  company.execute({
+    type: "ReviewKnowledge",
+    documentId: page.id,
+    expectedVersion: 1,
+    action: "withdraw",
+    sources: [documentRef(raw)],
+    reviewAfter: null,
+  });
+  expect(freshness()[page.id]?.status).toBe("withdrawn");
+  expect(repo.document(page.id, 1)?.content).toContain("current account");
+  expect(
+    (await company.preview("Conclusion")).documents.map((d) => d.id),
+  ).not.toContain(page.id);
+});
+
+test("editing raw evidence keeps it as evidence and invalidates dependents", () => {
+  const raw = repo.saveDocument(
+    { title: "Experiment", content: "Observed behavior", level: "knowledge" },
+    "foreman",
+  );
+  const page = linked("Conclusion", [documentRef(raw)]);
+  editSource(raw.id);
+  expect(repo.state().library.pages[raw.id]).toBeUndefined();
+  expect(freshness()[page.id]?.status).toBe("needs_review");
+});
+
+test("human review proposals remain withheld and source changes invalidate pending acceptance", async () => {
+  const source = save("Constitution", "Direction", "constitution");
+  const page = linked("Manual account", [documentRef(source)], false);
+  await drain();
+  const revised = editSource(source.id);
+  await drain();
+  outputs.push(
+    answer({
+      libraryUpdates: [
+        update(
+          "Manual account",
+          "Updated understanding",
+          documentRef(revised),
+          page.id,
+          1,
+        ),
+      ],
+    }),
+  );
+  runLibrary();
+  await drain();
+  const t = repo.state().threads.find((t) => t.libraryProposals?.length)!;
+  expect(freshness()[page.id]?.status).toBe("needs_review");
+  expect(reviewTargets(repo.state(), repo.documents(), now)).toEqual([]);
+  editSource(source.id, "Newer findings");
+  expect(reviewTargets(repo.state(), repo.documents(), now)).toEqual([page.id]);
+  expect(() =>
+    company.execute({
+      type: "ResolveLibraryProposal",
+      threadId: t.id,
+      proposalId: t.libraryProposals![0]!.id,
+      action: "accept",
+    }),
+  ).toThrow("current sources");
+  expect(repo.document(page.id)?.version).toBe(1);
+});
+
+test("a source change during execution rejects a stale synthesized result", async () => {
+  const source = save("Constitution", "Direction", "constitution");
+  await drain();
+  execute = () => {
+    editSource(source.id);
+    return answer({
+      libraryUpdates: [
+        update("Premature conclusion", "Old evidence", documentRef(source)),
+      ],
+    });
+  };
+  runLibrary();
+  const job = repo.claim()!;
+  await expect(company.deliver(job)).rejects.toThrow("current sources");
+  expect(Object.keys(repo.state().library.pages)).toHaveLength(0);
+});
+
+test("explicit attachment of a stale subject carries a historical warning", async () => {
+  const source = save("Constitution", "Direction", "constitution");
+  const page = linked("Operating model", [documentRef(source)]);
+  editSource(source.id);
+  company.execute({
+    type: "StartConversation",
+    subject: "Explain the old account",
+    content: "What changed?",
+    attachment: { id: page.id, version: 1 },
+  });
+  await drain();
+  const c = contexts.at(-1)!;
+  expect(c.documents.some((d) => d.id === page.id)).toBe(true);
+  expect(c.gaps?.join(" ")).toContain("explicitly attached");
+  expect(renderBriefing(c)).toContain("Do not treat it as current guidance");
+});
+
+test("missing support and circular citations never become current guidance", () => {
+  const a = linked("First subject", ["document:missing@1"]);
+  expect(freshness()[a.id]?.reasons[0]?.code).toBe("missing");
+  const b = linked("Second subject", [documentRef(a)]);
+  const s = repo.state();
+  s.library.pages[a.id]!.sources = [documentRef(b)];
+  repo.save(s);
+  expect(freshness()[a.id]?.status).toBe("needs_review");
+  expect(freshness()[b.id]?.status).toBe("needs_review");
+  expect(
+    reviewTargets(repo.state(), repo.documents(), now).length,
+  ).toBeGreaterThan(0);
+});
+
+test("a withdrawn source subject is actionable for downstream maintenance", () => {
+  const a = linked("Former guidance", []);
+  const b = linked("Dependent guidance", [documentRef(a)]);
+  company.execute({
+    type: "ReviewKnowledge",
+    documentId: a.id,
+    expectedVersion: 1,
+    action: "withdraw",
+    sources: [],
+    reviewAfter: null,
+  });
+  expect(reviewTargets(repo.state(), repo.documents(), now)).toEqual([b.id]);
+});
+
+test("external source withdrawal is explicit and reversible", () => {
+  const ref = "github:example/project@abc123",
+    page = linked("External finding", [ref]);
+  company.execute({
+    type: "WithdrawEvidenceReference",
+    reference: ref,
+    reason: "Superseded release",
+    withdrawn: true,
+  });
+  expect(freshness()[page.id]?.status).toBe("needs_review");
+  company.execute({
+    type: "WithdrawEvidenceReference",
+    reference: ref,
+    reason: "Verified release",
+    withdrawn: false,
+  });
+  expect(freshness()[page.id]?.status).toBe("current");
 });

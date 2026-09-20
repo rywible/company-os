@@ -227,3 +227,63 @@
   box-shadow: none;
   color: var(--muted);
 }
+
+.library-freshness {
+  border-left: 2px solid var(--ink);
+  padding: 2px 0 2px 16px;
+  margin: 0 0 28px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.library-freshness p {
+  margin: 6px 0;
+}
+.library-freshness ul {
+  padding-left: 18px;
+  margin: 6px 0;
+}
+.library-source-note {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 6px 0;
+}
+.library-source-actions {
+  font-size: 13px;
+}
+.library-source-actions form,
+.library-review form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin: 16px 0;
+}
+.library-source-actions label,
+.library-review label {
+  display: grid;
+  gap: 8px;
+  flex: 1 1 220px;
+}
+.library-review input,
+.library-source-actions input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.library-review p {
+  line-height: 1.7;
+  max-width: 65ch;
+}
+.library-review-actions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.library-review button,
+.library-source-actions button {
+  min-height: 44px;
+}
+.library-support li {
+  overflow-wrap: anywhere;
+}

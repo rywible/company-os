@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import type { Document } from "../contracts";
 import type { CompanyState, Command, Context, Run } from "../domain/model";
 import { parseDocumentRef, type LibraryPage } from "../domain/library";
+import { libraryFreshness } from "../domain/freshness";
+import { documentRef } from "../domain/library";
 import "./library.css";
 type Props = {
   state: CompanyState & { documents: Document[] };
@@ -33,6 +35,11 @@ export function KnowledgeLibrary({
   const [history, setHistory] = useState<any[] | null>(null),
     [source, setSource] = useState<Document | null>(null),
     [location, setLocation] = useState<LibraryPage | null>(null);
+  const freshness = libraryFreshness(
+    state,
+    state.documents,
+    new Date().toISOString(),
+  );
   const pages = state.documents.filter((d) => !!state.library.pages[d.id]);
   const collections = [
     ...new Set(pages.map((d) => state.library.pages[d.id]!.collection)),
@@ -69,7 +76,14 @@ export function KnowledgeLibrary({
           <strong>{d.title}</strong>
           <span>{d.content.replace(/[#*_`]/g, "").slice(0, 145)}</span>
         </span>
-        <small>v{d.version}</small>
+        <small>
+          {freshness[d.id]?.status === "needs_review"
+            ? "Needs review"
+            : freshness[d.id]?.status === "withdrawn" ||
+                state.policies[d.id]?.status === "retired"
+              ? "Withdrawn"
+              : `v${d.version}`}
+        </small>
       </button>
     ));
   if (source)
@@ -119,6 +133,22 @@ export function KnowledgeLibrary({
               ? "Human edited"
               : "Source evidence"}
         </p>
+        {freshness[document.id] &&
+          freshness[document.id]!.status !== "current" && (
+            <aside className="library-freshness" aria-label="Subject status">
+              <strong>
+                {freshness[document.id]!.status === "withdrawn"
+                  ? "Withdrawn"
+                  : "Needs review"}
+              </strong>
+              <p>Excluded from automatic conversation context.</p>
+              <ul>
+                {freshness[document.id]!.reasons.map((r, i) => (
+                  <li key={i}>{r.message}</li>
+                ))}
+              </ul>
+            </aside>
+          )}
         <div className="library-body">{markdown(document.content)}</div>
         {meta?.sources.length ? (
           <details className="library-support">
@@ -126,6 +156,9 @@ export function KnowledgeLibrary({
             <ul>
               {meta.sources.map((ref) => {
                 const parsed = parseDocumentRef(ref);
+                const current =
+                  parsed && state.documents.find((d) => d.id === parsed.id);
+                const withdrawn = state.library.withdrawnSources?.[ref];
                 return (
                   <li key={ref}>
                     {parsed ? (
@@ -137,12 +170,181 @@ export function KnowledgeLibrary({
                     ) : (
                       <span>{ref}</span>
                     )}
+                    {parsed &&
+                      current &&
+                      current.version !== parsed.version && (
+                        <p className="library-source-note">
+                          Superseded by{" "}
+                          <button
+                            onClick={() =>
+                              void readSource(documentRef(current))
+                            }
+                          >
+                            v{current.version}
+                          </button>
+                        </p>
+                      )}
+                    {parsed && !current && (
+                      <p className="library-source-note">Source unavailable</p>
+                    )}
+                    {current &&
+                      state.policies[current.id]?.status === "retired" && (
+                        <p className="library-source-note">
+                          Evidence withdrawn
+                        </p>
+                      )}
+                    {withdrawn && (
+                      <p className="library-source-note">
+                        Withdrawn: {withdrawn.reason}
+                      </p>
+                    )}
+                    <details className="library-source-actions">
+                      <summary>Source status</summary>
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const reason = String(
+                            new FormData(e.currentTarget).get("reason") ||
+                              "Restored by owner",
+                          );
+                          void command({
+                            type: "WithdrawEvidenceReference",
+                            reference: ref,
+                            reason,
+                            withdrawn: !withdrawn,
+                          });
+                        }}
+                      >
+                        {!withdrawn && (
+                          <label>
+                            Why is this source no longer reliable?
+                            <input name="reason" required maxLength={1000} />
+                          </label>
+                        )}
+                        <button disabled={disabled}>
+                          {withdrawn ? "Restore source" : "Withdraw source"}
+                        </button>
+                      </form>
+                    </details>
                   </li>
                 );
               })}
             </ul>
           </details>
         ) : null}
+        {meta && (
+          <details
+            className="library-support library-review"
+            key={`${document.id}-${document.version}-${meta.reviewAfter || ""}`}
+          >
+            <summary>Review this subject</summary>
+            {meta.reviewedAt && (
+              <p className="muted">
+                Last reviewed {new Date(meta.reviewedAt).toLocaleDateString()}
+              </p>
+            )}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const date = String(
+                  new FormData(e.currentTarget).get("reviewDate") || "",
+                );
+                void command({
+                  type: "ScheduleKnowledgeReview",
+                  documentId: document.id,
+                  expectedVersion: document.version,
+                  reviewAfter: date ? `${date}T23:59:59.000Z` : null,
+                });
+              }}
+            >
+              <label>
+                Review by (optional)
+                <input
+                  type="date"
+                  name="reviewDate"
+                  defaultValue={meta.reviewAfter?.slice(0, 10) || ""}
+                />
+              </label>
+              <button disabled={disabled}>Save review date</button>
+            </form>
+            <p>
+              Confirm after checking the current sources. This keeps the text
+              and updates its source revisions. Withdraw if the conclusion no
+              longer holds.
+            </p>
+            <div className="library-review-actions">
+              <button
+                disabled={disabled}
+                onClick={() =>
+                  void command({
+                    type: "ReviewKnowledge",
+                    documentId: document.id,
+                    expectedVersion: document.version,
+                    action: "confirm",
+                    reviewAfter:
+                      meta.reviewAfter &&
+                      Date.parse(meta.reviewAfter) > Date.now()
+                        ? meta.reviewAfter
+                        : null,
+                    sources: meta.sources.map((ref) => {
+                      const parsed = parseDocumentRef(ref);
+                      const current =
+                        parsed &&
+                        state.documents.find((d) => d.id === parsed.id);
+                      return current ? documentRef(current) : ref;
+                    }),
+                  })
+                }
+              >
+                Confirm current sources
+              </button>
+              {!meta.withdrawn && (
+                <button
+                  disabled={disabled}
+                  onClick={() =>
+                    void command({
+                      type: "ReviewKnowledge",
+                      documentId: document.id,
+                      expectedVersion: document.version,
+                      action: "withdraw",
+                      sources: meta.sources,
+                      reviewAfter: null,
+                    })
+                  }
+                >
+                  Withdraw subject
+                </button>
+              )}
+            </div>
+          </details>
+        )}
+        {!meta && (
+          <div className="library-review-actions">
+            <button
+              disabled={disabled}
+              onClick={() =>
+                void command({
+                  type: "SetEvidenceStatus",
+                  documentId: document.id,
+                  expectedVersion: document.version,
+                  status:
+                    state.policies[document.id]?.status === "retired"
+                      ? "active"
+                      : "retired",
+                })
+              }
+            >
+              {state.policies[document.id]?.status === "retired"
+                ? "Restore evidence"
+                : "Withdraw evidence"}
+            </button>
+            {state.policies[document.id]?.status === "retired" && (
+              <p className="muted">
+                Withdrawn evidence is retained as history.
+              </p>
+            )}
+          </div>
+        )}
         {pages.some(
           (d) => state.library.pages[d.id]?.parentId === document.id,
         ) && (

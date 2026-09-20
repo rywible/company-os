@@ -104,7 +104,13 @@ export type Context = {
   gaps?: string[];
   additionalRequests?: { subject: string; reason: string }[];
   libraryPages?: Record<string, import("./library").LibraryPage>;
+  freshness?: Record<string, import("./freshness").Freshness>;
   maintenance?: {
+    reviewTargets?: {
+      documentId: string;
+      signature: string;
+      reasons: string[];
+    }[];
     sourcePolicies: Record<string, Policy>;
     sources: Document[];
     catalog: {
@@ -242,6 +248,32 @@ export function initialState(now: string): CompanyState {
 const text = z.string().trim().min(1);
 export const commandSchema = z.discriminatedUnion("type", [
   ...discoveryCommands,
+  z.object({
+    type: z.literal("SetEvidenceStatus"),
+    documentId: text,
+    expectedVersion: z.number().int().positive(),
+    status: z.enum(["active", "retired"]),
+  }),
+  z.object({
+    type: z.literal("WithdrawEvidenceReference"),
+    reference: text.max(500),
+    reason: text.max(1000),
+    withdrawn: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("ReviewKnowledge"),
+    documentId: text,
+    expectedVersion: z.number().int().positive(),
+    action: z.enum(["confirm", "withdraw"]),
+    sources: z.array(text).max(30),
+    reviewAfter: z.string().datetime().nullable(),
+  }),
+  z.object({
+    type: z.literal("ScheduleKnowledgeReview"),
+    documentId: text,
+    expectedVersion: z.number().int().positive(),
+    reviewAfter: z.string().datetime().nullable(),
+  }),
   z.object({
     type: z.literal("OrganizeKnowledge"),
     documentId: text,

@@ -1640,6 +1640,8 @@ function App() {
               close={() => setProposalId(null)}
             >
               <Markdown>{proposal.reason}</Markdown>
+              {libraryProposal?.disposition === "withdrawn" && <p>This withdraws the subject from automatic conversation context. Its text and source history remain available.</p>}
+              {libraryProposal?.reviewAfter && <p>Review again by {new Date(libraryProposal.reviewAfter).toLocaleDateString()}.</p>}
               <Markdown>{proposal.content}</Markdown>
               {proposal.status === "pending" ? (
                 <div className="actions">

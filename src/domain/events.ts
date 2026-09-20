@@ -31,6 +31,8 @@ export const eventPayloads = {
   RunFailed: z.object({ runId: id, error: z.string() }),
   InputRequested: z.object({ threadId: id, workId: id.optional() }),
   LibraryMaintenanceRequested: z.object({ runId: id }),
+  KnowledgeReviewScheduled: z.object({ documentId: id }),
+  EvidenceReferenceChanged: z.object({ reference: id, withdrawn: z.boolean() }),
   LibraryOrganized: z.object({ documentId: id }),
   LibraryMaintained: z.object({ runId: id, documentIds: z.array(id) }),
   LibraryProposalResolved: z.object({

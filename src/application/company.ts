@@ -343,12 +343,16 @@ export class Company {
             );
           const d = this.repo.saveDocument(cmd);
           state.policies[d.id] = cmd.policy;
-          if (d.level === "knowledge") {
+          if (
+            d.level === "knowledge" &&
+            (!existing || state.library.pages[d.id] || cmd.library)
+          ) {
             const old = state.library.pages[d.id];
             const location = cmd.library ||
               old || { collection: "Unfiled", parentId: null, relatedIds: [] };
             this.library.location(state, d.id, location);
             state.library.pages[d.id] = {
+              ...old,
               ...location,
               sources: old?.sources || [],
               managed: false,
@@ -456,6 +460,90 @@ export class Company {
             "human",
             "reviews",
           );
+          break;
+        }
+        case "SetEvidenceStatus": {
+          const d = this.repo.document(cmd.documentId);
+          if (!d || d.level !== "knowledge" || state.library.pages[d.id])
+            throw new DomainError("Choose a source evidence record.");
+          if (d.version !== cmd.expectedVersion)
+            throw new DomainError("This record changed. Reload before saving.");
+          state.policies[d.id] = {
+            ...(state.policies[d.id] || defaultPolicy(d)),
+            status: cmd.status,
+          };
+          this.emit(
+            {
+              type: "KnowledgeChanged",
+              payload: { documentId: d.id, version: d.version },
+            },
+            "human",
+            d.id,
+          );
+          break;
+        }
+        case "WithdrawEvidenceReference": {
+          if (
+            !Object.values(state.library.pages).some((p) =>
+              p.sources.includes(cmd.reference),
+            )
+          )
+            throw new DomainError("Source reference not found.");
+          state.library.withdrawnSources ||= {};
+          if (cmd.withdrawn)
+            state.library.withdrawnSources[cmd.reference] = {
+              reason: cmd.reason,
+              at: this.now(),
+            };
+          else delete state.library.withdrawnSources[cmd.reference];
+          this.emit(
+            {
+              type: "EvidenceReferenceChanged",
+              payload: { reference: cmd.reference, withdrawn: cmd.withdrawn },
+            },
+            "human",
+            cmd.reference,
+          );
+          break;
+        }
+        case "ScheduleKnowledgeReview":
+        case "ReviewKnowledge": {
+          const d = this.repo.document(cmd.documentId),
+            page = state.library.pages[cmd.documentId];
+          if (!d || !page) throw new DomainError("Subject not found.");
+          if (d.version !== cmd.expectedVersion)
+            throw new DomainError(
+              "This subject changed. Reload before reviewing.",
+            );
+          if (cmd.type === "ScheduleKnowledgeReview") {
+            page.reviewAfter = cmd.reviewAfter;
+            this.emit(
+              {
+                type: "KnowledgeReviewScheduled",
+                payload: { documentId: d.id },
+              },
+              "human",
+              d.id,
+            );
+          } else {
+            this.library.apply(
+              state,
+              {
+                ...page,
+                documentId: d.id,
+                expectedVersion: d.version,
+                title: d.title,
+                content: d.content,
+                sources: cmd.action === "withdraw" ? page.sources : cmd.sources,
+                disposition:
+                  cmd.action === "withdraw" ? "withdrawn" : "current",
+                reviewAfter: cmd.reviewAfter,
+                needsApproval: false,
+                reason: "Reviewed by the owner.",
+              },
+              true,
+            );
+          }
           break;
         }
         case "OrganizeKnowledge": {
@@ -634,6 +722,8 @@ export class Company {
         requested,
         this.now(),
         hasConstitution,
+        true,
+        this.repo.documents(),
       );
       if (blocked) return { skipped: blocked };
     }
@@ -655,7 +745,14 @@ export class Company {
             Date.parse(maintenance.lastRunAt) +
               maintenance.intervalHours * 3600000 <=
               Date.parse(this.now())) &&
-          !taskBlocker(state, maintenance, this.now(), hasConstitution)))
+          !taskBlocker(
+            state,
+            maintenance,
+            this.now(),
+            hasConstitution,
+            true,
+            this.repo.documents(),
+          )))
     ) {
       const run = this.run(state, { trigger: "maintenance", automatic: true });
       run.discoveryLensId = maintenance.id;

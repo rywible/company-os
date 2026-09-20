@@ -14,20 +14,27 @@ export const libraryUpdateSchema = libraryLocationSchema.extend({
   content: text.max(24000),
   sources: z.array(text).min(1).max(30),
   needsApproval: z.boolean(),
+  disposition: z.enum(["current", "withdrawn"]).optional(),
+  reviewAfter: z.string().datetime().nullable().optional(),
   reason: text.max(2000),
 });
 export type LibraryUpdate = z.infer<typeof libraryUpdateSchema>;
 export type LibraryPage = z.infer<typeof libraryLocationSchema> & {
   sources: string[];
+  withdrawn?: boolean;
+  reviewedAt?: string;
+  reviewAfter?: string | null;
   managed: boolean;
   updatedAt: string;
 };
 export type LibraryProposal = LibraryUpdate & {
   id: string;
+  reviewSignature?: string;
   status: "pending" | "accepted" | "dismissed";
 };
 export type LibraryState = {
   version: 1;
+  withdrawnSources?: Record<string, { reason: string; at: string }>;
   pages: Record<string, LibraryPage>;
   pending: Record<string, number>;
   processed: Record<string, number>;

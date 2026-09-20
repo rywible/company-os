@@ -464,10 +464,12 @@ for (const backend of backends) {
           view,
           "document.querySelector('.library-reader')?.textContent.includes('founder can revise')",
         );
-        await click(view, ".library-support > summary");
+        await view.evaluate(
+          `Array.from(document.querySelectorAll("summary")).find(el => el.textContent === "Revision history").click()`,
+        );
         await wait(
           view,
-          "document.querySelector('.library-support')?.textContent.includes('Revision 1')",
+          "document.querySelector('.library-reader')?.textContent.includes('Revision 1')",
         );
         await fits(view);
         await Bun.write(
@@ -484,6 +486,85 @@ for (const backend of backends) {
         await fits(view);
         await Bun.write(
           `.artifacts/library-${size.name}.png`,
+          await view.screenshot(),
+        );
+        expect(errors).toEqual([]);
+      }, 30000);
+      test("source revisions, review dates and withdrawal are readable on mobile", async () => {
+        const { view, repo, company, origin, errors } = await setup(
+          backend,
+          size,
+        );
+        const page = company.execute({
+          type: "SaveKnowledge",
+          title: "Deployment understanding",
+          content: "Deployments use the approved architecture.",
+          level: "knowledge",
+          policy: {
+            inclusion: "relevant",
+            status: "active",
+            scope: "company",
+            kind: "document",
+          },
+        }) as { id: string };
+        const source = repo.document("architecture")!;
+        const state = repo.state();
+        state.library.pages[page.id]!.sources = [
+          `document:${source.id}@${source.version}`,
+        ];
+        repo.save(state);
+        company.execute({
+          type: "SaveKnowledge",
+          ...source,
+          expectedVersion: source.version,
+          content: "Updated deployment architecture",
+          policy: state.policies[source.id] || {
+            inclusion: "relevant",
+            status: "active",
+            scope: "company",
+            kind: "document",
+          },
+        });
+        await view.reload();
+        await wait(
+          view,
+          `!!document.querySelector('[data-workspace-ready="true"]')`,
+        );
+        await nav(view, "Knowledge");
+        await wait(view, "!!document.querySelector('.library-row')");
+        await button(view, "Deployment understanding", ".library-index", false);
+        await wait(view, "!!document.querySelector('.library-freshness')");
+        await click(view, ".library-support > summary");
+        await button(view, "v2", ".library-support");
+        await wait(
+          view,
+          "document.querySelector('.library-reader')?.textContent.includes('Updated deployment architecture')",
+        );
+        await button(view, "← Subject");
+        await click(view, ".library-review > summary");
+        await button(view, "Confirm current sources");
+        await wait(view, "!document.querySelector('.library-freshness')");
+        expect(repo.document(page.id)?.version).toBe(2);
+        expect(repo.state().library.pages[page.id]!.sources).toEqual([
+          `document:${source.id}@2`,
+        ]);
+        await click(view, ".library-review > summary");
+        await view.evaluate(`document.querySelector('input[name="reviewDate"]').value = "2099-01-01"`);
+        await button(view, "Save review date");
+        await wait(
+          view,
+          "document.querySelector('input[name=reviewDate]')?.defaultValue === '2099-01-01'",
+        );
+        await click(view, ".library-review > summary");
+        await button(view, "Withdraw subject");
+        await wait(
+          view,
+          "document.querySelector('.library-freshness strong')?.textContent === 'Withdrawn'",
+        );
+        expect(repo.state().library.pages[page.id]!.withdrawn).toBe(true);
+        await fits(view);
+        await Bun.write(
+          `.artifacts/freshness-${size.name}.png`,
           await view.screenshot(),
         );
         expect(errors).toEqual([]);
@@ -581,6 +662,7 @@ for (const backend of backends) {
           await view.screenshot(),
         );
         await button(view, "Archive");
+        await wait(view, "!!document.querySelector('.thread-list')");
         await wait(view, `!!document.querySelector('.thread-list')`);
         expect(
           repo.state().threads.find((t) => t.kind === "conversation")!.status,
@@ -603,6 +685,7 @@ for (const backend of backends) {
           ),
         ).toBe("Keep this reply separate");
         await button(view, "Archive");
+        await wait(view, "!!document.querySelector('.thread-list')");
         expect(repo.state().threads[0]!.status).toBe("resolved");
         await fits(view);
         await Bun.write(

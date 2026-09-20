@@ -8,14 +8,22 @@ export function renderBriefing(context: Context): string {
       .map((d) => ({
         subject: d.title,
         reference: documentRef(d),
-        authority: constitution
-          ? "Human-owned company direction"
-          : d.level !== "knowledge"
-            ? "Governing document"
-            : context.entries.find((e) => e.id === d.id)?.policy.kind ===
-                "hypothesis"
-              ? "Tentative hypothesis"
-              : "Current understanding; assess evidence and uncertainty in the content",
+        freshness: context.freshness?.[d.id],
+        authority:
+          (context.freshness?.[d.id] &&
+            context.freshness[d.id]!.status !== "current") ||
+          context.entries
+            .find((e) => e.id === d.id)
+            ?.reason.includes("historical")
+            ? "Historical or unreviewed material. Do not treat it as current guidance."
+            : constitution
+              ? "Human-owned company direction"
+              : d.level !== "knowledge"
+                ? "Governing document"
+                : context.entries.find((e) => e.id === d.id)?.policy.kind ===
+                    "hypothesis"
+                  ? "Tentative hypothesis"
+                  : "Current understanding; assess evidence and uncertainty in the content",
         selectedBecause: context.entries.find((e) => e.id === d.id)?.reason,
         content: d.content,
       }));

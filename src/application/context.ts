@@ -1,3 +1,4 @@
+import { libraryFreshness } from "../domain/freshness";
 import { evidenceReferences } from "../domain/evidence";
 import { documentRef } from "../domain/library";
 import {
@@ -76,9 +77,13 @@ export async function assembleContext(
     work = state.work.find((w) => w.id === run?.workId);
   const documents = repo.documents(),
     attachment = thread?.attachment;
+  const freshness = libraryFreshness(state, documents, now);
   const eligible = (d: (typeof documents)[number]) => {
     const p = state.policies[d.id] || defaultPolicy(d);
     return (
+      (run?.trigger === "maintenance" ||
+        !freshness[d.id] ||
+        freshness[d.id]!.status === "current") &&
       p.status === "active" &&
       (p.scope === "company" || p.scope === scope) &&
       p.inclusion !== "reference" &&
@@ -151,6 +156,7 @@ export async function assembleContext(
     documents: [],
     entries: [],
     libraryPages: {},
+    freshness,
     evidenceRefs: [],
     gaps: [],
     additionalRequests: requested,
@@ -190,6 +196,26 @@ export async function assembleContext(
     } else if (pinned) {
       included = true;
       reason = `Explicit attachment at v${d.version}`;
+      if (freshness[d.id]?.status !== "current" && freshness[d.id]) {
+        reason += "; historical or unreviewed material, not current guidance";
+        context.gaps!.push(
+          `${d.title} is explicitly attached but ${freshness[d.id]!.status.replaceAll("_", " ")}: ${freshness[d.id]!.reasons.map((r) => r.message).join(" ")}`,
+        );
+      }
+      if (d.version !== current.version) {
+        reason += "; historical revision";
+        context.gaps!.push(
+          `${d.title} is pinned to v${d.version}; the current revision is v${current.version}. Use the attachment as historical context.`,
+        );
+      }
+    } else if (
+      freshness[d.id] &&
+      freshness[d.id]!.status !== "current" &&
+      run?.trigger !== "maintenance"
+    ) {
+      reason = `${freshness[d.id]!.status === "withdrawn" ? "Withdrawn" : "Needs review"}: ${freshness[d.id]!.reasons.map((r) => r.message).join(" ")}`;
+      if (hits.has(d.id))
+        context.gaps!.push(`${d.title} was withheld: ${reason}`);
     } else if (!eligible(d))
       reason =
         d.level === "knowledge" && !state.library.pages[d.id]
