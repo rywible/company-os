@@ -3,6 +3,12 @@ import type { DomainEvent, Effect } from "./events";
 // stored with its triggering event in the same database transaction.
 export function workflows(event: DomainEvent): Effect[] {
   switch (event.type) {
+    case "IntegrationRequested":
+      return [
+        { type: "IntegrateMilestone", milestoneId: event.payload.milestoneId },
+      ];
+    case "DeliveryConfigured":
+      return [{ type: "ReconcileMilestones" }];
     case "DiscoveryEvaluationRequested":
     case "DiscoveryIdentified":
       return [{ type: "InvestigateDiscovery", ideaId: event.payload.ideaId }];
@@ -72,9 +78,10 @@ export const workflowDefinitions = [
     steps: [
       "Planning schedule → bounded milestone proposals → Inbox",
       "Human approval → dependency DAG → ready assignments",
-      "Worker result → independent role review → accepted outputs",
+      "Assignment branch → verified changes → PR against milestone branch",
+      "Independent review → bounded corrections / adjudication → exact tested merge",
       "Accepted dependencies → parallel streams; blocked descendants wait",
-      "Completed milestone → replenish planning pipeline",
+      "Integrated milestone → configured acceptance → merge to main",
     ],
   },
   {
@@ -104,8 +111,9 @@ export const workflowDefinitions = [
       "StartReview: N independent reviewers",
       "ReviewSubmitted (same head)",
       "ReviewCompleted (all N)",
-      "WorkerSignalled",
-      "Corrections → PullRequestUpdated → new review round",
+      "Approval → verified integration → automatic merge",
+      "Blockers → at most two correction rounds → adjudication",
+      "One final correction → verify or defer; no manual PR review",
     ],
   },
   {

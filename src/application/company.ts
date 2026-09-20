@@ -1,4 +1,10 @@
 import {
+  IntegrationChanged,
+  VerificationFailed,
+  engineeringChecks,
+} from "../domain/delivery";
+import { DeliveryWorkflow } from "./delivery";
+import {
   automationPermissions,
   assertAutomationOutput,
 } from "../domain/permissions";
@@ -47,6 +53,7 @@ export class Company {
   private discovery: Discovery;
   private library: Library;
   private planning: Planning;
+  private deliveryWorkflow: DeliveryWorkflow;
   constructor(
     readonly repo: Repository,
     readonly agent: AgentPort,
@@ -57,6 +64,14 @@ export class Company {
     readonly pullRequests?: PullRequestPort,
     readonly researchSources?: ResearchSourcesPort,
   ) {
+    this.deliveryWorkflow = new DeliveryWorkflow({
+      repo: this.repo,
+      github: this.pullRequests,
+      id: () => this.ids.next(),
+      now: () => this.now(),
+      emit: (...args) => this.emit(...args),
+      run: (state, input) => this.run(state, input),
+    });
     this.planning = new Planning({
       repo: this.repo,
       now: () => this.now(),
@@ -134,12 +149,19 @@ export class Company {
       (r) =>
         r.enabled &&
         r.id ===
-          (["assessment", "review"].includes(input.trigger) &&
-          assignedWork?.milestoneId
-            ? "reviewer"
-            : assignedWork?.roleId),
+          (input.trigger === "adjudication"
+            ? "adjudicator"
+            : input.trigger === "acceptance"
+              ? "acceptance"
+              : ["assessment", "review"].includes(input.trigger)
+                ? "reviewer"
+                : assignedWork?.roleId),
     );
-    if (assignedWork?.roleId && !role)
+    if (
+      (assignedWork?.roleId ||
+        ["review", "adjudication", "acceptance"].includes(input.trigger)) &&
+      !role
+    )
       throw new DomainError("The assigned role is paused or unavailable.");
     const automation = taskForRun(state, input);
     const run: Run = {
@@ -510,7 +532,12 @@ export class Company {
               (r) =>
                 r.workId === cmd.workId && r.status === "changes_requested",
             );
-          if (!work || work.status !== "blocked" || !round)
+          if (
+            !work ||
+            work.status !== "blocked" ||
+            !round ||
+            work.reviewProgress?.stopped
+          )
             throw new DomainError("No blocked review corrections to resume.");
           if (
             state.runs.some(
@@ -520,6 +547,16 @@ export class Company {
             )
           )
             throw new DomainError("Work already has an active run.");
+          const previous = state.runs.findLast(
+            (r) => r.workId === work.id && r.trigger === "revision",
+          );
+          if (
+            work.reviewProgress?.finalCorrectionRunId ||
+            previous?.result?.outcome !== "needs_input"
+          )
+            throw new DomainError(
+              "Correction limits cannot be reset. Discuss changed scope with Foreman.",
+            );
           const run = this.run(state, {
             trigger: "revision",
             workId: work.id,
@@ -534,6 +571,19 @@ export class Company {
             },
             "human",
             work.id,
+          );
+          break;
+        }
+        case "ConfigureDelivery": {
+          state.settings.delivery = cmd.policy;
+          if (cmd.requiredReviews !== undefined)
+            state.settings.requiredReviews = cmd.requiredReviews;
+          if (cmd.allowCodeChanges !== undefined)
+            state.settings.allowCodeChanges = cmd.allowCodeChanges;
+          this.emit(
+            { type: "DeliveryConfigured", payload: {} },
+            "human",
+            "delivery",
           );
           break;
         }
@@ -744,6 +794,10 @@ export class Company {
           )
             throw new DomainError("A response is already pending.");
           const retryWork = state.work.find((w) => w.id === run.workId);
+          if (retryWork?.reviewProgress?.stopped)
+            throw new DomainError(
+              "This attempt is stopped; retry cannot reset its review allowance.",
+            );
           if (retryWork?.milestoneId) {
             if (
               !this.planning.ready(state, retryWork) ||
@@ -763,6 +817,8 @@ export class Company {
             );
             retry.role = structuredClone(run.role);
             retry.context = structuredClone(run.context);
+            retry.executionId = run.executionId || run.id;
+            retry.pendingOutput = run.pendingOutput;
             retry.reviewRoundId = run.reviewRoundId;
             retry.reviewId = run.reviewId;
             this.emit(
@@ -990,6 +1046,8 @@ export class Company {
         this.repo.save(state);
       });
     }
+    if (effect.type === "IntegrateMilestone")
+      return this.deliveryWorkflow.integrate(effect.milestoneId);
     if (effect.type === "ReconcileMilestones") {
       this.repo.transaction(() => {
         const state = this.repo.state();
@@ -1009,6 +1067,7 @@ export class Company {
         delivery.event.id,
       );
     if (effect.type === "ScheduleWork") {
+      await this.deliveryWorkflow.prepare(effect.workId);
       return this.repo.transaction(() => {
         const state = this.repo.state(),
           work = state.work.find((w) => w.id === effect.workId);
@@ -1110,7 +1169,11 @@ export class Company {
       throw new Deferred(
         "Waiting for milestone approval or accepted dependencies.",
       );
-    if (work && ["done", "cancelled"].includes(work.status)) {
+    if (
+      work &&
+      (["done", "cancelled"].includes(work.status) ||
+        work.reviewProgress?.stopped)
+    ) {
       this.repo.transaction(() => {
         const s = this.repo.state(),
           r = s.runs.find((r) => r.id === run!.id)!;
@@ -1207,6 +1270,14 @@ export class Company {
           e instanceof Error ? e.message : "Repository unavailable";
       }
     }
+    if (
+      work?.mode === "implementation" &&
+      run.trigger === "work" &&
+      !context.implementation
+    )
+      await this.deliveryWorkflow.implementationContext(work, context);
+    if (work && run.trigger === "acceptance" && !context.acceptance)
+      await this.deliveryWorkflow.acceptanceContext(work, run, context);
     if (run.reviewRoundId && this.pullRequests) {
       const round = state.reviewRounds.find(
         (r) => r.id === run!.reviewRoundId,
@@ -1244,9 +1315,9 @@ export class Company {
         files: snapshot.files,
         instructions:
           run.trigger === "review"
-            ? "Independently review this exact commit. Return review verdict, summary, and concrete findings. Do not consider other reviewers."
+            ? "Review this exact commit. Block only concrete correctness, security, failing-check or unmet-acceptance defects. Return structured review.issues with stable IDs, evidence, verification and status. Style and optional improvements are suggestions. In later rounds explicitly resolve or retain prior blockers, focus on fixes and regressions, and justify any newly discovered material blocker."
             : "You are the original worker, resumed by ReviewCompleted. Address the combined findings with complete replacement source files in changes. Never claim a correction was tested; the adapter tests before publishing.",
-        ...(run.trigger === "revision"
+        ...(run.trigger !== "review"
           ? {
               findings: round.reviews.flatMap((r) => r.findings),
               approved: round.status === "approved",
@@ -1256,6 +1327,25 @@ export class Company {
             }
           : {}),
       };
+    }
+    if (work) {
+      const failed = state.runs.findLast(
+        (r) => r.workId === work.id && r.error && r.result,
+      );
+      if (failed)
+        context.executionFeedback = {
+          error: failed.error!,
+          proposal: failed.result!,
+        };
+    }
+    if (work?.reviewProgress && context.review) {
+      context.review.priorFindings = work.reviewProgress.findings;
+      if (run.trigger === "adjudication")
+        context.adjudication = {
+          finalVerification: !!work.reviewProgress.finalCorrectionRunId,
+          history: state.reviewRounds.filter((r) => r.workId === work.id),
+          findings: work.reviewProgress.findings,
+        };
     }
     this.repo.transaction(() => {
       state = this.repo.state();
@@ -1281,7 +1371,9 @@ export class Company {
       const w = state.work.find((w) => w.id === run!.workId);
       if (
         w &&
-        !["review", "assessment"].includes(run!.trigger) &&
+        !["review", "assessment", "adjudication", "acceptance"].includes(
+          run!.trigger,
+        ) &&
         w.status !== "running"
       ) {
         w.status = "running";
@@ -1318,12 +1410,16 @@ export class Company {
       r.contextHistory ||= [structuredClone(context!)];
       this.repo.save(s);
     });
-    let output = await this.agent.execute(
-      run!.id,
-      context,
-      run!.trigger === "heartbeat",
-      run!.agent || state.settings.foremanAgent || defaultAgentConfiguration(),
-    );
+    let output =
+      run!.pendingOutput ||
+      (await this.agent.execute(
+        run!.id,
+        context,
+        run!.trigger === "heartbeat",
+        run!.agent ||
+          state.settings.foremanAgent ||
+          defaultAgentConfiguration(),
+      ));
     if (output.contextRequests?.length) {
       const requests = output.contextRequests.slice(0, 3);
       const savedExpansion = this.repo
@@ -1436,6 +1532,64 @@ export class Company {
       throw new DomainError(
         "Only conversations and library maintenance can write knowledge documents.",
       );
+    if (
+      ["review", "adjudication", "acceptance"].includes(run!.trigger) &&
+      (output.changes.length ||
+        output.work.length ||
+        output.proposals.length ||
+        output.observations.length ||
+        output.libraryUpdates?.length ||
+        output.milestones?.length ||
+        output.milestoneRevisions?.length)
+    )
+      throw new DomainError(
+        "Review and acceptance runs cannot mutate implementation or scope.",
+      );
+    if (
+      ["revision", "adjudication", "acceptance"].includes(run!.trigger) ||
+      work?.mode === "implementation"
+    ) {
+      if (
+        output.work.length ||
+        output.proposals.length ||
+        output.observations.length ||
+        output.libraryUpdates?.length ||
+        output.milestones?.length ||
+        output.milestoneRevisions?.length
+      )
+        throw new DomainError(
+          "Engineering delivery cannot mix code publication with unrelated mutations.",
+        );
+      this.repo.transaction(() => {
+        const s = this.repo.state();
+        const r = s.runs.find((r) => r.id === run!.id)!;
+        r.pendingOutput = output;
+        r.executionId ||= r.id;
+        this.repo.save(s);
+      });
+    }
+    if (run!.trigger === "acceptance")
+      return this.deliveryWorkflow.finishAcceptance(run!.id, output);
+    if (run!.trigger === "adjudication")
+      return this.finishAdjudication(run!.id, output, delivery.event.id);
+    if (
+      work?.mode === "implementation" &&
+      run!.trigger === "work" &&
+      output.outcome === "completed"
+    ) {
+      try {
+        await this.deliveryWorkflow.publish(work, { ...run!, context }, output);
+      } catch (error) {
+        if (!(error instanceof VerificationFailed)) throw error;
+        this.technicalFailure(
+          run!.id,
+          output,
+          error.message,
+          delivery.event.id,
+        );
+        return;
+      }
+    }
     if (run!.trigger === "review")
       return this.finishReview(run!.id, output, delivery.event.id);
     if (
@@ -1445,7 +1599,13 @@ export class Company {
     )
       return this.complete(run!.id, output, delivery.event.id);
     if (run!.trigger === "revision" && output.changes.length) {
-      if (!this.repo.state().settings.allowCodeChanges) {
+      const latestState = this.repo.state();
+      const milestone = latestState.planning.milestones.find(
+        (m) => m.id === work?.milestoneId,
+      );
+      if (milestone && milestone.status !== "active")
+        throw new Deferred("Milestone paused before publication.");
+      if (!latestState.settings.allowCodeChanges) {
         output.outcome = "needs_input";
         output.requests.push({
           subject: "Approve correction authority",
@@ -1458,11 +1618,36 @@ export class Company {
       } else {
         if (!this.pullRequests || !work?.pullRequest)
           throw new DomainError("PR publishing is unavailable.");
-        const updated = await this.pullRequests.revise(
-          context.review!.pullRequest,
-          run!.id,
-          output.changes,
-        );
+        let updated: import("../domain/model").PullRequest;
+        try {
+          updated = await this.pullRequests.revise(
+            context.review!.pullRequest,
+            run!.executionId || run!.id,
+            output.changes,
+            engineeringChecks(
+              milestone?.delivery?.policy || latestState.settings.delivery,
+            ),
+            () => {
+              const s = this.repo.state();
+              return (
+                s.settings.allowCodeChanges &&
+                (!milestone ||
+                  s.planning.milestones.find((m) => m.id === milestone.id)
+                    ?.status === "active") &&
+                s.work.find((w) => w.id === work!.id)?.status !== "cancelled"
+              );
+            },
+          );
+        } catch (error) {
+          if (!(error instanceof VerificationFailed)) throw error;
+          this.technicalFailure(
+            run!.id,
+            output,
+            error.message,
+            delivery.event.id,
+          );
+          return;
+        }
         this.repo.transaction(() => {
           const s = this.repo.state();
           s.work.find((w) => w.id === work.id)!.pullRequest = updated;
@@ -1470,7 +1655,7 @@ export class Company {
         });
         output.outcome = "completed";
         output.message +=
-          "\n\nCorrections passed type checking, unit tests, build and browser tests, and were pushed to " +
+          "\n\nCorrections passed the configured engineering checks and were pushed to " +
           updated.head;
       }
     }
@@ -1808,20 +1993,30 @@ export class Company {
             r.pullRequest.head === work.pullRequest!.head,
         )
       ) {
-        work.status = "blocked";
-        const t = this.inbox(
-          state,
-          {
-            subject: "Review findings need a decision: " + work.title,
-            reason:
-              "The worker did not publish a correction for the rejected commit.",
-            recommendation: output.message,
-            evidence: context.evidenceRefs,
+        if (
+          work.reviewProgress?.finalCorrectionRunId ||
+          work.reviewProgress?.adjudicationRunId
+        ) {
+          this.stopReview(
+            state,
+            work,
+            "The worker did not publish the required final correction.",
+          );
+        } else {
+          const adjudication = this.run(state, {
+            trigger: "adjudication",
             workId: work.id,
-          },
-          runId,
-        );
-        work.threadId = t.id;
+          });
+          adjudication.reviewRoundId = run.reviewRoundId;
+          work.reviewProgress!.adjudicationRunId = adjudication.id;
+          work.status = "queued";
+          this.emit(
+            { type: "RunRequested", payload: { runId: adjudication.id } },
+            "system",
+            work.id,
+            runId,
+          );
+        }
       }
       if (work) {
         const linked = state.threads.find((t) => t.id === work.threadId);
@@ -1888,6 +2083,17 @@ export class Company {
         throw new DomainError(
           "Wait for the current work run to finish before linking a PR.",
         );
+      const milestone = state.planning.milestones.find(
+        (m) => m.id === work.milestoneId,
+      );
+      if (
+        milestone?.delivery &&
+        (snapshot.pullRequest.base !== milestone.delivery.branch ||
+          snapshot.pullRequest.branch !== work.branch)
+      )
+        throw new DomainError(
+          "Assignment PR must use its managed branch and target the milestone branch.",
+        );
       work.pullRequest = snapshot.pullRequest;
       work.status = "review";
       work.updatedAt = this.now();
@@ -1913,7 +2119,12 @@ export class Company {
       throw new DomainError("GitHub review adapter unavailable.");
     const before = this.repo.state(),
       work = before.work.find((w) => w.id === workId);
-    if (!work?.pullRequest || work.status === "cancelled") return;
+    if (
+      !work?.pullRequest ||
+      ["cancelled", "done"].includes(work.status) ||
+      work.reviewProgress?.stopped
+    )
+      return;
     const snapshot = await this.pullRequests.inspect(
       work.pullRequest.repository,
       work.pullRequest.number,
@@ -1935,12 +2146,42 @@ export class Company {
         old.status = "superseded";
       const w = state.work.find((w) => w.id === workId)!;
       w.pullRequest = snapshot.pullRequest;
+      w.reviewProgress ||= {
+        policy: {
+          correctionRounds:
+            state.planning.milestones.find((m) => m.id === w.milestoneId)
+              ?.delivery?.policy.correctionRounds ??
+            state.settings.delivery.correctionRounds,
+        },
+        corrections: 0,
+        findings: [],
+      };
       w.status = "review";
+      const m = state.planning.milestones.find((m) => m.id === w.milestoneId);
+      const needed = w.reviewProgress.finalCorrectionRunId
+        ? 1
+        : m?.delivery?.requiredReviews || state.settings.requiredReviews;
+      if (
+        m &&
+        state.runs.filter((r) => r.workId && m.workIds.includes(r.workId))
+          .length +
+          needed >
+          m.maxRuns
+      ) {
+        this.deliveryWorkflow.stop(
+          state,
+          m,
+          "The approved run allowance cannot fund the next complete review round.",
+        );
+        return;
+      }
       const round: import("../domain/model").ReviewRound = {
         id: this.ids.next(),
         workId,
         pullRequest: snapshot.pullRequest,
-        required: state.settings.requiredReviews,
+        required:
+          state.planning.milestones.find((m) => m.id === w.milestoneId)
+            ?.delivery?.requiredReviews || state.settings.requiredReviews,
         workerRunId: state.runs.findLast(
           (r) =>
             r.workId === workId &&
@@ -1952,6 +2193,39 @@ export class Company {
         createdAt: this.now(),
       };
       state.reviewRounds.push(round);
+      if (
+        w.reviewProgress.finalCorrectionRunId ||
+        state.reviewRounds.filter((r) => r.workId === w.id).length >
+          w.reviewProgress.policy.correctionRounds + 1
+      ) {
+        if (
+          w.reviewProgress.adjudicationRunId &&
+          !w.reviewProgress.finalCorrectionRunId
+        ) {
+          this.stopReview(
+            state,
+            w,
+            "The PR changed after its adjudication allowance was used.",
+          );
+          this.repo.save(state);
+          return;
+        }
+        round.required = 0;
+        const verification = this.run(state, {
+          trigger: "adjudication",
+          workId,
+        });
+        verification.reviewRoundId = round.id;
+        w.reviewProgress.adjudicationRunId ||= verification.id;
+        this.emit(
+          { type: "RunRequested", payload: { runId: verification.id } },
+          "system",
+          workId,
+          cause,
+        );
+        this.repo.save(state);
+        return;
+      }
       for (let i = 0; i < round.required; i++) {
         const reviewId = this.ids.next();
         const run = this.run(state, {
@@ -2003,8 +2277,9 @@ export class Company {
     });
   }
   async finishReview(runId: string, output: AgentResult, cause: string) {
-    if (!output.review)
-      throw new DomainError("Reviewer did not return a review.");
+    if (!output.review || output.outcome !== "completed")
+      throw new DomainError("Reviewer did not return a completed review.");
+    this.validateReview(output);
     this.repo.transaction(() => {
       const state = this.repo.state(),
         run = state.runs.find((r) => r.id === runId)!;
@@ -2012,6 +2287,20 @@ export class Company {
       const round = state.reviewRounds.find((r) => r.id === run.reviewRoundId)!;
       const review = round.reviews.find((r) => r.id === run.reviewId)!;
       if (round.status !== "superseded") {
+        const w = state.work.find((w) => w.id === round.workId)!;
+        const prior =
+          w.reviewProgress?.findings.filter(
+            (f) =>
+              f.head !== round.pullRequest.head &&
+              f.severity === "blocker" &&
+              f.status === "open",
+          ) || [];
+        if (
+          prior.some((f) => !output.review!.issues?.some((i) => i.id === f.id))
+        )
+          throw new DomainError(
+            "Review must explicitly resolve or retain prior blockers.",
+          );
         Object.assign(review, output.review, { status: "publishing" });
         this.emit(
           {
@@ -2075,6 +2364,17 @@ export class Company {
         r.status === "collecting" &&
         (outcome === "approved" || outcome === "changes_requested")
       ) {
+        const work = state.work.find((w) => w.id === r.workId)!;
+        if (work.reviewProgress) {
+          // Replace the prior-round ledger only when the complete quorum arrives.
+          work.reviewProgress.findings = r.reviews.flatMap((v) =>
+            (v.issues || []).map((f) => ({
+              ...f,
+              head: r.pullRequest.head,
+              reviewerId: v.id,
+            })),
+          );
+        }
         r.status = outcome;
         r.completedAt = this.now();
         this.emit(
@@ -2094,68 +2394,69 @@ export class Company {
       this.repo.save(state);
     });
   }
-  async signalWorker(roundId: string, cause: string) {
-    const prior = this.repo.state().reviewRounds.find((r) => r.id === roundId);
-    if (!prior || !["approved", "changes_requested"].includes(prior.status))
-      return;
-    if (!this.pullRequests)
-      throw new DomainError("GitHub adapter unavailable.");
-    const current = await this.pullRequests.inspect(
-      prior.pullRequest.repository,
-      prior.pullRequest.number,
-    );
-    if (current.pullRequest.head !== prior.pullRequest.head) {
-      this.supersede(roundId, current.pullRequest.head);
-      return;
-    }
+  private technicalFailure(
+    runId: string,
+    output: AgentResult,
+    error: string,
+    cause: string,
+  ) {
     this.repo.transaction(() => {
       const state = this.repo.state(),
-        round = state.reviewRounds.find((r) => r.id === roundId)!;
+        run = state.runs.find((r) => r.id === runId)!,
+        work = state.work.find((w) => w.id === run.workId)!;
+      run.status = "completed";
+      run.result = output;
+      run.error = error;
+      run.finishedAt = this.now();
+      work.result = error;
+      work.reviewProgress ||= {
+        policy: { correctionRounds: state.settings.delivery.correctionRounds },
+        corrections: 0,
+        findings: [],
+      };
+      const p = work.reviewProgress;
+      const m = state.planning.milestones.find(
+        (m) => m.id === work.milestoneId,
+      );
+      const exhausted =
+        m &&
+        state.runs.filter((r) => r.workId && m.workIds.includes(r.workId))
+          .length >= m.maxRuns;
       if (
-        state.runs.some(
-          (r) => r.trigger === "revision" && r.reviewRoundId === roundId,
-        )
-      )
-        return;
-      const work = state.work.find((w) => w.id === round.workId)!;
-      if (work.status === "cancelled") return;
-      if (
-        state.reviewRounds.filter(
-          (r) =>
-            r.workId === work.id &&
-            r.reviews.every((v) => v.status === "completed") &&
-            r.reviews.some((v) => v.verdict === "changes_requested"),
-        ).length >= 3 &&
-        round.status !== "approved"
+        exhausted ||
+        p.finalCorrectionRunId ||
+        (!work.pullRequest && work.attempts >= 3)
       ) {
-        work.status = "blocked";
-        const t = this.inbox(
+        this.stopReview(
           state,
-          {
-            subject: "Review loop needs input: " + work.title,
-            reason: "Three review rounds have not converged.",
-            recommendation: "Inspect the findings and revise the approach.",
-            evidence: [],
-            workId: work.id,
-          },
-          roundId,
+          work,
+          "Verification failed within the bounded execution allowance. Foreman deferred this attempt. " +
+            error,
         );
-        work.threadId = t.id;
-        this.repo.save(state);
-        return;
+      } else {
+        const adjudicate =
+          work.pullRequest && p.corrections >= p.policy.correctionRounds;
+        const next = this.run(state, {
+          trigger: adjudicate
+            ? "adjudication"
+            : work.pullRequest
+              ? "revision"
+              : "work",
+          workId: work.id,
+        });
+        next.reviewRoundId = run.reviewRoundId;
+        if (adjudicate) p.adjudicationRunId = next.id;
+        else if (work.pullRequest) p.corrections++;
+        work.status = "queued";
+        this.emit(
+          { type: "RunRequested", payload: { runId: next.id } },
+          "system",
+          work.id,
+          cause,
+        );
       }
-      const run = this.run(state, {
-        trigger: "revision",
-        workId: work.id,
-        automatic: false,
-      });
-      run.reviewRoundId = roundId;
-      work.status = "queued";
       this.emit(
-        {
-          type: "WorkerSignalled",
-          payload: { runId: run.id, workId: work.id, roundId },
-        },
+        { type: "RunCompleted", payload: { runId, workId: work.id } },
         "system",
         work.id,
         cause,
@@ -2163,11 +2464,394 @@ export class Company {
       this.repo.save(state);
     });
   }
+  private validateReview(output: AgentResult) {
+    const review = output.review!;
+    if (review.verdict === "changes_requested" && !review.issues?.length)
+      throw new DomainError(
+        "Blocking review requires structured findings with evidence and verification.",
+      );
+    for (const issue of review.issues || [])
+      if (issue.severity === "blocker" && issue.category === "style")
+        throw new DomainError("Style preferences cannot block merging.");
+    if (
+      new Set(review.issues?.map((f) => f.id)).size !==
+      (review.issues || []).length
+    )
+      throw new DomainError("Review finding IDs must be unique.");
+    if (review.issues) {
+      const blockers = review.issues.filter(
+        (f) => f.severity === "blocker" && f.status === "open",
+      );
+      review.verdict = blockers.length ? "changes_requested" : "approve";
+      review.findings = blockers.map(
+        (f) => `${f.problem} Evidence: ${f.evidence} Verify: ${f.verification}`,
+      );
+    }
+  }
+  private stopReview(state: CompanyState, work: Work, reason: string) {
+    work.reviewProgress!.stopped = reason;
+    work.status = "blocked";
+    const m = state.planning.milestones.find((m) => m.id === work.milestoneId);
+    if (m) {
+      // Independent streams remain runnable; no replacement assignment resets this budget.
+      m.decisionReason = reason;
+      const thread = state.threads.find((t) => t.id === m.threadId)!;
+      thread.status = "open";
+      thread.unread = true;
+      thread.reason = `Foreman deferred an assignment after bounded technical adjudication: ${work.title}. ${reason}`;
+      thread.recommendation =
+        "Discuss changing the outcome or authorizing a bounded follow-up. Technical PR review remains automated; independent streams continue.";
+    } else
+      this.inbox(
+        state,
+        {
+          subject: `Work deferred: ${work.title}`,
+          reason,
+          recommendation:
+            "Foreman stopped this attempt. Decide whether the outcome warrants changed scope or additional authority; no PR review is needed.",
+          evidence: [],
+          workId: work.id,
+        },
+        work.id,
+      );
+  }
+  async finishAdjudication(runId: string, output: AgentResult, cause: string) {
+    if (!output.review || output.outcome !== "completed")
+      throw new DomainError("Adjudication requires a completed verdict.");
+    this.validateReview(output);
+    const before = this.repo.state(),
+      run = before.runs.find((r) => r.id === runId)!;
+    const round = before.reviewRounds.find((r) => r.id === run.reviewRoundId)!;
+    const current = await this.pullRequests!.head(
+      round.pullRequest.repository,
+      round.pullRequest.number,
+    );
+    if (current.head !== round.pullRequest.head) {
+      this.repo.transaction(() => {
+        const s = this.repo.state();
+        const r = s.runs.find((r) => r.id === runId)!;
+        r.status = "completed";
+        r.finishedAt = this.now();
+        this.repo.save(s);
+      });
+      this.supersede(round.id, current.head);
+      return;
+    }
+    const unresolved =
+      before.work
+        .find((w) => w.id === round.workId)
+        ?.reviewProgress?.findings.filter(
+          (f) => f.severity === "blocker" && f.status === "open",
+        ) || [];
+    if (
+      unresolved.some((f) => !output.review!.issues?.some((i) => i.id === f.id))
+    )
+      throw new DomainError(
+        "Adjudication must explicitly resolve every disputed blocker.",
+      );
+    await this.pullRequests!.publishReview(
+      round.pullRequest,
+      runId,
+      output.review.summary,
+      output.review.findings,
+      output.review.verdict,
+    );
+    this.repo.transaction(() => {
+      const state = this.repo.state(),
+        r = state.runs.find((r) => r.id === runId)!;
+      if (r.status === "completed") return;
+      const rd = state.reviewRounds.find((n) => n.id === round.id)!,
+        work = state.work.find((w) => w.id === rd.workId)!;
+      const progress = work.reviewProgress!;
+      r.result = output;
+      r.status = "completed";
+      r.finishedAt = this.now();
+      progress.findings = (output.review!.issues || []).map((f) => ({
+        ...f,
+        head: rd.pullRequest.head,
+        reviewerId: r.id,
+      }));
+      if (output.review!.verdict === "approve") {
+        rd.status = "approved";
+        this.emit(
+          {
+            type: "ReviewCompleted",
+            payload: { roundId: rd.id, workId: work.id, approved: true },
+          },
+          "system",
+          work.id,
+          cause,
+        );
+      } else if (progress.finalCorrectionRunId) {
+        this.stopReview(
+          state,
+          work,
+          "The final correction did not pass independent verification. This attempt is stopped.",
+        );
+      } else {
+        rd.status = "changes_requested";
+        rd.reviews = [
+          { id: r.id, runId: r.id, status: "completed", ...output.review! },
+        ];
+        const fix = this.run(state, { trigger: "revision", workId: work.id });
+        progress.finalCorrectionRunId = fix.id;
+        fix.reviewRoundId = rd.id;
+        work.status = "queued";
+        this.emit(
+          { type: "RunRequested", payload: { runId: fix.id } },
+          "system",
+          work.id,
+          cause,
+        );
+      }
+      this.emit(
+        { type: "RunCompleted", payload: { runId, workId: work.id } },
+        "system",
+        work.id,
+        cause,
+      );
+      this.repo.save(state);
+    });
+  }
+  async signalWorker(roundId: string, cause: string) {
+    const state = this.repo.state(),
+      prior = state.reviewRounds.find((r) => r.id === roundId);
+    if (!prior || !["approved", "changes_requested"].includes(prior.status))
+      return;
+    const work = state.work.find((w) => w.id === prior.workId)!;
+    if (
+      ["done", "cancelled"].includes(work.status) ||
+      work.reviewProgress?.stopped
+    )
+      return;
+    const milestone = state.planning.milestones.find(
+      (m) => m.id === work.milestoneId,
+    );
+    if (milestone && milestone.status !== "active")
+      throw new Deferred("Milestone is paused.");
+    if (!this.pullRequests)
+      throw new DomainError("GitHub adapter unavailable.");
+    if (prior.status === "approved") {
+      if (
+        !state.settings.delivery.autoMerge ||
+        (milestone?.delivery && !milestone.delivery.policy.autoMerge)
+      )
+        throw new Deferred("Automatic merging is paused in Settings.");
+      if (
+        !this.pullRequests.candidate ||
+        !this.pullRequests.verify ||
+        !this.pullRequests.merge
+      )
+        throw new DomainError("Automatic merge connector unavailable.");
+      let candidate = work.mergeCandidate;
+      if (!candidate || candidate.pullRequest.head !== prior.pullRequest.head) {
+        const snapshot = await this.pullRequests.head(
+          prior.pullRequest.repository,
+          prior.pullRequest.number,
+        );
+        if (snapshot.head !== prior.pullRequest.head) {
+          this.supersede(roundId, snapshot.head);
+          return;
+        }
+        candidate = await this.pullRequests.candidate(prior.pullRequest);
+        const policy = milestone?.delivery?.policy || state.settings.delivery;
+        const check = await this.pullRequests.verify(
+          prior.pullRequest.repository,
+          candidate.head,
+          `merge-${roundId}`,
+          engineeringChecks(policy),
+        );
+        if (!check.passed) {
+          this.repo.transaction(() => {
+            const s = this.repo.state(),
+              rd = s.reviewRounds.find((r) => r.id === roundId)!,
+              w = s.work.find((w) => w.id === work.id)!;
+            rd.status = "changes_requested";
+            rd.reviews.push({
+              id: `checks-${roundId}`,
+              runId: "",
+              status: "completed",
+              verdict: "changes_requested",
+              summary: "Integration checks failed",
+              findings: check.checks
+                .filter((c) => !c.passed)
+                .map((c) => `${c.name}: ${c.output}`),
+            });
+            this.emit(
+              {
+                type: "ReviewCompleted",
+                payload: { roundId, workId: w.id, approved: false },
+              },
+              "system",
+              w.id,
+              cause,
+            );
+            this.repo.save(s);
+          });
+          return;
+        }
+        this.repo.transaction(() => {
+          const s = this.repo.state();
+          s.work.find((w) => w.id === work.id)!.mergeCandidate = candidate;
+          this.repo.save(s);
+        });
+      }
+      const latest = this.repo.state();
+      if (
+        !latest.settings.delivery.autoMerge ||
+        (milestone &&
+          latest.planning.milestones.find((m) => m.id === milestone.id)
+            ?.status !== "active")
+      )
+        throw new Deferred("Merge authority paused.");
+      let head: string;
+      try {
+        head = await this.pullRequests.merge(candidate);
+      } catch (error) {
+        if (!(error instanceof IntegrationChanged)) throw error;
+        let stopped = false;
+        this.repo.transaction(() => {
+          const s = this.repo.state(),
+            w = s.work.find((w) => w.id === work.id)!;
+          w.mergeCandidate = undefined;
+          w.integrationAttempts = (w.integrationAttempts || 0) + 1;
+          if (w.integrationAttempts >= 3) {
+            this.stopReview(
+              s,
+              w,
+              "The integration target kept changing. Foreman deferred this attempt after three tested candidates.",
+            );
+            stopped = true;
+          }
+          this.repo.save(s);
+        });
+        if (!stopped)
+          throw new Deferred("Target advanced; re-testing integration.");
+        return;
+      }
+      this.repo.transaction(() => {
+        const s = this.repo.state(),
+          w = s.work.find((w) => w.id === work.id)!;
+        w.status = "done";
+        w.mergedHead = head;
+        w.updatedAt = this.now();
+        const thread = s.threads.find((t) => t.id === w.threadId);
+        if (thread) thread.status = "resolved";
+        this.emit(
+          {
+            type: "WorkStatusChanged",
+            payload: { workId: w.id, status: "done" },
+          },
+          "system",
+          w.id,
+          cause,
+        );
+        this.repo.save(s);
+      });
+      return;
+    }
+    const current = await this.pullRequests.head(
+      prior.pullRequest.repository,
+      prior.pullRequest.number,
+    );
+    if (current.head !== prior.pullRequest.head) {
+      this.supersede(roundId, current.head);
+      return;
+    }
+    this.repo.transaction(() => {
+      const s = this.repo.state(),
+        w = s.work.find((w) => w.id === work.id)!;
+      const progress = w.reviewProgress!;
+      const m = s.planning.milestones.find((m) => m.id === w.milestoneId);
+      if (
+        m &&
+        s.runs.filter((r) => r.workId && m.workIds.includes(r.workId)).length >=
+          m.maxRuns
+      ) {
+        this.deliveryWorkflow.stop(
+          s,
+          m,
+          "The approved milestone run allowance is exhausted. No review or replacement run was started.",
+        );
+        return;
+      }
+      const adjudicatedApproval = s.runs.some(
+        (r) =>
+          r.trigger === "adjudication" &&
+          r.reviewRoundId === roundId &&
+          r.status === "completed" &&
+          r.result?.review?.verdict === "approve",
+      );
+      if (adjudicatedApproval && progress.finalCorrectionRunId) {
+        this.stopReview(s, w, "Final correction failed integration checks.");
+        this.repo.save(s);
+        return;
+      }
+      if (adjudicatedApproval && !progress.finalCorrectionRunId) {
+        const fix = this.run(s, { trigger: "revision", workId: w.id });
+        fix.reviewRoundId = roundId;
+        progress.finalCorrectionRunId = fix.id;
+        w.status = "queued";
+        this.emit(
+          { type: "RunRequested", payload: { runId: fix.id } },
+          "system",
+          w.id,
+          cause,
+        );
+        this.repo.save(s);
+        return;
+      }
+      if (
+        s.runs.some(
+          (r) =>
+            ["revision", "adjudication"].includes(r.trigger) &&
+            r.reviewRoundId === roundId,
+        )
+      )
+        return;
+      if (progress.finalCorrectionRunId) {
+        this.stopReview(s, w, "Final correction failed integration checks.");
+        this.repo.save(s);
+        return;
+      }
+      const adjudicate =
+        progress.corrections >= progress.policy.correctionRounds;
+      if (adjudicate && progress.adjudicationRunId) {
+        this.stopReview(s, w, "Adjudication allowance exhausted.");
+        this.repo.save(s);
+        return;
+      }
+      const run = this.run(s, {
+        trigger: adjudicate ? "adjudication" : "revision",
+        workId: w.id,
+        automatic: false,
+      });
+      if (adjudicate) progress.adjudicationRunId = run.id;
+      else progress.corrections++;
+      run.reviewRoundId = roundId;
+      w.status = "queued";
+      this.emit(
+        {
+          type: "WorkerSignalled",
+          payload: { runId: run.id, workId: w.id, roundId },
+        },
+        "system",
+        w.id,
+        cause,
+      );
+      this.repo.save(s);
+    });
+  }
   async pollPullRequests() {
     if (!this.pullRequests) return;
     for (const work of this.repo
       .state()
-      .work.filter((w) => w.pullRequest && w.status !== "cancelled")) {
+      .work.filter(
+        (w) =>
+          w.pullRequest &&
+          !["cancelled", "done"].includes(w.status) &&
+          !w.reviewProgress?.stopped,
+      )) {
       try {
         const current = await this.pullRequests.head(
           work.pullRequest!.repository,
@@ -2178,6 +2862,7 @@ export class Company {
             const state = this.repo.state(),
               w = state.work.find((w) => w.id === work.id)!;
             w.pullRequest = current;
+            w.mergeCandidate = undefined;
             w.status = "review";
             for (const round of state.reviewRounds.filter(
               (r) => r.workId === w.id && r.pullRequest.head !== current.head,

@@ -100,13 +100,14 @@ export function fixture(empty = false) {
               },
             }
           : {}),
-        review: c.review?.reviewId || c.assignmentReview
-          ? {
-              verdict: "approve",
-              summary: "Boundary cases checked.",
-              findings: [],
-            }
-          : null,
+        review:
+          c.review?.reviewId || c.assignmentReview
+            ? {
+                verdict: "approve",
+                summary: "Boundary cases checked.",
+                findings: [],
+              }
+            : null,
       }),
     },
     {
@@ -126,11 +127,25 @@ export function fixture(empty = false) {
     undefined,
     undefined,
     {
+      candidate: async (pullRequest) => ({
+        pullRequest,
+        base: "base",
+        head: "integrated",
+      }),
+      verify: async (_repo, head) => ({
+        head,
+        passed: true,
+        checks: [
+          { name: "Fixture acceptance", passed: true, output: "Passed" },
+        ],
+      }),
+      merge: async (candidate) => candidate.head,
       head: async (repository, number) => ({
         repository,
         number,
         head: "abc123",
         branch: "codex/example",
+        base: "main",
         url: `https://github.com/${repository}/pull/${number}`,
       }),
       inspect: async (repository, number) => ({
@@ -139,6 +154,7 @@ export function fixture(empty = false) {
           number,
           head: "abc123",
           branch: "codex/example",
+          base: "main",
           url: `https://github.com/${repository}/pull/${number}`,
         },
         files: [],

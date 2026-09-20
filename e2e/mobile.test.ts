@@ -4,7 +4,8 @@ import { fixture } from "./fixture";
 import { renderMarkdown } from "../src/server/markdown";
 import { commandSchema } from "../src/domain/model";
 const backends = (process.env.UI_BACKENDS || "chrome").split(",") as (
-  "chrome" | "webkit"
+  | "chrome"
+  | "webkit"
 )[];
 const widths = [
   { name: "small-phone", width: 320, height: 568 },
@@ -733,7 +734,9 @@ for (const backend of backends) {
         await button(view, "Archive");
         await wait(view, "!!document.querySelector('.thread-list')");
         expect(
-          repo.state().threads.find((thread) => thread.subject === "Product direction")!
+          repo
+            .state()
+            .threads.find((thread) => thread.subject === "Product direction")!
             .status,
         ).toBe("resolved");
         await fits(view);
@@ -782,6 +785,16 @@ for (const backend of backends) {
         await button(view, "Save review policy");
         await wait(view, `!document.querySelector('button.primary:disabled')`);
         expect(repo.state().settings.requiredReviews).toBe(3);
+        expect(repo.state().settings.delivery.correctionRounds).toBe(2);
+        expect(repo.state().settings.delivery.autoMerge).toBe(true);
+        await fits(view);
+        await view.evaluate(
+          "(() => { document.querySelector('.main-content')?.scrollTo(0,0); window.scrollTo(0,0); })()",
+        );
+        await Bun.write(
+          `.artifacts/delivery-policy-${size.name}.png`,
+          await view.screenshot(),
+        );
         await nav(view, "Assignments");
         company.execute({
           type: "CreateWork",
@@ -812,10 +825,16 @@ for (const backend of backends) {
           `document.querySelector('.review-panel')?.textContent.includes('3/3 reviews')`,
         );
         expect(repo.state().reviewRounds[0]!.status).toBe("approved");
+        expect(repo.state().work.find((w) => w.pullRequest)?.status).toBe(
+          "done",
+        );
+        expect(
+          repo.state().runs.filter((r) => r.trigger === "revision"),
+        ).toHaveLength(0);
         await button(view, "Workflow history");
         await wait(
           view,
-          `document.querySelector('dialog')?.textContent.includes('WorkerSignalled')`,
+          `document.querySelector('dialog')?.textContent.includes('ReviewCompleted')`,
         );
         await fits(view);
         expect(errors).toEqual([]);

@@ -120,7 +120,11 @@ export class Integrations {
     return process.env.SPRITES_TOKEN ? this.pool.capacity : 0;
   }
   get agentProviders() {
-    return [...new Set(configuredWorkers().flatMap((worker) => [...worker.providers]))];
+    return [
+      ...new Set(
+        configuredWorkers().flatMap((worker) => [...worker.providers]),
+      ),
+    ];
   }
   get spriteNames() {
     return process.env.SPRITES_TOKEN
@@ -173,7 +177,8 @@ export class Integrations {
           );
           return { ...result, spriteName };
         } catch (error) {
-          if (error instanceof ExecError) return { ...error.result, spriteName };
+          if (error instanceof ExecError)
+            return { ...error.result, spriteName };
           throw error;
         } finally {
           await fs.rm(path).catch(() => {});
@@ -206,7 +211,8 @@ export class Integrations {
       throw new Error(
         String(result.stderr).slice(0, 900) || "Connector request failed.",
       );
-    return JSON.parse(String(result.stdout));
+    const response = String(result.stdout).trim();
+    return response ? JSON.parse(response) : null;
   }
   async embed(text: string, task: "RETRIEVAL_QUERY" | "RETRIEVAL_DOCUMENT") {
     const data = await this.gateway(
@@ -344,7 +350,9 @@ child.on('exit',code=>{if(!done)process.exit(code===null?1:code)});send({method:
         return [];
       const efforts = (entry.supportedReasoningEfforts || []).flatMap(
         (option: any) => {
-          const parsed = reasoningEffortSchema.safeParse(option?.reasoningEffort);
+          const parsed = reasoningEffortSchema.safeParse(
+            option?.reasoningEffort,
+          );
           return parsed.success ? [parsed.data] : [];
         },
       );
@@ -357,7 +365,9 @@ child.on('exit',code=>{if(!done)process.exit(code===null?1:code)});send({method:
           label: entry.displayName,
           description:
             typeof entry.description === "string" ? entry.description : "",
-          reasoningEfforts: efforts.length ? efforts : reasoningEffortsByProvider.openai,
+          reasoningEfforts: efforts.length
+            ? efforts
+            : reasoningEffortsByProvider.openai,
           defaultReasoningEffort: fallback.success ? fallback.data : "medium",
           isDefault: entry.isDefault === true,
         },

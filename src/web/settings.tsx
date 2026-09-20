@@ -1,3 +1,4 @@
+import { DeliverySettings } from "./delivery-settings";
 import React, { useState } from "react";
 import type { Command, Settings } from "../domain/model";
 import { RolesSettings, AvailabilitySettings } from "./work-settings";
@@ -20,8 +21,6 @@ export function SettingsPage({
   command: CommandHandler;
 }) {
   const [tab, setTab] = useState("Workspace");
-  const [count, setCount] = useState(settings.requiredReviews);
-  const [allow, setAllow] = useState(settings.allowCodeChanges);
   const [foremanAgent, setForemanAgent] = useState(settings.foremanAgent);
   const [saved, setSaved] = useState(false);
   return (
@@ -102,55 +101,11 @@ export function SettingsPage({
           command={command}
         />
       ) : (
-        <form
-          className="preference-section editor"
-          onChange={() => setSaved(false)}
-          onSubmit={(e) => {
-            e.preventDefault();
-            void command({
-              type: "ConfigureReviews",
-              requiredReviews: count,
-              allowCodeChanges: allow,
-            }).then(setSaved);
-          }}
-        >
-          <div>
-            <h2>Review policy</h2>
-            <p className="muted">
-              Applies to the next review round. Every reviewer must approve the
-              same commit.
-            </p>
-          </div>
-          <label>
-            Required independent reviews
-            <input
-              type="number"
-              min={1}
-              max={5}
-              required
-              value={count}
-              onChange={(e) => setCount(Number(e.target.value))}
-            />
-          </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={allow}
-              onChange={(e) => setAllow(e.target.checked)}
-            />{" "}
-            Let agents apply fixes requested in review
-          </label>
-          <p className="field-help">
-            Corrections are limited to linked codex/ branches and must pass
-            checks. Nothing merges automatically.
-          </p>
-          <div className="actions">
-            <button className="primary" disabled={disabled}>
-              Save review policy
-            </button>
-            {saved && <span role="status">Saved</span>}
-          </div>
-        </form>
+        <DeliverySettings
+          settings={settings}
+          disabled={disabled}
+          command={command}
+        />
       )}
     </div>
   );

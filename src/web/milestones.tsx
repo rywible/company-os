@@ -58,7 +58,7 @@ export function MilestoneActions({
             Decline
           </button>
         </>
-      ) : m.status === "active" ? (
+      ) : ["active", "acceptance"].includes(m.status) ? (
         <button disabled={disabled} onClick={() => act("pause")}>
           Pause milestone
         </button>
@@ -132,6 +132,7 @@ export function MilestonesPage({
     ({
       proposed: "Needs approval",
       active: "In progress",
+      acceptance: "Acceptance testing",
       paused: "Paused",
       completed: "Completed",
       declined: "Declined",
@@ -191,6 +192,47 @@ export function MilestonesPage({
                 Independent approved work can continue while these decisions
                 wait.
               </p>
+            </section>
+          )}
+          {m.delivery && (
+            <section className="milestone-brief">
+              <h3>Acceptance</h3>
+              <p>
+                {m.status === "completed"
+                  ? "The integrated result passed acceptance."
+                  : m.status === "acceptance"
+                    ? "Testing the integrated result against the approved requirements."
+                    : "The integrated result will be tested before this milestone completes."}
+              </p>
+              <p className="muted">
+                {
+                  (
+                    m.delivery.policy.projectAcceptance ||
+                    m.delivery.policy.companyAcceptance
+                  ).instructions
+                }
+              </p>
+              {m.delivery.verification && (
+                <details>
+                  <summary>Test results</summary>
+                  {m.delivery.verification.checks.map((check, i) => (
+                    <details key={i}>
+                      <summary>
+                        {check.passed ? "Passed" : "Failed"}: {check.name}
+                      </summary>
+                      <pre>{check.output}</pre>
+                    </details>
+                  ))}
+                </details>
+              )}
+              {tasks
+                .filter((w) => w.phase === "acceptance" && w.result)
+                .map((w) => (
+                  <details key={w.id}>
+                    <summary>Acceptance report</summary>
+                    {markdown(w.result)}
+                  </details>
+                ))}
             </section>
           )}
           {!!outputs.length && (
@@ -266,7 +308,14 @@ export function MilestonesPage({
             </div>
           )}
           {(
-            ["proposed", "active", "paused", "completed", "declined"] as const
+            [
+              "proposed",
+              "active",
+              "acceptance",
+              "paused",
+              "completed",
+              "declined",
+            ] as const
           ).map((group) => {
             const milestones = state.planning.milestones.filter(
               (m) => m.status === group,
@@ -278,6 +327,7 @@ export function MilestonesPage({
                     {
                       proposed: "Needs approval",
                       active: "In progress",
+                      acceptance: "Acceptance testing",
                       paused: "Paused",
                       completed: "Completed",
                       declined: "Declined",

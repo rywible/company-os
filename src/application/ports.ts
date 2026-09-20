@@ -89,6 +89,44 @@ export interface Ids {
 }
 
 export interface PullRequestPort {
+  ensureBranch?(
+    repository: string,
+    branch: string,
+    from: string,
+  ): Promise<string>;
+  source?(
+    repository: string,
+    ref: string,
+  ): Promise<{ head: string; files: unknown[] }>;
+  implement?(
+    repository: string,
+    branch: string,
+    head: string,
+    runId: string,
+    changes: { path: string; content: string }[],
+    policy?: import("../domain/delivery").AcceptancePolicy,
+    authorize?: () => boolean,
+  ): Promise<string>;
+  open?(
+    repository: string,
+    branch: string,
+    base: string,
+    title: string,
+    body: string,
+  ): Promise<PullRequest>;
+  candidate?(
+    pr: PullRequest,
+  ): Promise<import("../domain/delivery").IntegrationCandidate>;
+  verify?(
+    repository: string,
+    head: string,
+    runId: string,
+    policy: import("../domain/delivery").AcceptancePolicy,
+  ): Promise<import("../domain/delivery").Verification>;
+  merge?(
+    candidate: import("../domain/delivery").IntegrationCandidate,
+  ): Promise<string>;
+
   head(repository: string, number: number): Promise<PullRequest>;
   inspect(
     repository: string,
@@ -105,6 +143,8 @@ export interface PullRequestPort {
     pullRequest: PullRequest,
     runId: string,
     changes: { path: string; content: string }[],
+    policy?: import("../domain/delivery").AcceptancePolicy,
+    authorize?: () => boolean,
   ): Promise<PullRequest>;
 }
 

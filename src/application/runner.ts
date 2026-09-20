@@ -48,7 +48,9 @@ export class Runner {
       this.claiming = false;
     }
   }
-  private async process(job: NonNullable<ReturnType<Company["repo"]["claim"]>>) {
+  private async process(
+    job: NonNullable<ReturnType<Company["repo"]["claim"]>>,
+  ) {
     try {
       await this.company.deliver(job);
       this.company.repo.acknowledge(job.id);
@@ -56,7 +58,14 @@ export class Runner {
       const error = e instanceof Error ? e.message : "Execution failed";
       const deferred = e instanceof Deferred;
       const retry =
-        deferred || (job.effect.type !== "RunAgent" && job.attempts < 3);
+        deferred ||
+        (job.attempts < 3 &&
+          (job.effect.type !== "RunAgent" ||
+            !!this.company.repo
+              .state()
+              .runs.find(
+                (r) => r.id === (job.effect as { runId?: string }).runId,
+              )?.pendingOutput));
       this.company.repo.reject(job.id, error, retry);
       if (!retry) {
         if (job.effect.type === "RunAgent")

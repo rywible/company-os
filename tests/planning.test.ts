@@ -156,7 +156,9 @@ test("proposals require approval; contracts and review precede parallel vertical
   expect(s.planning.milestones[0]!.status).toBe("completed");
   expect(s.work.every((w) => w.status === "done")).toBe(true);
   expect(
-    contexts.map((c) => [c.work?.assignmentKey, !!c.assignmentReview]),
+    contexts
+      .filter((c) => !c.acceptance)
+      .map((c) => [c.work?.assignmentKey, !!c.assignmentReview]),
   ).toEqual([
     ["contracts", false],
     ["contracts", true],
@@ -467,6 +469,8 @@ test("legacy state receives empty milestones and role/availability defaults with
     "architect",
     "implementer",
     "reviewer",
+    "adjudicator",
+    "acceptance",
     "investigator",
   ]);
   expect(migrated.settings.availability).toEqual(initialAvailability());
@@ -509,7 +513,11 @@ test("a pause can resume its final already-allocated review at the run limit", a
   decide(m.id, "pause");
   decide(m.id, "resume");
   await drain();
-  expect(repo.state().planning.milestones[0]!.status).toBe("completed");
+  expect(repo.state().work[0]!.status).toBe("done");
+  expect(repo.state().planning.milestones[0]!.status).toBe("paused");
+  expect(repo.state().planning.milestones[0]!.decisionReason).toContain(
+    "before acceptance",
+  );
   expect(repo.state().runs).toHaveLength(2);
 });
 

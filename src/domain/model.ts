@@ -1,3 +1,8 @@
+import {
+  deliveryPolicySchema,
+  initialDeliveryPolicy,
+  reviewFindingSchema,
+} from "./delivery";
 import { DomainError } from "./errors";
 import {
   planningCommands,
@@ -82,6 +87,13 @@ export type Thread = {
   updatedAt: string;
 };
 export type Work = {
+  phase?: "acceptance";
+  branch?: string;
+  branchHead?: string;
+  mergedHead?: string;
+  mergeCandidate?: import("./delivery").IntegrationCandidate;
+  integrationAttempts?: number;
+  reviewProgress?: import("./delivery").ReviewProgress;
   milestoneId?: string;
   assignmentKey?: string;
   roleId?: string;
@@ -99,7 +111,7 @@ export type Work = {
   discoveryPhase?: "investigation" | "delivery" | "outcome";
   id: string;
   track: z.infer<typeof track>;
-  mode: "analysis" | "ui-inspection";
+  mode: "analysis" | "ui-inspection" | "implementation";
   title: string;
   instruction: string;
   criteria: string;
@@ -151,6 +163,23 @@ export type Context = {
     evidence: string[];
     documentIds: string[];
   }[];
+  executionFeedback?: { error: string; proposal: AgentResult };
+  implementation?: {
+    repository: string;
+    branch: string;
+    head: string;
+    files: unknown[];
+  };
+  acceptance?: {
+    policy: import("./delivery").AcceptancePolicy;
+    verification?: import("./delivery").Verification;
+    attempt: number;
+  };
+  adjudication?: {
+    finalVerification: boolean;
+    history: ReviewRound[];
+    findings: import("./delivery").ReviewProgress["findings"];
+  };
   assignmentReview?: {
     result: string;
     criteria: string;
@@ -205,6 +234,7 @@ export type Context = {
   browser?: BrowserEvidence;
   constitutionRef: string | null;
   review?: {
+    priorFindings?: import("./delivery").ReviewProgress["findings"];
     roundId: string;
     reviewId?: string;
     pullRequest: PullRequest;
@@ -237,6 +267,8 @@ export type BrowserEvidence = {
   errors: string[];
 };
 export type Run = {
+  executionId?: string;
+  pendingOutput?: AgentResult;
   automationPermissions?: import("./permissions").AutomationPermission[];
   role?: { id: string; name: string; purpose: string };
   manual?: boolean;
@@ -255,7 +287,9 @@ export type Run = {
     | "maintenance"
     | "automation"
     | "planning"
-    | "assessment";
+    | "assessment"
+    | "adjudication"
+    | "acceptance";
   status: "queued" | "running" | "completed" | "failed";
   threadId?: string;
   workId?: string;
@@ -269,6 +303,7 @@ export type Run = {
   finishedAt?: string;
 };
 export type Settings = {
+  delivery: import("./delivery").DeliveryPolicy;
   enabled: boolean;
   intervalMinutes: number;
   dailyBudget: number;
@@ -304,6 +339,7 @@ export function initialState(now: string): CompanyState {
     runs: [],
     policies: {},
     settings: {
+      delivery: initialDeliveryPolicy(),
       enabled: true,
       intervalMinutes: 60,
       dailyBudget: 6,
@@ -321,6 +357,12 @@ const text = z.string().trim().min(1);
 export const commandSchema = z.discriminatedUnion("type", [
   ...discoveryCommands,
   ...planningCommands,
+  z.object({
+    type: z.literal("ConfigureDelivery"),
+    policy: deliveryPolicySchema,
+    requiredReviews: z.number().int().min(1).max(5).optional(),
+    allowCodeChanges: z.boolean().optional(),
+  }),
   z.object({
     type: z.literal("SetEvidenceStatus"),
     documentId: text,
@@ -504,6 +546,7 @@ export const agentResultSchema = z.object({
       verdict: z.enum(["approve", "changes_requested"]),
       summary: text.max(8000),
       findings: z.array(text.max(4000)).max(20),
+      issues: z.array(reviewFindingSchema).max(30).optional(),
     })
     .nullable(),
   changes: z
@@ -543,6 +586,8 @@ export function requireTransition(
     throw new DomainError(`Cannot move work from ${current} to ${next}.`);
 }
 export type PullRequest = {
+  base?: string;
+  merged?: boolean;
   description?: string;
   repository: string;
   number: number;
@@ -551,6 +596,7 @@ export type PullRequest = {
   url: string;
 };
 export type Review = {
+  issues?: import("./delivery").ReviewFinding[];
   id: string;
   runId: string;
   status: "queued" | "publishing" | "completed" | "failed";

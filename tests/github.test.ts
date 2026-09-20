@@ -62,7 +62,17 @@ function fixture(fail = false) {
     executePayload: async (_s: string, p: any) => {
       tests++;
       expect(p.changes[0].path).toBe("src/example.ts");
-      return { exitCode: fail ? 1 : 0, stderr: fail ? "test failed" : "" };
+      return {
+        exitCode: fail ? 1 : 0,
+        stderr: fail ? "test failed" : "",
+        stdout: JSON.stringify(
+          p.checks.map((c: any) => ({
+            name: c.name,
+            passed: true,
+            output: "passed",
+          })),
+        ),
+      };
     },
   };
   return {
@@ -120,4 +130,166 @@ test("repository scope is enforced before gateway access", async () => {
   const f = fixture();
   await expect(f.adapter.inspect("other/company", 1)).rejects.toThrow("scope");
   expect(f.calls).toHaveLength(0);
+});
+
+test("branch creation and PR creation reuse existing GitHub identities after retries", async () => {
+  const writes: string[] = [];
+  const adapter = new GitHubPullRequests({
+    gateway: async (_p: string, _c: unknown, path: string, body?: any) => {
+      if (body) writes.push(path);
+      if (path.includes("matching-refs"))
+        return [
+          { ref: "refs/heads/codex/milestone-test", object: { sha: "root" } },
+        ];
+      if (path.includes("pulls?"))
+        return [
+          {
+            number: 12,
+            head: { ref: pr.branch },
+            base: { ref: "codex/milestone-test" },
+          },
+        ];
+      if (path.endsWith("pulls/12"))
+        return {
+          state: "open",
+          head: {
+            sha: pr.head,
+            ref: pr.branch,
+            repo: { full_name: pr.repository },
+          },
+          base: { ref: "codex/milestone-test" },
+          html_url: pr.url,
+        };
+      throw Error(path);
+    },
+  } as unknown as Integrations);
+  expect(
+    await adapter.ensureBranch(pr.repository, "codex/milestone-test", "main"),
+  ).toBe("root");
+  expect(
+    (
+      await adapter.open(
+        pr.repository,
+        pr.branch,
+        "codex/milestone-test",
+        "Title",
+        "Body",
+      )
+    ).number,
+  ).toBe(12);
+  expect(writes).toHaveLength(0);
+});
+
+test("integration publishes only the tested merge candidate and never force updates the target", async () => {
+  let base = "base",
+    changed = false;
+  const writes: any[] = [];
+  const adapter = new GitHubPullRequests({
+    gateway: async (_p: string, _c: unknown, path: string, body?: any) => {
+      if (path.endsWith("commits/main")) return { sha: base };
+      if (path.includes("compare/")) return { status: "diverged" };
+      if (path.endsWith("pulls/12"))
+        return {
+          state: "open",
+          head: {
+            sha: changed ? "unexpected" : pr.head,
+            ref: pr.branch,
+            repo: { full_name: pr.repository },
+          },
+          base: { ref: "main" },
+          html_url: pr.url,
+        };
+      if (path.endsWith("git/refs/heads/main")) {
+        writes.push(body);
+        base = body.sha;
+        return {};
+      }
+      throw Error(path);
+    },
+  } as unknown as Integrations);
+  const candidate = {
+    pullRequest: { ...pr, base: "main" },
+    base: "base",
+    head: "tested-merge",
+  };
+  changed = true;
+  await expect(adapter.merge(candidate)).rejects.toThrow("changed");
+  expect(writes).toHaveLength(0);
+  changed = false;
+  expect(await adapter.merge(candidate)).toBe("tested-merge");
+  expect(writes).toEqual([{ sha: "tested-merge", force: false }]);
+  expect(await adapter.merge(candidate)).toBe("tested-merge");
+  expect(writes).toHaveLength(1);
+  base = "another-head";
+  await expect(adapter.merge(candidate)).rejects.toThrow("advanced");
+  expect(writes).toHaveLength(1);
+});
+
+test("engineering authority is rechecked after verification before any GitHub writes", async () => {
+  const f = fixture();
+  await expect(
+    f.adapter.revise(
+      pr,
+      "run-id",
+      [{ path: "src/example.ts", content: "fixed" }],
+      undefined,
+      () => false,
+    ),
+  ).rejects.toThrow("revoked");
+  expect(f.tests()).toBe(1);
+  expect(f.calls.some((c) => !!c.body)).toBe(false);
+});
+
+test("verification checks cannot silently change the source that will be published", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const root = await mkdtemp(tmpdir() + "/company-verification-");
+  try {
+    const f = fixture();
+    f.port.executePayload = async (script: string, payload: any) => {
+      const file = root + "/input.json";
+      await Bun.write(file, JSON.stringify(payload));
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          "-e",
+          script.replace(
+            "/home/sprite/company-os/verification/",
+            root + "/checkout/",
+          ),
+          file,
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      return { exitCode, stdout, stderr };
+    };
+    await expect(
+      f.adapter.revise(
+        pr,
+        "integrity-test",
+        [{ path: "src/example.ts", content: "proposed" }],
+        {
+          instructions: "Verify the submitted source",
+          checks: [
+            {
+              name: "Mutating check",
+              command: [
+                process.execPath,
+                "-e",
+                "await Bun.write('src/example.ts','silently fixed');",
+              ],
+            },
+          ],
+        },
+      ),
+    ).rejects.toThrow("A check changed tracked source");
+    expect(f.calls.some((c) => !!c.body)).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

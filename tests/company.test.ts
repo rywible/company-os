@@ -37,7 +37,8 @@ beforeEach(() => {
   repo = new SQLiteRepository(store, now.toISOString());
   // These suites exercise their own automation clocks; milestone planning is covered separately.
   const planningState = repo.state();
-  planningState.discovery.lenses.find(t => t.kind === "planning")!.enabled = false;
+  planningState.discovery.lenses.find((t) => t.kind === "planning")!.enabled =
+    false;
   repo.save(planningState);
   outputs = [];
   contexts = [];
@@ -129,7 +130,9 @@ test("Foreman and automation selections are snapshotted onto each run", () => {
     repo.state().runs.find((run) => run.id === conversation.runId)!.agent,
   ).toEqual(foreman);
 
-  const lens = repo.state().discovery.lenses.find((item) => item.id === "users")!;
+  const lens = repo
+    .state()
+    .discovery.lenses.find((item) => item.id === "users")!;
   const automation = {
     provider: "anthropic" as const,
     model: "sonnet",
@@ -175,15 +178,15 @@ test("the runner overlaps deliveries up to the configured pool capacity", async 
   await Bun.sleep(10);
   expect(peak).toBe(2);
   await runner.tick();
-  expect(
-    repo.state().runs.find((run) => run.id === third.runId)!.status,
-  ).toBe("queued");
+  expect(repo.state().runs.find((run) => run.id === third.runId)!.status).toBe(
+    "queued",
+  );
   release();
   await running;
   await runner.tick();
-  expect(
-    repo.state().runs.find((run) => run.id === third.runId)!.status,
-  ).toBe("completed");
+  expect(repo.state().runs.find((run) => run.id === third.runId)!.status).toBe(
+    "completed",
+  );
 });
 test("work escalates into one inbox thread and a reply resumes it with its own context", async () => {
   const { workId } = company.execute({
@@ -504,9 +507,21 @@ function reviews() {
     number: 7,
     head,
     branch: "codex/example",
+    base: "main",
     url: "https://github.com/rywible/company-os/pull/7",
   });
   const adapter = {
+    candidate: async (pullRequest: ReturnType<typeof pr>) => ({
+      pullRequest,
+      base: "base",
+      head: "merge-" + pullRequest.head,
+    }),
+    verify: async (_repo: string, head: string) => ({
+      head,
+      passed: true,
+      checks: [{ name: "Checks", passed: true, output: "passed" }],
+    }),
+    merge: async (c: { head: string }) => c.head,
     head: async () => pr(),
     inspect: async () => ({
       pullRequest: pr(),
@@ -539,6 +554,17 @@ const verdict = (v: "approve" | "changes_requested") =>
     review: {
       verdict: v,
       summary: "Independent review",
+      issues: [
+        {
+          id: "boundary",
+          category: "correctness",
+          severity: "blocker",
+          problem: "Fix the failing boundary condition.",
+          evidence: "Zero is rejected at src/example.ts:1",
+          verification: "Test with zero.",
+          status: v === "approve" ? "resolved" : "open",
+        },
+      ],
       findings: v === "approve" ? [] : ["Fix the failing boundary condition."],
     },
   });
@@ -561,7 +587,7 @@ async function linked() {
   });
   return { workId, original };
 }
-test("WorkCompleted starts N independent pinned reviews; all approvals signal the original assignment exactly once", async () => {
+test("WorkCompleted starts N independent pinned reviews; all approvals merge without another worker run", async () => {
   const gh = reviews();
   company.execute({
     type: "ConfigureReviews",
@@ -586,20 +612,19 @@ test("WorkCompleted starts N independent pinned reviews; all approvals signal th
       .filter((c) => c.review?.reviewId)
       .every((c) => c.review?.findings === undefined),
   ).toBe(true);
-  const resumed = contexts.find((c) => c.review && !c.review.reviewId)!;
-  expect(resumed.review?.workerRunId).toBe(original.id);
-  expect(resumed.review?.previousResult?.message).toBe("Grounded result");
+  expect(contexts.some((c) => c.review && !c.review.reviewId)).toBe(false);
+  expect(state.work[0]!.mergedHead).toBe("merge-commit-a");
   expect(state.work.find((w) => w.id === workId)?.status).toBe("done");
   expect(
     repo.events().filter((e) => e.type === "ReviewCompleted"),
   ).toHaveLength(1);
   expect(
     repo.events().filter((e) => e.type === "WorkerSignalled"),
-  ).toHaveLength(1);
+  ).toHaveLength(0);
   await company.signalWorker(round.id, "duplicate");
   await company.startReview(workId, "duplicate");
   expect(repo.state().reviewRounds).toHaveLength(1);
-  expect(repo.state().runs).toHaveLength(5);
+  expect(repo.state().runs).toHaveLength(4);
 });
 test("a requested correction is verified and published, then receives a fresh full review round", async () => {
   const gh = reviews();
@@ -630,7 +655,9 @@ test("a requested correction is verified and published, then receives a fresh fu
   expect(state.work[0]!.status).toBe("done");
   expect(
     contexts.find((c) => c.review?.findings?.length)?.review?.findings,
-  ).toEqual(["Fix the failing boundary condition."]);
+  ).toEqual([
+    "Fix the failing boundary condition. Evidence: Zero is rejected at src/example.ts:1 Verify: Test with zero.",
+  ]);
 });
 test("review publication failure cannot count as an approval and retry cannot double-count it", async () => {
   const gh = reviews();
@@ -697,7 +724,7 @@ test("corrections require authority, remain inspectable, and cannot bypass revie
     "proposed",
   );
 });
-test("three unsuccessful correction rounds escalate instead of looping indefinitely", async () => {
+test("two correction rounds lead to adjudication, one final correction and then stop", async () => {
   const gh = reviews();
   company.execute({
     type: "ConfigureReviews",
@@ -713,11 +740,18 @@ test("three unsuccessful correction rounds escalate instead of looping indefinit
     verdict("changes_requested"),
     fix(),
     verdict("changes_requested"),
+    verdict("changes_requested"),
+    fix(),
+    verdict("changes_requested"),
   );
   await drain();
-  expect(gh.revised).toHaveLength(2);
+  expect(gh.revised).toHaveLength(3);
   expect(repo.state().work[0]!.status).toBe("blocked");
-  expect(repo.state().threads[0]!.reason).toContain("Three review rounds");
+  expect(repo.state().threads[0]!.reason).toContain("final correction");
+  expect(
+    repo.state().runs.filter((r) => r.trigger === "adjudication"),
+  ).toHaveLength(2);
+  expect(repo.state().work[0]!.reviewProgress!.stopped).toBeTruthy();
 });
 
 test("correction authority can be granted later and the original findings resume", async () => {
@@ -790,4 +824,89 @@ test("head polling invalidates the old round even if the new diff cannot be asse
   expect(repo.state().reviewRounds[0]!.status).toBe("superseded");
   expect(repo.state().work[0]!.pullRequest!.head).toBe("oversized-new-head");
   expect(repo.events().some((e) => e.type === "PullRequestUpdated")).toBe(true);
+});
+
+test("adjudicator can resolve disagreement and merge without a final correction or human PR review", async () => {
+  const gh = reviews();
+  company.execute({
+    type: "ConfigureReviews",
+    requiredReviews: 1,
+    allowCodeChanges: true,
+  });
+  await linked();
+  const fix = () =>
+    answer({ changes: [{ path: "src/example.ts", content: "fixed" }] });
+  outputs.push(
+    verdict("changes_requested"),
+    fix(),
+    verdict("changes_requested"),
+    fix(),
+    verdict("changes_requested"),
+    verdict("approve"),
+  );
+  await drain();
+  const s = repo.state();
+  expect(s.work[0]!.status).toBe("done");
+  expect(gh.revised).toHaveLength(2);
+  expect(s.runs.filter((r) => r.trigger === "adjudication")).toHaveLength(1);
+  expect(s.runs.find((r) => r.trigger === "adjudication")?.role?.id).toBe(
+    "adjudicator",
+  );
+  expect(
+    contexts.find((c) => c.adjudication)?.adjudication?.history,
+  ).toHaveLength(3);
+  expect(s.threads.filter((t) => t.status === "open")).toHaveLength(0);
+});
+
+test("a final correction is checked by the adjudicator and can merge without reopening general review", async () => {
+  const gh = reviews();
+  company.execute({
+    type: "ConfigureReviews",
+    requiredReviews: 1,
+    allowCodeChanges: true,
+  });
+  await linked();
+  const fix = () =>
+    answer({ changes: [{ path: "src/example.ts", content: "fixed" }] });
+  outputs.push(
+    verdict("changes_requested"),
+    fix(),
+    verdict("changes_requested"),
+    fix(),
+    verdict("changes_requested"),
+    verdict("changes_requested"),
+    fix(),
+    verdict("approve"),
+  );
+  await drain();
+  const s = repo.state();
+  expect(s.work[0]!.status).toBe("done");
+  expect(gh.revised).toHaveLength(3);
+  expect(s.runs.filter((r) => r.trigger === "review")).toHaveLength(3);
+  expect(s.runs.filter((r) => r.trigger === "adjudication")).toHaveLength(2);
+  expect(contexts.find((c) => c.adjudication?.finalVerification)).toBeTruthy();
+});
+
+test("existing PR state migrates its correction count and historical findings instead of resetting the loop", async () => {
+  reviews();
+  const { workId } = await linked();
+  await company.startReview(workId, "migration");
+  const s = repo.state(),
+    round = s.reviewRounds[0]!;
+  round.reviews[0]!.verdict = "changes_requested";
+  round.reviews[0]!.findings = ["Historical boundary defect"];
+  delete s.work[0]!.reviewProgress;
+  s.runs.push({
+    ...s.runs[0]!,
+    id: "legacy-correction",
+    trigger: "revision",
+    reviewRoundId: round.id,
+    status: "completed",
+  });
+  repo.save(s);
+  const migrated = repo.state().work[0]!.reviewProgress!;
+  expect(migrated.corrections).toBe(1);
+  expect(migrated.findings[0]!.problem).toBe("Historical boundary defect");
+  expect(migrated.findings[0]!.status).toBe("open");
+  expect(migrated.findings[0]!.evidence).toContain("not recorded");
 });

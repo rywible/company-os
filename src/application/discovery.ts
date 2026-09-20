@@ -243,7 +243,9 @@ export class Discovery {
         mode:
           idea.experiment.mode === "ui-inspection"
             ? "ui-inspection"
-            : delivered.mode,
+            : delivered.mode === "ui-inspection"
+              ? "ui-inspection"
+              : "analysis",
         title: `Check outcome: ${idea.title}`,
         instruction: `Evaluate the original hypothesis against the delivered work and current evidence. Expected benefit: ${idea.impact}. Compare before and after where possible. If deployment, user feedback or measurements are missing, report inconclusive and name the missing evidence. Completion alone does not prove improvement.`,
         criteria:

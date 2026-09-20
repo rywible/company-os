@@ -1,3 +1,4 @@
+import { initialDeliveryPolicy } from "../domain/delivery";
 import {
   initialPlanning,
   planningAutomation,
@@ -198,6 +199,59 @@ export class SQLiteRepository implements Repository {
       }
     if (assignedAuthority) this.save(s);
     delete s.settings.objective;
+    s.settings.delivery ??= initialDeliveryPolicy();
+    for (const work of s.work.filter(
+      (w: any) => w.pullRequest && !w.reviewProgress,
+    )) {
+      const rounds = s.reviewRounds.filter((r: any) => r.workId === work.id);
+      const corrections = s.runs.filter(
+        (r: any) =>
+          r.workId === work.id &&
+          r.trigger === "revision" &&
+          rounds.some(
+            (round: any) =>
+              round.id === r.reviewRoundId &&
+              round.reviews.some((v: any) => v.verdict === "changes_requested"),
+          ),
+      ).length;
+      const latest = rounds.at(-1);
+      work.reviewProgress = {
+        policy: {
+          correctionRounds:
+            s.planning.milestones.find((m: any) => m.id === work.milestoneId)
+              ?.delivery?.policy.correctionRounds ??
+            s.settings.delivery.correctionRounds,
+        },
+        corrections,
+        findings:
+          latest?.reviews.flatMap((review: any) =>
+            (
+              review.issues ||
+              review.findings.map((problem: string, i: number) => ({
+                id: `legacy-${review.id}-${i}`,
+                severity: "blocker",
+                category: "correctness",
+                problem,
+                evidence:
+                  "Imported review finding; separate supporting evidence was not recorded.",
+                verification:
+                  "Re-evaluate this historical finding against the current source and acceptance criteria.",
+                status:
+                  review.verdict === "changes_requested" ? "open" : "resolved",
+              }))
+            ).map((f: any) => ({
+              ...f,
+              head: latest.pullRequest.head,
+              reviewerId: review.id,
+            })),
+          ) || [],
+      };
+    }
+    for (const role of initialRoles().filter((r) =>
+      ["adjudicator", "acceptance"].includes(r.id),
+    ))
+      if (!s.settings.roles.some((r: any) => r.id === role.id))
+        s.settings.roles.push(role);
     s.settings.requiredReviews ??= 2;
     s.settings.allowCodeChanges ??= false;
     s.settings.foremanAgent ??= defaultAgentConfiguration();

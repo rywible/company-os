@@ -1,3 +1,4 @@
+import { milestoneBranch } from "../domain/delivery";
 import {
   milestonePlanSchema,
   validatePlan,
@@ -196,6 +197,13 @@ export class Planning {
       if (m.status !== "proposed")
         throw new DomainError("Only a proposal can be approved.");
       this.validate(state, m);
+      m.delivery = {
+        repository: process.env.GITHUB_REPOSITORY || "rywible/company-os",
+        branch: milestoneBranch(m.id),
+        policy: structuredClone(state.settings.delivery),
+        requiredReviews: state.settings.requiredReviews,
+        attempts: 0,
+      };
       const ids = new Map(m.assignments.map((a) => [a.key, this.h.id()]));
       for (const a of m.assignments) {
         const work: Work = {
@@ -226,7 +234,10 @@ export class Planning {
       }
       m.status = "active";
       thread.status = "resolved";
-    } else if (cmd.action === "pause" && m.status === "active")
+    } else if (
+      cmd.action === "pause" &&
+      ["active", "acceptance"].includes(m.status)
+    )
       m.status = "paused";
     else if (cmd.action === "resume" && m.status === "paused") {
       this.validate(state, m);
@@ -240,7 +251,7 @@ export class Planning {
         throw new DomainError(
           "The approved allowance is exhausted. Propose a follow-up milestone.",
         );
-      m.status = "active";
+      m.status = m.delivery?.acceptanceWorkId ? "acceptance" : "active";
       thread.status = "resolved";
     } else if (cmd.action === "defer" && m.status === "proposed")
       thread.status = "waiting";
@@ -269,7 +280,8 @@ export class Planning {
     if (!work.milestoneId) return true;
     const m = state.planning.milestones.find((m) => m.id === work.milestoneId);
     return (
-      m?.status === "active" &&
+      (m?.status === "active" ||
+        (m?.status === "acceptance" && work.phase === "acceptance")) &&
       (work.dependsOn || []).every(
         (id) => state.work.find((w) => w.id === id)?.status === "done",
       )
@@ -291,8 +303,16 @@ export class Planning {
     for (const m of state.planning.milestones.filter(
       (m) => m.status === "active",
     )) {
-      const work = state.work.filter((w) => w.milestoneId === m.id);
+      const work = state.work.filter((w) => w.milestoneId === m.id && !w.phase);
       if (work.length && work.every((w) => w.status === "done")) {
+        if (m.delivery) {
+          this.h.emit(
+            { type: "IntegrationRequested", payload: { milestoneId: m.id } },
+            "system",
+            m.id,
+          );
+          continue;
+        }
         m.status = "completed";
         m.updatedAt = this.h.now();
         m.version++;
@@ -335,7 +355,9 @@ export class Planning {
         t.milestoneId = m.id;
         continue;
       }
-      for (const w of work.filter((w) => w.status === "review")) {
+      for (const w of work.filter(
+        (w) => w.status === "review" && !w.pullRequest,
+      )) {
         if (
           w.pullRequest &&
           !state.reviewRounds.some(

@@ -37,7 +37,7 @@ export const assignmentSchema = z.object({
   key: text.regex(/^[a-z][a-z0-9-]*$/).max(60),
   title: text.max(160),
   roleId: text.max(60),
-  mode: z.enum(["analysis", "ui-inspection"]),
+  mode: z.enum(["analysis", "ui-inspection", "implementation"]),
   instruction: text.max(24000),
   criteria: text.max(8000),
   outputs: z.array(text.max(400)).min(1).max(12),
@@ -55,9 +55,27 @@ export const milestonePlanSchema = z.object({
 });
 export type MilestonePlan = z.infer<typeof milestonePlanSchema>;
 export type Milestone = MilestonePlan & {
+  delivery?: {
+    repository: string;
+    branch: string;
+    policy: import("./delivery").DeliveryPolicy;
+    requiredReviews: number;
+    acceptanceWorkId?: string;
+    attempts: number;
+    candidate?: import("./delivery").IntegrationCandidate;
+    verification?: import("./delivery").Verification;
+    pullRequest?: import("./model").PullRequest;
+    mergedHead?: string;
+  };
   id: string;
   version: number;
-  status: "proposed" | "active" | "paused" | "completed" | "declined";
+  status:
+    | "proposed"
+    | "active"
+    | "acceptance"
+    | "paused"
+    | "completed"
+    | "declined";
   workIds: string[];
   threadId: string;
   createdAt: string;
@@ -101,6 +119,16 @@ export const initialRoles = (): AgentRole[] =>
       "Independently evaluate the full assignment, acceptance criteria, results, and evidence. Reject unsupported completion claims.",
     ],
     [
+      "adjudicator",
+      "Adjudicator",
+      "Resolve review disputes using concrete evidence. Dismiss preference-only blockers, verify fixes, or prescribe one final correction within the approved scope.",
+    ],
+    [
+      "acceptance",
+      "Acceptance tester",
+      "Evaluate integrated milestone behavior against project acceptance criteria and recorded test or playtest evidence. Reject unsupported success claims.",
+    ],
+    [
       "investigator",
       "Investigator",
       "Research, diagnose problems, inspect the interface, and run bounded investigations that resolve missing information.",
@@ -110,7 +138,10 @@ export const initialRoles = (): AgentRole[] =>
     name: name!,
     purpose: purpose!,
     enabled: true,
-    agent: defaultAgentConfiguration(),
+    agent: {
+      ...defaultAgentConfiguration(),
+      reasoningEffort: id === "adjudicator" ? "xhigh" : "high",
+    },
   }));
 export const initialAvailability = (): Availability => ({
   timeZone: "America/Denver",

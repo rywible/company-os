@@ -33,6 +33,10 @@ export function renderBriefing(context: Context): string {
         milestone: context.milestone,
         dependencies: context.dependencies,
         assignmentReview: context.assignmentReview,
+        implementation: context.implementation,
+        executionFeedback: context.executionFeedback,
+        acceptance: context.acceptance,
+        adjudication: context.adjudication,
       }),
     "# 1. Constitution\n" + JSON.stringify(pages(true), null, 2),
     "# 2. Relevant knowledge\n" +
