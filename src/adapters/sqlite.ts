@@ -256,10 +256,35 @@ export class SQLiteRepository implements Repository {
       .all(id);
   }
   deliveryErrors() {
-    return this.store.db
-      .query(
-        "SELECT id,error,attempts FROM deliveries WHERE status='failed' ORDER BY rowid DESC LIMIT 20",
-      )
-      .all() as { id: string; error: string; attempts: number }[];
+    const state = this.state(),
+      runs = state.runs;
+    return (
+      this.store.db
+        .query(
+          "SELECT id,error,attempts,effect_json FROM deliveries WHERE status='failed' ORDER BY rowid DESC",
+        )
+        .all() as {
+        id: string;
+        error: string;
+        attempts: number;
+        effect_json: string;
+      }[]
+    )
+      .filter((row) => {
+        const effect = JSON.parse(row.effect_json);
+        return (
+          effect.type !== "RunAgent" ||
+          runs.some(
+            (r) =>
+              r.id === effect.runId &&
+              r.status === "failed" &&
+              (!r.reviewRoundId ||
+                state.reviewRounds.find((round) => round.id === r.reviewRoundId)
+                  ?.status !== "superseded"),
+          )
+        );
+      })
+      .slice(0, 20)
+      .map(({ effect_json, ...row }) => row);
   }
 }

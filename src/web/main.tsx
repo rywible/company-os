@@ -2179,7 +2179,8 @@ function ReviewSettings({
         Reviews are separate agent invocations using the same model, published
         as GitHub review comments. They are not separate GitHub account
         approvals or branch protection checks. Corrections must pass type
-        checking, unit tests and a build. Nothing merges automatically.
+        checking, unit tests, a build and Chrome tests. Nothing merges
+        automatically.
       </p>
       <button className="primary" disabled={disabled}>
         Save review policy

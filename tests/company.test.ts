@@ -673,3 +673,15 @@ test("failed durable effects surface an inbox request and can be retried without
   repo.acknowledge(retried.id);
   expect(repo.state().reviewRounds).toHaveLength(1);
 });
+
+test("recovered runs leave the active delivery-failure list while retaining the event history", async () => {
+  const { runId } = create();
+  const d = repo.claim()!;
+  repo.reject(d.id, "Interrupted transport", false);
+  company.fail(runId, "Interrupted transport");
+  expect(repo.deliveryErrors()).toHaveLength(1);
+  company.execute({ type: "RetryRun", runId });
+  await drain();
+  expect(repo.deliveryErrors()).toHaveLength(0);
+  expect(repo.events().some((e) => e.type === "RunFailed")).toBe(true);
+});

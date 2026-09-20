@@ -1,4 +1,4 @@
-import { SpritesClient } from "@fly/sprites";
+import { SpritesClient, ExecError } from "@fly/sprites";
 import { z } from "zod";
 import { foremanOutput, type ForemanOutput } from "../contracts";
 
@@ -28,6 +28,9 @@ export class Integrations {
     await fs.writeFile(path, JSON.stringify(payload), { mode: 0o600 });
     try {
       return await sprite.execFile("bun", ["-e", script, path], options);
+    } catch (error) {
+      if (error instanceof ExecError) return error.result;
+      throw error;
     } finally {
       await fs.rm(path).catch(() => {});
     }

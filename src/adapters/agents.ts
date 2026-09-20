@@ -76,15 +76,44 @@ CONTEXT:\n${JSON.stringify(context)}`;
           .filter((_, i, a) => i === 0 || i === a.length - 1 || i === 4)
           .map((s) => "/home/sprite/company-os/browser/" + s.screenshot) || [],
     };
-    const result = await this.integrations.executePayload(script, payload, {
-      timeout: 270000,
-      maxBuffer: 2 * 1024 * 1024,
-      maxRunAfterDisconnect: "30s",
-    });
-    if (result.exitCode !== 0)
-      throw new Error(
-        String(result.stderr).slice(-1600) || "Agent execution failed",
-      );
-    return agentResultSchema.parse(JSON.parse(String(result.stdout)));
+    try {
+      const result = await this.integrations.executePayload(script, payload, {
+        timeout: 270000,
+        maxBuffer: 2 * 1024 * 1024,
+        maxRunAfterDisconnect: "30s",
+      });
+      if (result.exitCode !== 0)
+        throw Error(
+          String(result.stderr).slice(-1600) || "Agent execution failed",
+        );
+      return agentResultSchema.parse(JSON.parse(String(result.stdout)));
+    } catch (error) {
+      // A transport/process exit can arrive after Codex has durably finished.
+      // Recover only a validated result with an explicit completed-turn record.
+      try {
+        const fs = this.integrations.sprite.filesystem(
+          "/home/sprite/company-os/v2-runs/" + runId,
+        );
+        const events = await fs.readFile("events.jsonl", "utf8");
+        if (
+          !events
+            .trim()
+            .split("\n")
+            .some((line) => {
+              try {
+                return JSON.parse(line).type === "turn.completed";
+              } catch {
+                return false;
+              }
+            })
+        )
+          throw error;
+        return agentResultSchema.parse(
+          JSON.parse(await fs.readFile("result.json", "utf8")),
+        );
+      } catch {
+        throw error;
+      }
+    }
   }
 }

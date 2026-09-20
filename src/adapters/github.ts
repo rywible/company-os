@@ -82,6 +82,7 @@ export class GitHubPullRequests implements PullRequestPort {
         head: p.head.sha,
         branch: p.head.ref,
         url: p.html_url,
+        description: String(p.body || "").slice(0, 12000),
       },
       files,
     };
@@ -163,7 +164,7 @@ export class GitHubPullRequests implements PullRequestPort {
         throw Error("Repository exceeds bounded verification size.");
     }
     const payload = { runId, files, changes };
-    const script = `const p=await Bun.file(process.argv[1]).json();const fs=await import('node:fs/promises');const path=await import('node:path');const dir='/home/sprite/company-os/corrections/'+p.runId;await fs.rm(dir,{recursive:true,force:true});await fs.mkdir(dir,{recursive:true});for(const f of p.files){const target=path.resolve(dir,f.path);if(!target.startsWith(dir+'/'))throw Error('Unsafe source path');await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,Buffer.from(f.base64,'base64'));}for(const f of p.changes){const target=path.join(dir,f.path);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,f.content);}for(const cmd of [['bun','install','--frozen-lockfile'],['bun','run','typecheck'],['bun','test'],['bun','run','build']]){const out=Bun.spawnSync(cmd,{cwd:dir,env:{...process.env,SPRITES_TOKEN:'',NODE_ENV:'test'},timeout:180000,stdout:'pipe',stderr:'pipe'});if(out.exitCode!==0)throw Error(cmd.join(' ')+': '+Buffer.from(out.stderr).toString().slice(-4000));}console.log('Verification passed');`;
+    const script = `const p=await Bun.file(process.argv[1]).json();const fs=await import('node:fs/promises');const path=await import('node:path');const dir='/home/sprite/company-os/corrections/'+p.runId;await fs.rm(dir,{recursive:true,force:true});await fs.mkdir(dir,{recursive:true});for(const f of p.files){const target=path.resolve(dir,f.path);if(!target.startsWith(dir+'/'))throw Error('Unsafe source path');await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,Buffer.from(f.base64,'base64'));}for(const f of p.changes){const target=path.join(dir,f.path);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,f.content);}for(const cmd of [['bun','install','--frozen-lockfile'],['bun','run','typecheck'],['bun','test'],['bun','run','build'],['bun','run','test:ui']]){const out=Bun.spawnSync(cmd,{cwd:dir,env:{...process.env,SPRITES_TOKEN:'',NODE_ENV:'test'},timeout:180000,stdout:'pipe',stderr:'pipe'});if(out.exitCode!==0)throw Error(cmd.join(' ')+': '+Buffer.from(out.stderr).toString().slice(-4000));}console.log('Verification passed');`;
     const tested = await this.integrations.executePayload(script, payload, {
       timeout: 240000,
       maxBuffer: 1024 * 1024,

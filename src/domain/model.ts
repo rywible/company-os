@@ -115,6 +115,7 @@ export type BrowserEvidence = {
     text: string;
     overflow: boolean;
     screenshot: string;
+    navigation?: { visibleText: string; accessibleName: string | null }[];
   }[];
   errors: string[];
 };
@@ -334,6 +335,7 @@ export function requireTransition(
     throw new DomainError(`Cannot move work from ${current} to ${next}.`);
 }
 export type PullRequest = {
+  description?: string;
   repository: string;
   number: number;
   head: string;

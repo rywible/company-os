@@ -756,7 +756,7 @@ export class Company {
         });
         output.outcome = "completed";
         output.message +=
-          "\n\nCorrections passed type checking, unit tests and build, and were pushed to " +
+          "\n\nCorrections passed type checking, unit tests, build and browser tests, and were pushed to " +
           updated.head;
       }
     }

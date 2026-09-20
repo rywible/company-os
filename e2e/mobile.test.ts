@@ -90,7 +90,14 @@ async function setup(backend: "chrome" | "webkit", size = widths[1]!) {
   const port = server.port,
     errors: unknown[] = [];
   const view = new Bun.WebView({
-    backend: backend === "chrome" ? { type: "chrome", url: false } : "webkit",
+    backend:
+      backend === "chrome"
+        ? {
+            type: "chrome",
+            url: false,
+            argv: process.platform === "linux" ? ["--no-sandbox"] : [],
+          }
+        : "webkit",
     width: size.width,
     height: size.height,
     console: (level, ...args) => {
@@ -336,3 +343,75 @@ for (const backend of backends) {
       await wait(view, `document.querySelector('h1')?.textContent === 'Inbox'`);
     }, 30000);
 }
+
+test("browser inspection uses the real accessible names at desktop and phone widths", async () => {
+  const { view, origin } = await setup("chrome");
+  // The visible label is intentionally shorter than the accessible name.
+  expect(
+    await view.evaluate<string>(
+      `document.querySelector('nav button[aria-label="Open Understanding"]').textContent`,
+    ),
+  ).toBe("Memory");
+  const { SpriteBrowser } = await import("../src/adapters/browser");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(tmpdir() + "/company-inspection-");
+  try {
+    const integrations = {
+      sprite: {
+        execFile: async (_command: string, args: string[]) => {
+          const payload = JSON.parse(
+            Buffer.from(args[2]!, "base64").toString(),
+          );
+          payload.url = origin;
+          const script = args[1]!.replace(
+            "/home/sprite/company-os/browser",
+            dir,
+          );
+          const child = Bun.spawn(
+            [
+              "bun",
+              "-e",
+              script,
+              Buffer.from(JSON.stringify(payload)).toString("base64"),
+            ],
+            { stdout: "pipe", stderr: "pipe" },
+          );
+          const [stdout, stderr, exitCode] = await Promise.all([
+            new Response(child.stdout).text(),
+            new Response(child.stderr).text(),
+            child.exited,
+          ]);
+          return { stdout, stderr, exitCode };
+        },
+      },
+    };
+    const browser = new SpriteBrowser(
+      integrations as any,
+      "https://inspection.example",
+      "test-secret",
+    );
+    const evidence = await browser.inspect("browser-contract");
+    expect(evidence.steps).toHaveLength(12);
+    expect(evidence.errors).toEqual([]);
+    for (const label of [
+      "Inbox",
+      "Work",
+      "Documents",
+      "Understanding",
+      "Foreman",
+    ]) {
+      expect(
+        evidence.steps.some(
+          (s) => s.action === "Phone: click " + label && s.title === label,
+        ),
+      ).toBe(true);
+    }
+    const memory = evidence.steps
+      .at(-1)!
+      .navigation?.find((n) => n.visibleText === "Memory");
+    expect(memory?.accessibleName).toBe("Open Understanding");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 45000);
