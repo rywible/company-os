@@ -18,6 +18,11 @@ import {
   type Idea,
 } from "./discovery";
 import type { Document } from "../contracts";
+import {
+  agentConfigurationSchema,
+  defaultAgentConfiguration,
+  type AgentConfiguration,
+} from "./agents";
 export const track = z.enum(["research", "bug", "feature"]);
 export const policySchema = z.object({
   inclusion: z.enum(["always", "relevant", "reference"]),
@@ -162,6 +167,7 @@ export type Context = {
   };
 };
 export type BrowserEvidence = {
+  worker?: string;
   at: string;
   url: string;
   viewport: { width: number; height: number };
@@ -178,6 +184,7 @@ export type BrowserEvidence = {
 };
 export type Run = {
   manual?: boolean;
+  agent?: AgentConfiguration;
   budgetDay?: string;
   discoveryLensId?: string;
   discoverySignalIds?: string[];
@@ -211,6 +218,7 @@ export type Settings = {
   maxOpenWork: number;
   requiredReviews: number;
   allowCodeChanges: boolean;
+  foremanAgent: AgentConfiguration;
 };
 export type CompanyState = {
   library: LibraryState;
@@ -240,6 +248,7 @@ export function initialState(now: string): CompanyState {
       maxOpenWork: 4,
       requiredReviews: 2,
       allowCodeChanges: false,
+      foremanAgent: defaultAgentConfiguration(),
       scope: "rywible/company-os",
       nextHeartbeatAt: new Date(Date.parse(now) + 3600000).toISOString(),
     },
@@ -340,6 +349,10 @@ export const commandSchema = z.discriminatedUnion("type", [
     action: z.enum(["accept", "dismiss"]),
   }),
   z.object({ type: z.literal("ConfigureWorkspace"), scope: text.max(160) }),
+  z.object({
+    type: z.literal("ConfigureForeman"),
+    agent: agentConfigurationSchema,
+  }),
   z.object({
     type: z.literal("ConfigureAutonomy"),
     enabled: z.boolean(),

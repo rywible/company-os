@@ -302,6 +302,14 @@
 .task-editor .form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.task-editor .agent-configuration {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.task-model {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
 .task-notice {
   padding: 16px 0 24px;
 }
@@ -317,7 +325,8 @@
   .task-toolbar {
     gap: 16px;
   }
-  .task-editor .form-grid {
+  .task-editor .form-grid,
+  .task-editor .agent-configuration {
     grid-template-columns: 1fr;
   }
 }

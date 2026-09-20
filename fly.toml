@@ -12,6 +12,8 @@ kill_timeout = "30s"
   DATABASE_PATH = "/data/company.sqlite"
   PUBLIC_ORIGIN = "https://company-os-rywible.fly.dev"
   SPRITE_NAME = "company-os-worker"
+  SPRITE_POOL = "company-os-studio-01=openai,company-os-studio-02=openai,company-os-studio-03=openai,company-os-studio-04=anthropic,company-os-studio-05=anthropic,company-os-studio-06=anthropic,company-os-studio-07=meta,company-os-studio-08=meta,company-os-studio-09=meta,company-os-studio-10=meta"
+  WORKER_CONCURRENCY = "10"
   GITHUB_REPOSITORY = "rywible/company-os"
   EMBEDDING_MODEL = "gemini-embedding-001"
 

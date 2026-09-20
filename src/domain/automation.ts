@@ -82,13 +82,5 @@ export function taskBlocker(
       : "The library is up to date. New evidence or a scheduled review will queue a pass.";
   if (!taskCapacity(state, lens))
     return "This task has reached its active idea limit.";
-  if (
-    state.runs.some(
-      (r) =>
-        r.status === "running" ||
-        (r.status === "queued" && runCanProceed(state, r)),
-    )
-  )
-    return "Waiting for the current run to finish.";
   return null;
 }

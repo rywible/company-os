@@ -22,7 +22,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the C4 diagram and hexagonal bounda
 
 The production entry point is `src/server/index.ts`. Domain rules live in `src/domain`, use cases and ports in `src/application`, and integration implementations in `src/adapters`. The original SQLite document store is reused for migration and retrieval; the original worker is no longer wired into production.
 
-Agents return structured results. They do not receive database access. Provider credentials stay in Sprite connectors; Codex authentication stays on the worker Sprite. One agent invocation runs at a time. Reviews resume the original assignment with its saved result and feedback in a new invocation.
+Agents return structured results. They do not receive database access. Provider credentials stay in Sprite connectors; Codex authentication stays on each OpenAI worker. Compatible invocations can overlap across the pool. Reviews resume the original assignment with its saved result and feedback in a new invocation.
 
 ## Local development
 
@@ -36,16 +36,28 @@ bun run dev
 
 Open `http://127.0.0.1:3000`. One Bun process serves both the interface and API. Development binds to loopback and bypasses login. To serve the built interface directly, run `bun run build` and open `http://127.0.0.1:3000` after starting `bun run start`.
 
-Set `SPRITES_TOKEN`, `SPRITE_NAME`, `GEMINI_CONNECTOR_ID`, and `GITHUB_CONNECTOR_ID` in `.env`. Without a Sprite token, documents and keyword search work, but queued agent/indexing work waits for configuration. Production also requires `ADMIN_PASSWORD`, `SESSION_SECRET`, and `PUBLIC_ORIGIN`.
+Set `SPRITES_TOKEN`, `SPRITE_POOL`, `GEMINI_CONNECTOR_ID`, and
+`GITHUB_CONNECTOR_ID` in `.env`. `SPRITE_POOL` is a comma-separated list of
+`name=provider` workers; provider is `openai`, `anthropic`, or `meta`. The
+legacy `SPRITE_NAME` remains a single-OpenAI-worker fallback. Without a Sprite
+token, documents and keyword search work, but queued agent/indexing work waits
+for configuration. Production also requires `ADMIN_PASSWORD`,
+`SESSION_SECRET`, and `PUBLIC_ORIGIN`.
 
-Authenticate Codex on the worker:
+Authenticate Codex independently on each OpenAI worker:
 
 ```sh
-sprite -s company-os-worker exec -- codex login --device-auth
-sprite -s company-os-worker exec -- codex login status
+sprite -s company-os-studio-01 exec -- codex login --device-auth
+sprite -s company-os-studio-01 exec -- codex login status
 ```
 
-The configured Sprite has the `company-os` label. Google connector access is scoped to company Sprites and `/v1beta/models` plus `/v1beta/models/*`; GitHub access is scoped to `/user` and `rywible/company-os`. Connector IDs are configuration, not provider API keys. Subscription limits still apply; expired authentication appears as a failed run with recovery instructions.
+Every configured Sprite has the `company-os` label. Google connector access is scoped to company Sprites and `/v1beta/models` plus `/v1beta/models/*`; GitHub access is scoped to `/user` and `rywible/company-os`. Connector IDs are configuration, not provider API keys. Subscription limits still apply; expired authentication appears as a failed run with recovery instructions.
+
+Set `ANTHROPIC_CONNECTOR_ID` or `META_CONNECTOR_ID` to route those clients
+through Fly’s credential-injecting gateway; the application supplies only a
+non-secret placeholder credential required by the client. Without an Anthropic
+connector, Claude uses its own per-worker subscription login. Meta workers are
+expected to use the Meta connector so the API key never lands on their disks.
 
 ### Studio worker baseline
 
@@ -68,6 +80,13 @@ remain in the scoped Fly connector rather than on the Sprite filesystem.
 The current validated base is `company-os-studio-base-v1` at checkpoint `v2`;
 its earlier `v1` checkpoint is superseded.
 
+The initial pool is `company-os-studio-01` through
+`company-os-studio-10`: three OpenAI, three Anthropic, and four Meta workers.
+Company OS leases one compatible worker for each invocation and allows up to
+`WORKER_CONCURRENCY` durable deliveries to overlap. Each automation stores its
+provider, model and reasoning effort; Foreman’s defaults are editable in
+Settings. A run snapshots that selection when queued.
+
 ```sh
 bun run typecheck
 bun test
@@ -83,7 +102,7 @@ Configured resources:
 - App: `company-os-rywible`, region `ord`, one shared CPU / 512 MB.
 - Persistent volume: `company_data`, 1 GB.
 - Tigris bucket: `company-os-rywible-backups` (private).
-- Worker Sprite: `company-os-worker`.
+- Worker Sprites: `company-os-studio-01` through `company-os-studio-10`.
 
 The Fly app requires the credentials from `.env` as Fly secrets. `fly storage create` attaches the Tigris credentials and `BUCKET_NAME`. Neither `.env` nor local data is sent in Docker builds. Deploy with:
 
@@ -128,4 +147,4 @@ Browser tests use `bun test` with built-in `Bun.WebView` and a private fixture s
 
 The suite covers 320–1440px viewports, Markdown formatting/undo/preview, document editing/reindexing, automation controls, Mermaid rendering, context preview, inbox proposals, navigation, draft preservation, review configuration and a complete PR review round. Chrome additionally checks PWA icons, cache privacy, offline fallback, and reconnect. Bun’s WebView API is experimental. These are viewport tests, not device emulation; keyboard checks simulate the visual viewport shrinking. Physical-device behavior and native installation prompts still need device testing. Failure screenshots are saved in `.artifacts/`.
 
-Worker browser inspection and correction verification require Chrome on the Sprite. The configured `company-os-worker` already has Google Chrome installed. On a new Linux Sprite, install Chrome/Chromium and verify Bun.WebView startup before enabling browser work. Chrome runs with `--no-sandbox` inside the isolated Sprite; inspection sessions themselves remain read-only.
+Worker browser inspection and correction verification require Chrome on the Sprite. The versioned studio baseline includes Chrome. On a new Linux Sprite, install Chrome/Chromium and verify Bun.WebView startup before enabling browser work. Chrome runs with `--no-sandbox` inside the isolated Sprite; inspection sessions themselves remain read-only.

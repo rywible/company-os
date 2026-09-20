@@ -113,6 +113,65 @@ test("conversations are isolated; events schedule work atomically and deliveries
     repo.events().every((e) => e.schemaVersion === 1 && e.correlationId),
   ).toBe(true);
 });
+test("Foreman and automation selections are snapshotted onto each run", () => {
+  const foreman = {
+    provider: "meta" as const,
+    model: "llama-studio",
+    reasoningEffort: "xhigh" as const,
+  };
+  company.execute({ type: "ConfigureForeman", agent: foreman });
+  const conversation = create();
+  expect(
+    repo.state().runs.find((run) => run.id === conversation.runId)!.agent,
+  ).toEqual(foreman);
+
+  const lens = repo.state().discovery.lenses.find((item) => item.id === "users")!;
+  const automation = {
+    provider: "anthropic" as const,
+    model: "sonnet",
+    reasoningEffort: "high" as const,
+  };
+  company.execute({
+    type: "SaveDiscoveryLens",
+    lens: { ...lens, agent: automation },
+  });
+  const scheduled = company.execute({
+    type: "ExploreDiscovery",
+    lensId: "users",
+  }) as { runId: string };
+  expect(
+    repo.state().runs.find((run) => run.id === scheduled.runId)!.agent,
+  ).toEqual(automation);
+
+  company.execute({
+    type: "ConfigureForeman",
+    agent: { provider: "openai", model: "", reasoningEffort: "medium" },
+  });
+  expect(
+    repo.state().runs.find((run) => run.id === conversation.runId)!.agent,
+  ).toEqual(foreman);
+});
+test("the runner overlaps deliveries up to the configured pool capacity", async () => {
+  let active = 0,
+    peak = 0,
+    release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  company.agent.execute = async () => {
+    active++;
+    peak = Math.max(peak, active);
+    await gate;
+    active--;
+    return answer();
+  };
+  create("First", "First");
+  create("Second", "Second");
+  const runner = new Runner(company, () => true, 2);
+  const running = runner.tick();
+  await Bun.sleep(10);
+  expect(peak).toBe(2);
+  release();
+  await running;
+});
 test("work escalates into one inbox thread and a reply resumes it with its own context", async () => {
   const { workId } = company.execute({
     type: "CreateWork",

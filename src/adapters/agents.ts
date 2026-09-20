@@ -7,6 +7,10 @@ import {
 } from "../domain/model";
 import type { AgentPort, EmbeddingPort } from "../application/ports";
 import { Integrations, model } from "../server/integrations";
+import {
+  defaultAgentConfiguration,
+  type AgentConfiguration,
+} from "../domain/agents";
 // Local parsing accepts older stored results; the provider's strict schema requires every property.
 export function agentOutputSchema() {
   const schema = z.toJSONSchema(agentResultSchema);
@@ -75,6 +79,7 @@ export class SpriteAgent implements AgentPort, EmbeddingPort {
     runId: string,
     context: Context,
     heartbeat: boolean,
+    configuration: AgentConfiguration = defaultAgentConfiguration(),
   ): Promise<AgentResult> {
     const maintenanceInstructions = context.maintenance
       ? `You are maintaining the knowledge library. Use the supplied new sources and subject catalog to synthesize current understanding into stable Markdown subject pages. Prefer updating existing subjects over creating near-duplicates. Organize pages into a few natural collections, with optional parent and related subject IDs from the catalog. New titles should name a subject, not a run, date or finding. Preserve still-valid information and exact source references. Respect sourcePolicies: hypotheses are tentative evidence, never established facts. State uncertainty and contradictions in the page. Distinguish agreed decisions from hypotheses. Never turn a research finding into an accepted product direction. Set needsApproval=true for contradictions, proposed reversals of decisions, or changes to company direction; human-edited pages also require approval. Do not modify governing documents or the constitution. Return libraryUpdates with full page content and expectedVersion for existing pages (null ID/version for a new page), exact sources, and a reason. Review maintenance.reviewTargets explicitly, even when their titles seem unrelated to new evidence. Their reasons explain changed, missing, withdrawn, or overdue support. Reaffirm by citing the supplied current source revisions, revise the conclusion, or set disposition=withdrawn and preserve old citations as history. Never use inactive, explicitly withdrawn, or unreviewed source subjects as current support. Set disposition=current for supported pages and reviewAfter to a future ISO timestamp only for time-sensitive claims, otherwise null. Do not expire stable guidance just because it is old. An empty update does not clear a pending review. You may return no updates if the evidence adds nothing. The catalog is only an index; to edit a page whose full text is missing, request it by its exact title in contextRequests first. Leave work, discoveries, observations, proposals, changes empty; requests are only for human decisions or unavailable evidence.`
@@ -96,22 +101,67 @@ Briefing: the application supplies relevant knowledge automatically. Do not brow
 ${maintenanceInstructions}
 Inbox: requests are ONLY matters needing Ryan's decision or input. Include why it matters and your recommendation. Cite exact supplied evidenceRefs. Portfolio work/PR references cover only the metadata, description and recorded results supplied there; they are not evidence of unseen source code, test runs, or deployment. Proposals replace an existing non-constitution document in full; preserve relevant information. Observations are attributed findings/hypotheses, not accepted decisions. Attach evidence to every observation. If evidence is insufficient, say so. You can return empty arrays. Human-facing messages, request reasons and recommendations should read like a short personal email: a clear subject and ordinary paragraphs, without slogans, repeated summaries, or a template of section headings. Keep structured fields and evidence refs in their schema fields.
 ${renderBriefing(context)}`;
-    const script = `const fs=await import('node:fs/promises');const p=await Bun.file(process.argv[1]).json();const dir='/home/sprite/company-os/v2-runs/'+p.id;await fs.mkdir(dir,{recursive:true});try{console.log(await fs.readFile(dir+'/result.json','utf8'));process.exit(0)}catch{};let lock;try{lock=await fs.open(dir+'/running','wx')}catch{throw Error('Previous attempt may still be running. Inspect the Sprite before retrying.')};await fs.writeFile(dir+'/schema.json',JSON.stringify(p.schema));await fs.writeFile(dir+'/prompt.txt',p.prompt);const out=await fs.open(dir+'/events.jsonl','w');const err=await fs.open(dir+'/stderr.log','w');try{const child=Bun.spawn(['codex','exec',...(p.images||[]).flatMap(path=>['--image',path]),'--skip-git-repo-check','--ignore-user-config','--ignore-rules','--sandbox','read-only','-c','approval_policy="never"','--color','never','--json','--output-schema',dir+'/schema.json','--output-last-message',dir+'/result.json','-'],{cwd:dir,stdin:new Blob([p.prompt]),stdout:out.fd,stderr:err.fd});const timer=setTimeout(()=>child.kill(),240000);const code=await child.exited;clearTimeout(timer);if(code!==0)throw Error((await fs.readFile(dir+'/stderr.log','utf8')).slice(-1600)||'Agent execution failed');console.log(await fs.readFile(dir+'/result.json','utf8'));}finally{await lock.close();await fs.unlink(dir+'/running').catch(()=>{})}`;
+    const script = `const fs=await import('node:fs/promises');
+const p=await Bun.file(process.argv[1]).json();
+const dir='/home/sprite/company-os/v2-runs/'+p.id;
+await fs.mkdir(dir,{recursive:true});
+try{console.log(await fs.readFile(dir+'/result.json','utf8'));process.exit(0)}catch{}
+let lock;try{lock=await fs.open(dir+'/running','wx')}catch{throw Error('Previous attempt may still be running. Inspect the Sprite before retrying.')}
+await fs.writeFile(dir+'/schema.json',JSON.stringify(p.schema));
+const prompt=p.configuration.provider==='meta'?p.prompt+'\n\nReturn only one JSON object that satisfies this JSON Schema exactly:\n'+JSON.stringify(p.schema):p.prompt;
+await fs.writeFile(dir+'/prompt.txt',prompt);
+const events=await fs.open(dir+'/events.jsonl','w');const errors=await fs.open(dir+'/stderr.log','w');
+function structured(text){let clean=text.trim(),fence=String.fromCharCode(96,96,96);if(clean.startsWith(fence))clean=clean.split('\\n').slice(1).join('\\n');if(clean.endsWith(fence))clean=clean.slice(0,-3).trim();try{return JSON.parse(clean)}catch{}const start=clean.indexOf('{'),end=clean.lastIndexOf('}');if(start>=0&&end>start)return JSON.parse(clean.slice(start,end+1));throw Error('Provider did not return JSON')}
+try{
+ let command,stdin;
+ const c=p.configuration;
+ if(c.provider==='openai'){
+  command=['codex','exec',...(p.images||[]).flatMap(path=>['--image',path]),...(c.model?['--model',c.model]:[]),'--skip-git-repo-check','--ephemeral','--ignore-user-config','--ignore-rules','--sandbox','read-only','-c','approval_policy="never"','-c','model_reasoning_effort="'+c.reasoningEffort+'"','--color','never','--json','--output-schema',dir+'/schema.json','--output-last-message',dir+'/result.json','-'];stdin=new Blob([prompt]);
+ }else if(c.provider==='anthropic'){
+  command=['claude','-p','--output-format','json','--json-schema',JSON.stringify(p.schema),...(p.anthropicBaseUrl?['--bare']:['--safe-mode']),'--restricted','--tools','','--permission-mode','dontAsk','--no-session-persistence','--effort',c.reasoningEffort,...(c.model?['--model',c.model]:[])];stdin=new Blob([prompt]);
+ }else{
+  command=['muse','exec','--json','--provider','meta','--preset','native-basic','--reasoning-effort',c.reasoningEffort,...(c.model?['--model',c.model]:[]),...(p.images||[]).flatMap(path=>['--image',path]),...(p.metaBaseUrl?['--base-url',p.metaBaseUrl,'--api-key-stdin']:[]),'--prompt-file',dir+'/prompt.txt','--no-foreign-personal-context','--disable-web-tools','--disable-write','--disable-shell','--approval-mode','never','--user-input-auto-resolve','--no-session-log'];if(p.metaBaseUrl)stdin=new Blob(['sprite-connector']);
+ }
+ const env={...process.env,...(p.anthropicBaseUrl?{ANTHROPIC_BASE_URL:p.anthropicBaseUrl,ANTHROPIC_API_KEY:'sprite-connector'}:{})};const child=Bun.spawn(command,{cwd:dir,env,stdin,stdout:events.fd,stderr:errors.fd});const timer=setTimeout(()=>child.kill(),240000);const code=await child.exited;clearTimeout(timer);await events.close();await errors.close();
+ if(code!==0)throw Error((await fs.readFile(dir+'/stderr.log','utf8')).slice(-1600)||'Agent execution failed');
+ if(c.provider==='anthropic'){
+  const envelope=JSON.parse(await fs.readFile(dir+'/events.jsonl','utf8'));const result=envelope.structured_output||structured(envelope.result||'');await fs.writeFile(dir+'/result.json',JSON.stringify(result));
+ }else if(c.provider==='meta'){
+  const records=(await fs.readFile(dir+'/events.jsonl','utf8')).trim().split('\\n').flatMap(line=>{try{return[JSON.parse(line)]}catch{return[]}});const terminal=records.findLast(record=>record.payload_type==='run.terminal.completed');await fs.writeFile(dir+'/result.json',JSON.stringify(structured(terminal?.payload?.text||'')));
+ }
+ await fs.appendFile(dir+'/events.jsonl','\\n'+JSON.stringify({type:'turn.completed'})+'\\n');
+ console.log(await fs.readFile(dir+'/result.json','utf8'));
+}finally{await events.close().catch(()=>{});await errors.close().catch(()=>{});await lock.close();await fs.unlink(dir+'/running').catch(()=>{})}`;
     const payload = {
       id: runId,
       prompt,
       schema: agentOutputSchema(),
+      configuration,
+      anthropicBaseUrl: process.env.ANTHROPIC_CONNECTOR_ID
+        ? `https://api.sprites.dev/v1/gateway/anthropic/${process.env.ANTHROPIC_CONNECTOR_ID}`
+        : "",
+      metaBaseUrl: process.env.META_CONNECTOR_ID
+        ? `https://api.sprites.dev/v1/gateway/meta/${process.env.META_CONNECTOR_ID}`
+        : "",
       images:
         context.browser?.steps
           .filter((_, i, a) => i === 0 || i === a.length - 1 || i === 4)
           .map((s) => "/home/sprite/company-os/browser/" + s.screenshot) || [],
     };
+    let worker: string | undefined;
     try {
-      const result = await this.integrations.executePayload(script, payload, {
-        timeout: 270000,
-        maxBuffer: 2 * 1024 * 1024,
-        maxRunAfterDisconnect: "30s",
-      });
+      const result = await this.integrations.executePayload(
+        script,
+        payload,
+        {
+          timeout: 270000,
+          maxBuffer: 2 * 1024 * 1024,
+          maxRunAfterDisconnect: "30s",
+        },
+        configuration.provider,
+        context.browser?.worker,
+      );
+      worker = result.spriteName;
       if (result.exitCode !== 0)
         throw Error(
           String(result.stderr).slice(-1600) || "Agent execution failed",
@@ -121,7 +171,11 @@ ${renderBriefing(context)}`;
       // A transport/process exit can arrive after Codex has durably finished.
       // Recover only a validated result with an explicit completed-turn record.
       try {
-        const fs = this.integrations.sprite.filesystem(
+        const fs = (
+          worker
+            ? this.integrations.spriteByName(worker)
+            : this.integrations.sprite
+        ).filesystem(
           "/home/sprite/company-os/v2-runs/" + runId,
         );
         const events = await fs.readFile("events.jsonl", "utf8");

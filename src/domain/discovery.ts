@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  agentConfigurationSchema,
+  defaultAgentConfiguration,
+} from "./agents";
 const text = z.string().trim().min(1);
 export const experimentSchema = z.object({
   track: z.enum(["research", "bug", "feature"]),
@@ -20,6 +24,7 @@ export const lensSchema = z.object({
   maxInvestigations: z.number().int().min(1).max(3).default(2),
   maxOpenWork: z.number().int().min(1).max(10).default(4),
   inspectUI: z.boolean().default(false),
+  agent: agentConfigurationSchema.default(defaultAgentConfiguration),
   sources: z
     .array(
       z
@@ -172,6 +177,7 @@ export function initialDiscovery(): DiscoveryState {
       maxOpenWork: 4,
       enabled: true,
       inspectUI: id === "users",
+      agent: defaultAgentConfiguration(),
       sources: id === "outside" ? ["oven-sh/bun"] : [],
     })),
   };

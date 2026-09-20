@@ -65,6 +65,11 @@ export const eventPayloads = {
     allowCodeChanges: z.boolean(),
   }),
   WorkspaceConfigured: z.object({ scope: z.string().min(1).max(160) }),
+  ForemanConfigured: z.object({
+    provider: z.enum(["openai", "anthropic", "meta"]),
+    model: z.string().max(120),
+    reasoningEffort: z.string(),
+  }),
   AutonomyConfigured: z.object({ enabled: z.boolean() }),
 } as const;
 export type EventType = keyof typeof eventPayloads;

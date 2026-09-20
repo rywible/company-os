@@ -1,15 +1,138 @@
 import { SpritesClient, ExecError } from "@fly/sprites";
 import { z } from "zod";
 import { foremanOutput, type ForemanOutput } from "../contracts";
+import type { AgentProvider } from "../domain/agents";
 
 const gatewayOrigin = "https://api.sprites.dev/v1/gateway";
 export const model = process.env.EMBEDDING_MODEL || "gemini-embedding-001";
+
+type Worker = { name: string; providers: Set<AgentProvider> };
+const providers = new Set<AgentProvider>(["openai", "anthropic", "meta"]);
+function configuredWorkers(): Worker[] {
+  const names = new Set<string>();
+  const configured = (process.env.SPRITE_POOL || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => {
+      const [name, rawProviders = "openai"] = value.split("=");
+      if (!name || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(name))
+        throw new Error(`Invalid Sprite pool entry: ${value}`);
+      if (names.has(name)) throw new Error(`Duplicate Sprite worker: ${name}`);
+      names.add(name);
+      const capabilities = rawProviders
+        .split("|")
+        .map((provider) => provider.trim() as AgentProvider);
+      if (!capabilities.length || capabilities.some((p) => !providers.has(p)))
+        throw new Error(`Invalid provider in Sprite pool entry: ${value}`);
+      return { name, providers: new Set(capabilities) };
+    });
+  return configured.length
+    ? configured
+    : [
+        {
+          name: process.env.SPRITE_NAME || "company-os-worker",
+          providers: new Set<AgentProvider>(["openai"]),
+        },
+      ];
+}
+
+class SpritePool {
+  readonly workers = configuredWorkers();
+  private active = new Set<string>();
+  private waiters: (() => void)[] = [];
+  private cursor = 0;
+  constructor(private client: SpritesClient) {}
+  get capacity() {
+    return this.workers.length;
+  }
+  get primary() {
+    return this.client.sprite(this.workers[0]!.name);
+  }
+  sprite(name: string) {
+    if (!this.workers.some((worker) => worker.name === name))
+      throw new Error("Unknown Sprite worker.");
+    return this.client.sprite(name);
+  }
+  async use<T>(
+    provider: AgentProvider | undefined,
+    operation: (
+      sprite: ReturnType<SpritesClient["sprite"]>,
+      name: string,
+    ) => Promise<T>,
+    preferred?: string,
+  ): Promise<T> {
+    const compatible = this.workers.filter(
+      (worker) => !provider || worker.providers.has(provider),
+    );
+    if (!compatible.length)
+      throw new Error(`No Sprite worker is configured for ${provider}.`);
+    const preferredWorker = compatible.find(
+      (worker) => worker.name === preferred,
+    );
+    if (preferred && !preferredWorker)
+      throw new Error(`Preferred Sprite ${preferred} cannot run ${provider}.`);
+    const eligible = preferredWorker ? [preferredWorker] : compatible;
+    let selected: Worker | undefined;
+    while (!selected) {
+      const start = preferredWorker ? 0 : this.cursor;
+      for (let offset = 0; offset < eligible.length; offset++) {
+        const candidate = eligible[(start + offset) % eligible.length]!;
+        if (!this.active.has(candidate.name)) {
+          selected = candidate;
+          this.cursor = (start + offset + 1) % eligible.length;
+          this.active.add(candidate.name);
+          break;
+        }
+      }
+      if (!selected)
+        await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+    try {
+      return await operation(this.client.sprite(selected.name), selected.name);
+    } finally {
+      this.active.delete(selected.name);
+      const waiting = this.waiters.splice(0);
+      waiting.forEach((resolve) => resolve());
+    }
+  }
+}
+
 export class Integrations {
-  spriteName = process.env.SPRITE_NAME || "company-os-worker";
-  get sprite() {
+  private client?: SpritesClient;
+  private workerPool?: SpritePool;
+  get pool() {
     if (!process.env.SPRITES_TOKEN)
       throw new Error("Configure SPRITES_TOKEN before starting the worker.");
-    return new SpritesClient(process.env.SPRITES_TOKEN).sprite(this.spriteName);
+    this.client ||= new SpritesClient(process.env.SPRITES_TOKEN);
+    return (this.workerPool ||= new SpritePool(this.client));
+  }
+  get capacity() {
+    return process.env.SPRITES_TOKEN ? this.pool.capacity : 0;
+  }
+  get spriteNames() {
+    return process.env.SPRITES_TOKEN
+      ? this.pool.workers.map((worker) => worker.name)
+      : configuredWorkers().map((worker) => worker.name);
+  }
+  get spriteName() {
+    return this.spriteNames[0]!;
+  }
+  get sprite() {
+    return this.pool.primary;
+  }
+  spriteByName(name: string) {
+    return this.pool.sprite(name);
+  }
+  withSprite<T>(
+    provider: AgentProvider | undefined,
+    operation: (
+      sprite: ReturnType<SpritesClient["sprite"]>,
+      name: string,
+    ) => Promise<T>,
+    preferred?: string,
+  ) {
+    return this.pool.use(provider, operation, preferred);
   }
   async executePayload(
     script: string,
@@ -19,21 +142,33 @@ export class Integrations {
       maxBuffer: number;
       maxRunAfterDisconnect?: string;
     },
+    provider?: AgentProvider,
+    preferred?: string,
   ) {
-    const sprite = this.sprite,
-      fs = sprite.filesystem("/home/sprite/company-os");
-    await fs.mkdir("inputs", { recursive: true });
-    const path =
-      "/home/sprite/company-os/inputs/" + crypto.randomUUID() + ".json";
-    await fs.writeFile(path, JSON.stringify(payload), { mode: 0o600 });
-    try {
-      return await sprite.execFile("bun", ["-e", script, path], options);
-    } catch (error) {
-      if (error instanceof ExecError) return error.result;
-      throw error;
-    } finally {
-      await fs.rm(path).catch(() => {});
-    }
+    return this.pool.use(
+      provider,
+      async (sprite, spriteName) => {
+        const fs = sprite.filesystem("/home/sprite/company-os");
+        await fs.mkdir("inputs", { recursive: true });
+        const path =
+          "/home/sprite/company-os/inputs/" + crypto.randomUUID() + ".json";
+        await fs.writeFile(path, JSON.stringify(payload), { mode: 0o600 });
+        try {
+          const result = await sprite.execFile(
+            "bun",
+            ["-e", script, path],
+            options,
+          );
+          return { ...result, spriteName };
+        } catch (error) {
+          if (error instanceof ExecError) return { ...error.result, spriteName };
+          throw error;
+        } finally {
+          await fs.rm(path).catch(() => {});
+        }
+      },
+      preferred,
+    );
   }
   async gateway(
     provider: string,
@@ -117,9 +252,9 @@ export class Integrations {
     };
   }
   async authStatus() {
-    const r = await this.sprite.execFile("codex", ["login", "status"], {
-      timeout: 30000,
-    });
+    const r = await this.pool.use("openai", (sprite) =>
+      sprite.execFile("codex", ["login", "status"], { timeout: 30000 }),
+    );
     return {
       ready: r.exitCode === 0,
       detail: (String(r.stdout) + " " + String(r.stderr)).trim().slice(0, 300),

@@ -5,6 +5,11 @@ import { taskBlocker, taskDueAt, taskUsage } from "../domain/automation";
 import type { CommandHandler } from "./settings";
 import { Modal } from "./modal";
 import { Pencil, Trash2 } from "lucide-react";
+import {
+  AgentConfigurationFields,
+  agentConfigurationSummary,
+} from "./agent-configuration";
+import { defaultAgentConfiguration } from "../domain/agents";
 const stamp = (at: string) =>
   new Date(at).toLocaleString(undefined, {
     month: "short",
@@ -41,6 +46,7 @@ export function AutomationPage({
       maxInvestigations: 2,
       maxOpenWork: 4,
       inspectUI: false,
+      agent: defaultAgentConfiguration(),
       sources: [],
     });
   function editor(lens: Lens) {
@@ -88,6 +94,16 @@ export function AutomationPage({
           />{" "}
           Run on a schedule
         </label>
+        <div>
+          <h3>Agent</h3>
+          <p className="field-help">
+            This selection applies to every phase created by this automation.
+          </p>
+        </div>
+        <AgentConfigurationFields
+          value={lens.agent}
+          onChange={(agent) => setEditing({ ...lens, agent })}
+        />
         <div className="form-grid">
           {[
             { key: "intervalHours", label: "Hours between runs", max: 720 },
@@ -126,7 +142,8 @@ export function AutomationPage({
           {lens.kind === "knowledge"
             ? "Maintenance runs only when new evidence is waiting. Each pass processes up to three sources. "
             : "These limits cover this task’s research, investigations, delivery and outcome checks. "}
-          The daily limit resets at midnight UTC. Runs execute one at a time.
+          The daily limit resets at midnight UTC. Runs use the next compatible
+          worker in the pool.
         </p>
         {lens.kind !== "knowledge" && (
           <>
@@ -239,6 +256,9 @@ export function AutomationPage({
                 Every {lens.intervalHours}{" "}
                 {lens.intervalHours === 1 ? "hour" : "hours"}. {used} of{" "}
                 {lens.dailyRunLimit} runs used today.
+              </p>
+              <p className="task-model">
+                {agentConfigurationSummary(lens.agent)}
               </p>
               <div
                 className="context-meter"

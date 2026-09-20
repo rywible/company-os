@@ -62,3 +62,29 @@ test("incomplete or malformed cached output cannot turn an execution failure int
     ),
   ).rejects.toThrow("Transport");
 });
+test("the selected provider, model and reasoning effort reach the compatible pool", async () => {
+  let selected: unknown, payload: any;
+  const instance = new SpriteAgent({
+    executePayload: async (
+      _script: string,
+      input: unknown,
+      _options: unknown,
+      provider: unknown,
+    ) => {
+      selected = provider;
+      payload = input;
+      return { exitCode: 0, stdout: JSON.stringify(result), stderr: "" };
+    },
+  } as unknown as Integrations);
+  await instance.execute("run", context, false, {
+    provider: "meta",
+    model: "llama-studio",
+    reasoningEffort: "ultra",
+  });
+  expect(selected).toBe("meta");
+  expect(payload.configuration).toEqual({
+    provider: "meta",
+    model: "llama-studio",
+    reasoningEffort: "ultra",
+  });
+});

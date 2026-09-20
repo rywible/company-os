@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Document } from "../contracts";
 import type { Lens } from "./discovery";
+import { defaultAgentConfiguration } from "./agents";
 const text = z.string().trim().min(1);
 export const libraryLocationSchema = z.object({
   collection: text.max(80),
@@ -58,6 +59,7 @@ export const libraryTask = (): Lens => ({
   maxInvestigations: 2,
   maxOpenWork: 4,
   inspectUI: false,
+  agent: defaultAgentConfiguration(),
   sources: [],
 });
 export const documentRef = (d: Pick<Document, "id" | "version">) =>

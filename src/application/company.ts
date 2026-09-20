@@ -36,6 +36,7 @@ import type {
 import { assembleContext } from "./context";
 import { reviewOutcome } from "../domain/reviews";
 import { chunkDocument } from "../domain/knowledge";
+import { defaultAgentConfiguration } from "../domain/agents";
 export class Company {
   private discovery: Discovery;
   private library: Library;
@@ -106,6 +107,11 @@ export class Company {
       id: this.ids.next(),
       automatic: input.trigger !== "message",
       ...input,
+      agent: structuredClone(
+        taskForRun(state, input)?.agent ||
+          state.settings.foremanAgent ||
+          defaultAgentConfiguration(),
+      ),
       status: "queued",
       context: null,
       error: null,
@@ -602,6 +608,22 @@ export class Company {
           );
           break;
         }
+        case "ConfigureForeman": {
+          state.settings.foremanAgent = cmd.agent;
+          this.emit(
+            {
+              type: "ForemanConfigured",
+              payload: {
+                provider: cmd.agent.provider,
+                model: cmd.agent.model,
+                reasoningEffort: cmd.agent.reasoningEffort,
+              },
+            },
+            "human",
+            "foreman",
+          );
+          break;
+        }
         case "ConfigureAutonomy": {
           state.settings = {
             ...state.settings,
@@ -705,14 +727,6 @@ export class Company {
         skipped:
           "Waiting for company direction before starting autonomous exploration.",
       };
-    if (
-      state.runs.some(
-        (r) =>
-          r.status === "running" ||
-          (r.status === "queued" && runCanProceed(state, r)),
-      )
-    )
-      return { skipped: "run active" };
     const requested = lensId
       ? state.discovery.lenses.find((l) => l.id === lensId)
       : undefined;
@@ -757,6 +771,7 @@ export class Company {
     ) {
       const run = this.run(state, { trigger: "maintenance", automatic: true });
       run.discoveryLensId = maintenance.id;
+      run.agent = structuredClone(maintenance.agent);
       run.manual = manual && !!lensId;
       maintenance.lastRunAt = this.now();
       maintenance.lastRunId = run.id;
@@ -772,6 +787,7 @@ export class Company {
     const run = this.run(state, { trigger: "heartbeat", automatic: true });
     run.manual = manual && !!lensId;
     this.discovery.attach(state, run, lens);
+    run.agent = structuredClone(lens.agent);
     this.emit(
       {
         type: "DiscoveryScoutRequested",
@@ -1050,7 +1066,7 @@ export class Company {
       !run!.reviewRoundId &&
       !context.browser
     ) {
-      context.browser = await this.browser.inspect(run!.id);
+      context.browser = await this.browser.inspect(run!.id, run!.agent);
       context.evidenceRefs.push(`browser:${run!.id}`);
       this.repo.transaction(() => {
         const s = this.repo.state();
@@ -1069,6 +1085,7 @@ export class Company {
       run!.id,
       context,
       run!.trigger === "heartbeat",
+      run!.agent || state.settings.foremanAgent || defaultAgentConfiguration(),
     );
     if (output.contextRequests?.length) {
       const requests = output.contextRequests.slice(0, 3);
@@ -1124,6 +1141,7 @@ export class Company {
         run!.id + "-context-1",
         context,
         run!.trigger === "heartbeat",
+        run!.agent || state.settings.foremanAgent || defaultAgentConfiguration(),
       );
       if (output.contextRequests?.length) {
         if (run!.trigger === "review")

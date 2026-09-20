@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { Command, Settings } from "../domain/model";
 import { InstallCard } from "./platform";
+import { AgentConfigurationFields } from "./agent-configuration";
 export type CommandHandler = (command: Command) => Promise<boolean>;
 
 export function SettingsPage({
@@ -16,11 +17,12 @@ export function SettingsPage({
   const [scope, setScope] = useState(settings.scope);
   const [count, setCount] = useState(settings.requiredReviews);
   const [allow, setAllow] = useState(settings.allowCodeChanges);
+  const [foremanAgent, setForemanAgent] = useState(settings.foremanAgent);
   const [saved, setSaved] = useState(false);
   return (
     <div className="settings-page">
       <div className="section-tabs" role="group" aria-label="Settings sections">
-        {["Workspace", "Reviews"].map((name) => (
+        {["Workspace", "Foreman", "Reviews"].map((name) => (
           <button
             key={name}
             aria-pressed={tab === name}
@@ -70,6 +72,40 @@ export function SettingsPage({
           </form>
           <InstallCard />
         </>
+      ) : tab === "Foreman" ? (
+        <form
+          className="preference-section editor"
+          onChange={() => setSaved(false)}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void command({
+              type: "ConfigureForeman",
+              agent: foremanAgent,
+            }).then(setSaved);
+          }}
+        >
+          <div>
+            <h2>Foreman model</h2>
+            <p className="muted">
+              The default used for conversations, reviews and work that does
+              not belong to an automation. Runs already queued keep their
+              original selection.
+            </p>
+          </div>
+          <AgentConfigurationFields
+            value={foremanAgent}
+            onChange={setForemanAgent}
+          />
+          <p className="field-help">
+            Leave model blank to use the provider’s current default.
+          </p>
+          <div className="actions">
+            <button className="primary" disabled={disabled}>
+              Save Foreman
+            </button>
+            {saved && <span role="status">Saved</span>}
+          </div>
+        </form>
       ) : (
         <form
           className="preference-section editor"
@@ -124,9 +160,9 @@ export function SettingsPage({
             <p>
               New commits restart review. The original worker receives the
               combined findings; three unsuccessful rounds reach your inbox.
-              Reviews use separate agent runs with the same model and GitHub
-              account, so they do not count as independent GitHub account
-              approvals.
+              Reviews use separate agent runs with the owning automation’s
+              profile or the Foreman default. They share one GitHub account,
+              so they do not count as independent GitHub account approvals.
             </p>
           </details>
         </form>

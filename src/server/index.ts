@@ -48,7 +48,11 @@ const store = new Store(),
     new GitHubPullRequests(integrations),
     new GitHubResearchSources(),
   ),
-  worker = new Runner(company, () => !!process.env.SPRITES_TOKEN);
+  worker = new Runner(
+    company,
+    () => !!process.env.SPRITES_TOKEN,
+    Number(process.env.WORKER_CONCURRENCY || integrations.capacity || 1),
+  );
 const port = Number(process.env.PORT || 3000),
   origin = process.env.PUBLIC_ORIGIN;
 const json = (data: unknown, status = 200) =>
@@ -229,22 +233,27 @@ export const server = Bun.serve({
         }
         const artifact = path.match(/^\/api\/artifacts\/([\w-]+-\d+\.png)$/);
         if (artifact && req.method === "GET") {
-          if (
-            !repository
-              .state()
-              .runs.some((r) =>
-                r.context?.browser?.steps.some(
-                  (s) => s.screenshot === artifact[1],
-                ),
-              )
-          )
+          const browserRun = repository
+            .state()
+            .runs.find((r) =>
+              r.context?.browser?.steps.some(
+                (s) => s.screenshot === artifact[1],
+              ),
+            );
+          if (!browserRun)
             return json({ error: "Not found" }, 404);
-          return new Response(await browser.artifact(artifact[1]!), {
-            headers: {
-              "Content-Type": "image/png",
-              "Cache-Control": "no-store",
+          return new Response(
+            await browser.artifact(
+              artifact[1]!,
+              browserRun.context?.browser?.worker,
+            ),
+            {
+              headers: {
+                "Content-Type": "image/png",
+                "Cache-Control": "no-store",
+              },
             },
-          });
+          );
         }
         if (path === "/api/logout" && req.method === "POST")
           return new Response("{}", {
@@ -264,10 +273,13 @@ export const server = Bun.serve({
           return json({
             ...store.snapshot(),
             integrations: {
-              sprite: integrations.spriteName,
+              sprites: integrations.spriteNames,
+              poolCapacity: integrations.capacity,
               configured: !!process.env.SPRITES_TOKEN,
               google: !!process.env.GEMINI_CONNECTOR_ID,
               github: !!process.env.GITHUB_CONNECTOR_ID,
+              anthropic: !!process.env.ANTHROPIC_CONNECTOR_ID,
+              meta: !!process.env.META_CONNECTOR_ID,
               embeddingModel: model,
             },
           });

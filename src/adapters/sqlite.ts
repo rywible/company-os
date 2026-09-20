@@ -3,6 +3,7 @@ import type { Document } from "../contracts";
 import { initialDiscovery } from "../domain/discovery";
 import { Store } from "../server/store";
 import { initialState, type CompanyState } from "../domain/model";
+import { defaultAgentConfiguration } from "../domain/agents";
 import {
   eventPayloads,
   type DomainEvent,
@@ -142,10 +143,12 @@ export class SQLiteRepository implements Repository {
     for (const lens of s.discovery.lenses) {
       lens.inspectUI ??= lens.id === "users";
       lens.sources ??= [];
+      lens.agent ??= defaultAgentConfiguration();
     }
     delete s.settings.objective;
     s.settings.requiredReviews ??= 2;
     s.settings.allowCodeChanges ??= false;
+    s.settings.foremanAgent ??= defaultAgentConfiguration();
     return s;
   }
   save(state: CompanyState) {

@@ -206,6 +206,11 @@ async function fill(view: Bun.WebView, selector: string, value: string) {
   );
   await view.type(value);
 }
+async function choose(view: Bun.WebView, selector: string, value: string) {
+  await view.evaluate(
+    `(() => { const el=document.querySelector(${JSON.stringify(selector)}); el.value=${JSON.stringify(value)}; el.dispatchEvent(new Event('change',{bubbles:true})); })()`,
+  );
+}
 
 async function nav(view: Bun.WebView, name: string) {
   if (name === "Work" || name === "Discovery") {
@@ -308,6 +313,9 @@ for (const backend of backends) {
         await fill(view, '[aria-label="Hours between runs"]', "12");
         await fill(view, '[aria-label="Runs per day"]', "8");
         await fill(view, '[aria-label="Active idea limit"]', "3");
+        await choose(view, '[aria-label="Agent provider"]', "anthropic");
+        await fill(view, '[aria-label="Agent model"]', "sonnet");
+        await choose(view, '[aria-label="Reasoning effort"]', "xhigh");
         await button(view, "Save task");
         await wait(view, `!document.querySelector('.task-editor')`);
         const task = repo
@@ -316,6 +324,11 @@ for (const backend of backends) {
         expect(task.intervalHours).toBe(12);
         expect(task.dailyRunLimit).toBe(8);
         expect(task.maxActiveIdeas).toBe(3);
+        expect(task.agent).toEqual({
+          provider: "anthropic",
+          model: "sonnet",
+          reasoningEffort: "xhigh",
+        });
         const count = repo.state().runs.length;
         await button(view, "Run Users & workflows now");
         await wait(
@@ -720,6 +733,20 @@ for (const backend of backends) {
           `.artifacts/settings-${size.name}.png`,
           await view.screenshot(),
         );
+        await button(view, "Foreman", ".section-tabs");
+        await choose(view, '[aria-label="Agent provider"]', "meta");
+        await fill(view, '[aria-label="Agent model"]', "llama-studio");
+        await choose(view, '[aria-label="Reasoning effort"]', "ultra");
+        await button(view, "Save Foreman");
+        await wait(
+          view,
+          `document.querySelector('.settings-page [role="status"]')?.textContent === 'Saved'`,
+        );
+        expect(repo.state().settings.foremanAgent).toEqual({
+          provider: "meta",
+          model: "llama-studio",
+          reasoningEffort: "ultra",
+        });
         await button(view, "Reviews", ".section-tabs");
         await fill(view, 'input[type="number"][max="5"]', "3");
         await button(view, "Save review policy");

@@ -6,6 +6,7 @@ import type {
   BrowserEvidence,
   PullRequest,
 } from "../domain/model";
+import type { AgentConfiguration } from "../domain/agents";
 import type { DomainEvent, EventInput, Delivery } from "../domain/events";
 export interface Repository {
   transaction<T>(fn: () => T): T;
@@ -61,6 +62,7 @@ export interface AgentPort {
     runId: string,
     context: Context,
     heartbeat: boolean,
+    configuration: AgentConfiguration,
   ): Promise<AgentResult>;
   repository(): Promise<unknown>;
 }
@@ -72,8 +74,11 @@ export interface EmbeddingPort {
   ): Promise<number[]>;
 }
 export interface BrowserPort {
-  inspect(runId: string): Promise<BrowserEvidence>;
-  artifact(path: string): Promise<Uint8Array>;
+  inspect(
+    runId: string,
+    configuration?: AgentConfiguration,
+  ): Promise<BrowserEvidence>;
+  artifact(path: string, worker?: string): Promise<Uint8Array>;
 }
 export interface Clock {
   now(): Date;

@@ -2,13 +2,17 @@ import { createHmac } from "node:crypto";
 import type { BrowserPort } from "../application/ports";
 import type { BrowserEvidence } from "../domain/model";
 import { Integrations } from "../server/integrations";
+import type { AgentConfiguration } from "../domain/agents";
 export class SpriteBrowser implements BrowserPort {
   constructor(
     private integrations: Integrations,
     private origin: string,
     private secret: string,
   ) {}
-  async inspect(runId: string): Promise<BrowserEvidence> {
+  async inspect(
+    runId: string,
+    configuration?: AgentConfiguration,
+  ): Promise<BrowserEvidence> {
     if (!/^https:\/\//.test(this.origin))
       throw Error(
         "Browser inspection requires the configured HTTPS workspace origin.",
@@ -34,20 +38,35 @@ export class SpriteBrowser implements BrowserPort {
         "?.textContent||location.hash.slice(1)",
         "?.querySelector('span')?.textContent||location.hash.slice(1)",
       );
-    const result = await this.integrations.sprite.execFile(
-      "bun",
-      ["-e", runnableScript, payload],
-      { timeout: 120000, maxBuffer: 1024 * 1024 },
-    );
+    const execute = async (
+      sprite: typeof this.integrations.sprite,
+      worker?: string,
+    ) => ({
+      ...(await sprite.execFile("bun", ["-e", runnableScript, payload], {
+        timeout: 120000,
+        maxBuffer: 1024 * 1024,
+      })),
+      worker,
+    });
+    const result =
+      typeof (this.integrations as any).withSprite === "function"
+        ? await this.integrations.withSprite(
+            configuration?.provider,
+            execute,
+          )
+        : await execute(this.integrations.sprite);
     if (result.exitCode !== 0)
       throw Error(
         String(result.stderr).slice(-1500) || "Browser inspection failed",
       );
-    return JSON.parse(String(result.stdout));
+    return { ...JSON.parse(String(result.stdout)), worker: result.worker };
   }
-  async artifact(path: string) {
+  async artifact(path: string, worker?: string) {
     if (!/^[\w-]+-\d+\.png$/.test(path)) throw Error("Invalid artifact");
-    const r = await this.integrations.sprite.execFile(
+    const r = await (worker
+      ? this.integrations.spriteByName(worker)
+      : this.integrations.sprite
+    ).execFile(
       "bun",
       [
         "-e",
