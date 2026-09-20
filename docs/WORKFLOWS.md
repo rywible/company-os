@@ -38,7 +38,7 @@ flowchart TD
 
 New commits invalidate the round before review publication and before signalling the worker. Duplicate event delivery cannot add reviewer votes. A failed transport can recover a valid stored agent result only when the Codex event log confirms a completed turn. Stale results remain auditable. Review policy is separate from the daily heartbeat budget; each round has at most five reviewers and correction loops stop after three unsuccessful rounds. General work cancellation prevents queued reviews and corrections from proceeding; an already dispatched remote operation may finish.
 
-The adapter rejects incomplete or oversized diffs instead of approving a partial review: up to 100 changed files, 240,000 characters of review evidence, and 100,000 characters per source file. Verification snapshots are bounded to 300 files and 5 MB. Large or binary-only changes require human review. Automatic correction verification also runs the Chrome integration suite, including the live DOM contract used by the browser inspection adapter. Chrome must be installed on the verification Sprite.
+The adapter rejects incomplete or oversized diffs instead of approving a partial review: up to 100 changed files, 320,000 characters of review evidence, and 100,000 characters per source file. Verification snapshots are bounded to 300 files and 5 MB. Large or binary-only changes require human review. Automatic correction verification also runs the Chrome integration suite, including the live DOM contract used by the browser inspection adapter. Chrome must be installed on the verification Sprite.
 
 ## Foreman and inbox
 

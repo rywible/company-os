@@ -48,6 +48,13 @@ export function fixture() {
     undefined,
     undefined,
     {
+      head: async (repository, number) => ({
+        repository,
+        number,
+        head: "abc123",
+        branch: "codex/example",
+        url: `https://github.com/${repository}/pull/${number}`,
+      }),
       inspect: async (repository, number) => ({
         pullRequest: {
           repository,
@@ -100,12 +107,10 @@ export function fixture() {
   }
   const snapshot = () => ({
     ...repo.state(),
-    documents: repo
-      .documents()
-      .map((d) => ({
-        ...d,
-        policy: repo.state().policies[d.id] || defaultPolicy(d),
-      })),
+    documents: repo.documents().map((d) => ({
+      ...d,
+      policy: repo.state().policies[d.id] || defaultPolicy(d),
+    })),
     deliveryErrors: repo.deliveryErrors(),
     configured: true,
     workflows: workflowDefinitions,

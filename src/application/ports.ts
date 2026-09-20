@@ -78,6 +78,7 @@ export interface Ids {
 }
 
 export interface PullRequestPort {
+  head(repository: string, number: number): Promise<PullRequest>;
   inspect(
     repository: string,
     number: number,

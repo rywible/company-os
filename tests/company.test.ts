@@ -418,6 +418,7 @@ function reviews() {
     url: "https://github.com/rywible/company-os/pull/7",
   });
   const adapter = {
+    head: async () => pr(),
     inspect: async () => ({
       pullRequest: pr(),
       files: [
@@ -684,4 +685,20 @@ test("recovered runs leave the active delivery-failure list while retaining the 
   await drain();
   expect(repo.deliveryErrors()).toHaveLength(0);
   expect(repo.events().some((e) => e.type === "RunFailed")).toBe(true);
+});
+
+test("head polling invalidates the old round even if the new diff cannot be assembled", async () => {
+  const gh = reviews();
+  await linked();
+  const d = repo.claim()!;
+  await company.deliver(d);
+  repo.acknowledge(d.id);
+  gh.setHead("oversized-new-head");
+  gh.adapter.inspect = async () => {
+    throw Error("Review context too large");
+  };
+  await company.pollPullRequests();
+  expect(repo.state().reviewRounds[0]!.status).toBe("superseded");
+  expect(repo.state().work[0]!.pullRequest!.head).toBe("oversized-new-head");
+  expect(repo.events().some((e) => e.type === "PullRequestUpdated")).toBe(true);
 });

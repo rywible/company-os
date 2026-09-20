@@ -1296,20 +1296,24 @@ export class Company {
       .state()
       .work.filter((w) => w.pullRequest && w.status !== "cancelled")) {
       try {
-        const snapshot = await this.pullRequests.inspect(
+        const current = await this.pullRequests.head(
           work.pullRequest!.repository,
           work.pullRequest!.number,
         );
-        if (snapshot.pullRequest.head !== work.pullRequest!.head)
+        if (current.head !== work.pullRequest!.head)
           this.repo.transaction(() => {
             const state = this.repo.state(),
               w = state.work.find((w) => w.id === work.id)!;
-            w.pullRequest = snapshot.pullRequest;
+            w.pullRequest = current;
             w.status = "review";
+            for (const round of state.reviewRounds.filter(
+              (r) => r.workId === w.id && r.pullRequest.head !== current.head,
+            ))
+              round.status = "superseded";
             this.emit(
               {
                 type: "PullRequestUpdated",
-                payload: { workId: w.id, head: snapshot.pullRequest.head },
+                payload: { workId: w.id, head: current.head },
               },
               "system",
               w.id,

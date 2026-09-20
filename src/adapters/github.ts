@@ -17,6 +17,20 @@ export class GitHubPullRequests implements PullRequestPort {
       method,
     );
   }
+  async head(repo: string, number: number): Promise<PullRequest> {
+    const p = await this.request(repo, `pulls/${number}`);
+    if (p.state !== "open") throw Error("Pull request is not open.");
+    if (p.head.repo?.full_name !== repo)
+      throw Error("Only same-repository branches can enter autonomous review.");
+    return {
+      repository: repo,
+      number,
+      head: p.head.sha,
+      branch: p.head.ref,
+      url: p.html_url,
+      description: String(p.body || "").slice(0, 12000),
+    };
+  }
   async inspect(repo: string, number: number) {
     const p = await this.request(repo, `pulls/${number}`);
     if (p.state !== "open") throw Error("Pull request is not open.");
@@ -66,7 +80,7 @@ export class GitHubPullRequests implements PullRequestPort {
         file.content = Buffer.from(blob.content, "base64").toString();
       }
       total += JSON.stringify(file).length;
-      if (total > 240000)
+      if (total > 320000)
         throw Error("PR exceeds the bounded review context. Split the work.");
       files.push(file);
     }
