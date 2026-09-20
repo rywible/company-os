@@ -87,7 +87,11 @@ routing until their future Anthropic or Meta credentials are configured.
 Company OS leases one compatible worker for each invocation and allows up to
 `WORKER_CONCURRENCY` durable deliveries to overlap. Each automation stores its
 provider, model and reasoning effort; Foreman’s defaults are editable in
-Settings. A run snapshots that selection when queued.
+Settings. Model and reasoning selectors use exact harness model IDs and
+model-specific effort support. Company OS refreshes the Codex catalog from an
+authenticated worker and caches it for 15 minutes, with seeds for temporary
+harness outages and future providers. Providers without an active worker are
+disabled. A run snapshots that selection when queued.
 
 ```sh
 bun run typecheck

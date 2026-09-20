@@ -2,6 +2,11 @@ import { expect, test } from "bun:test";
 import { SpriteAgent } from "../src/adapters/agents";
 import type { Integrations } from "../src/server/integrations";
 import type { Context, AgentResult } from "../src/domain/model";
+import {
+  configurationReasoningEfforts,
+  modelOption,
+  seededAgentCatalog,
+} from "../src/domain/agents";
 const context: Context = {
   query: "Review",
   scope: "company",
@@ -87,4 +92,27 @@ test("the selected provider, model and reasoning effort reach the compatible poo
     model: "llama-studio",
     reasoningEffort: "ultra",
   });
+});
+test("model selection uses exact dispatch ids and model-specific reasoning", () => {
+  const catalog = seededAgentCatalog();
+  const luna = {
+    provider: "openai" as const,
+    model: "gpt-5.6-luna",
+    reasoningEffort: "medium" as const,
+  };
+  expect(modelOption(catalog, luna)?.id).toBe("gpt-5.6-luna");
+  expect(configurationReasoningEfforts(catalog, luna)).toEqual([
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]);
+  expect(
+    modelOption(catalog, {
+      provider: "openai",
+      model: "",
+      reasoningEffort: "low",
+    })?.id,
+  ).toBe("gpt-5.6-sol");
 });

@@ -187,6 +187,8 @@ export const server = Bun.serve({
             })),
             deliveryErrors: repository.deliveryErrors(),
             configured: !!process.env.SPRITES_TOKEN,
+            agentCatalog: await integrations.agentCatalog(),
+            availableAgentProviders: integrations.agentProviders,
             workflows: workflowDefinitions,
           });
         if (path === "/api/commands" && req.method === "POST")

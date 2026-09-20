@@ -41,10 +41,13 @@ import type {
   Context,
   Policy,
 } from "../domain/model";
+import type { AgentCatalog, AgentProvider } from "../domain/agents";
 type Knowledge = Document & { policy: Policy };
 type Workspace = CompanyState & {
   documents: Knowledge[];
   configured: boolean;
+  agentCatalog: AgentCatalog;
+  availableAgentProviders: AgentProvider[];
   deliveryErrors: { id: string; error: string; attempts: number }[];
   workflows: { name: string; steps: string[] }[];
 };
@@ -1398,6 +1401,8 @@ function App() {
             {page === "Automation" && inboxView === "requests" && (
               <AutomationPage
                 state={state}
+                agentCatalog={state.agentCatalog}
+                availableAgentProviders={state.availableAgentProviders}
                 disabled={disabled}
                 command={command}
                 configured={state.configured}
@@ -1409,6 +1414,8 @@ function App() {
             {page === "Settings" && (
               <SettingsPage
                 settings={state.settings}
+                agentCatalog={state.agentCatalog}
+                availableAgentProviders={state.availableAgentProviders}
                 disabled={disabled}
                 command={command}
               />

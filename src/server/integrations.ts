@@ -1,7 +1,14 @@
 import { SpritesClient, ExecError } from "@fly/sprites";
 import { z } from "zod";
 import { foremanOutput, type ForemanOutput } from "../contracts";
-import type { AgentProvider } from "../domain/agents";
+import {
+  reasoningEffortSchema,
+  reasoningEffortsByProvider,
+  seededAgentCatalog,
+  type AgentCatalog,
+  type AgentModelOption,
+  type AgentProvider,
+} from "../domain/agents";
 
 const gatewayOrigin = "https://api.sprites.dev/v1/gateway";
 export const model = process.env.EMBEDDING_MODEL || "gemini-embedding-001";
@@ -101,6 +108,8 @@ class SpritePool {
 export class Integrations {
   private client?: SpritesClient;
   private workerPool?: SpritePool;
+  private catalogCache?: { expiresAt: number; value: AgentCatalog };
+  private catalogRequest?: Promise<AgentCatalog>;
   get pool() {
     if (!process.env.SPRITES_TOKEN)
       throw new Error("Configure SPRITES_TOKEN before starting the worker.");
@@ -109,6 +118,9 @@ export class Integrations {
   }
   get capacity() {
     return process.env.SPRITES_TOKEN ? this.pool.capacity : 0;
+  }
+  get agentProviders() {
+    return [...new Set(configuredWorkers().flatMap((worker) => [...worker.providers]))];
   }
   get spriteNames() {
     return process.env.SPRITES_TOKEN
@@ -259,6 +271,98 @@ export class Integrations {
       ready: r.exitCode === 0,
       detail: (String(r.stdout) + " " + String(r.stderr)).trim().slice(0, 300),
     };
+  }
+  async agentCatalog(): Promise<AgentCatalog> {
+    if (this.catalogCache && this.catalogCache.expiresAt > Date.now())
+      return this.catalogCache.value;
+    if (this.catalogRequest) return this.catalogRequest;
+    this.catalogRequest = this.loadAgentCatalog()
+      .then((value) => {
+        this.catalogCache = { expiresAt: Date.now() + 15 * 60_000, value };
+        return value;
+      })
+      .finally(() => {
+        this.catalogRequest = undefined;
+      });
+    return this.catalogRequest;
+  }
+  private async loadAgentCatalog(): Promise<AgentCatalog> {
+    const catalog = seededAgentCatalog();
+    if (!process.env.SPRITES_TOKEN) return catalog;
+    const openai = await this.codexModels().catch(() => []);
+    if (openai.length) catalog.openai = openai;
+    const connectorModels = async (
+      provider: "anthropic" | "meta",
+      connector: string | undefined,
+    ) => {
+      if (!connector) return [];
+      const response = await this.gateway(provider, connector, "v1/models");
+      const data = Array.isArray(response?.data) ? response.data : [];
+      return data
+        .filter((entry: any) => typeof entry?.id === "string")
+        .map(
+          (entry: any, index: number): AgentModelOption => ({
+            id: entry.id,
+            label: entry.display_name || entry.name || entry.id,
+            description: entry.description || "",
+            reasoningEfforts: reasoningEffortsByProvider[provider],
+            defaultReasoningEffort: "high",
+            isDefault: index === 0,
+          }),
+        );
+    };
+    const [anthropic, meta] = await Promise.all([
+      connectorModels("anthropic", process.env.ANTHROPIC_CONNECTOR_ID).catch(
+        () => [],
+      ),
+      connectorModels("meta", process.env.META_CONNECTOR_ID).catch(() => []),
+    ]);
+    if (anthropic.length) catalog.anthropic = anthropic;
+    if (meta.length) catalog.meta = meta;
+    return catalog;
+  }
+  private async codexModels(): Promise<AgentModelOption[]> {
+    const script = `const cp=await import('node:child_process');const rlmod=await import('node:readline');
+const child=cp.spawn('codex',['app-server'],{stdio:['pipe','pipe','inherit']});const lines=rlmod.createInterface({input:child.stdout});let done=false;
+const send=value=>child.stdin.write(JSON.stringify(value)+'\\n');const timer=setTimeout(()=>{child.kill();process.exit(1)},12000);
+lines.on('line',line=>{const message=JSON.parse(line);if(message.id===0){send({method:'initialized',params:{}});send({method:'model/list',id:1,params:{limit:100,includeHidden:false}})}else if(message.id===1){done=true;clearTimeout(timer);child.kill();process.stdout.write(JSON.stringify(message.result)+'\\n',()=>process.exit(0));}});
+child.on('exit',code=>{if(!done)process.exit(code===null?1:code)});send({method:'initialize',id:0,params:{clientInfo:{name:'company_os',title:'Company OS',version:'0.1.0'}}});`;
+    const result = await this.pool.use("openai", (sprite) =>
+      sprite.execFile("bun", ["-e", script], {
+        timeout: 15000,
+        maxBuffer: 1024 * 1024,
+      }),
+    );
+    if (result.exitCode !== 0) throw new Error("Codex model discovery failed.");
+    const response = JSON.parse(String(result.stdout));
+    if (!Array.isArray(response?.data)) return [];
+    return response.data.flatMap((entry: any): AgentModelOption[] => {
+      if (
+        typeof entry?.model !== "string" ||
+        typeof entry?.displayName !== "string"
+      )
+        return [];
+      const efforts = (entry.supportedReasoningEfforts || []).flatMap(
+        (option: any) => {
+          const parsed = reasoningEffortSchema.safeParse(option?.reasoningEffort);
+          return parsed.success ? [parsed.data] : [];
+        },
+      );
+      const fallback = reasoningEffortSchema.safeParse(
+        entry.defaultReasoningEffort,
+      );
+      return [
+        {
+          id: entry.model,
+          label: entry.displayName,
+          description:
+            typeof entry.description === "string" ? entry.description : "",
+          reasoningEfforts: efforts.length ? efforts : reasoningEffortsByProvider.openai,
+          defaultReasoningEffort: fallback.success ? fallback.data : "medium",
+          isDefault: entry.isDefault === true,
+        },
+      ];
+    });
   }
   async foreman(runId: string, prompt: string): Promise<ForemanOutput> {
     const schema = z.toJSONSchema(foremanOutput);

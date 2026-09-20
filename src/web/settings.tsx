@@ -2,14 +2,19 @@ import React, { useState } from "react";
 import type { Command, Settings } from "../domain/model";
 import { InstallCard } from "./platform";
 import { AgentConfigurationFields } from "./agent-configuration";
+import type { AgentCatalog, AgentProvider } from "../domain/agents";
 export type CommandHandler = (command: Command) => Promise<boolean>;
 
 export function SettingsPage({
   settings,
+  agentCatalog,
+  availableAgentProviders,
   disabled,
   command,
 }: {
   settings: Settings;
+  agentCatalog: AgentCatalog;
+  availableAgentProviders: AgentProvider[];
   disabled: boolean;
   command: CommandHandler;
 }) {
@@ -58,10 +63,13 @@ export function SettingsPage({
           </div>
           <AgentConfigurationFields
             value={foremanAgent}
+            catalog={agentCatalog}
+            availableProviders={availableAgentProviders}
             onChange={setForemanAgent}
           />
           <p className="field-help">
-            Leave model blank to use the provider’s current default.
+            Model IDs and supported reasoning levels come from the provider
+            harness. Provider default follows the harness recommendation.
           </p>
           <div className="actions">
             <button className="primary" disabled={disabled}>

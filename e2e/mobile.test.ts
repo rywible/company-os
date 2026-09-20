@@ -314,7 +314,7 @@ for (const backend of backends) {
         await fill(view, '[aria-label="Runs per day"]', "8");
         await fill(view, '[aria-label="Active idea limit"]', "3");
         await choose(view, '[aria-label="Agent provider"]', "anthropic");
-        await fill(view, '[aria-label="Agent model"]', "sonnet");
+        await choose(view, '[aria-label="Agent model"]', "sonnet");
         await choose(view, '[aria-label="Reasoning effort"]', "xhigh");
         await button(view, "Save task");
         await wait(view, `!document.querySelector('.task-editor')`);
@@ -756,7 +756,7 @@ for (const backend of backends) {
         );
         await button(view, "Foreman", ".section-tabs");
         await choose(view, '[aria-label="Agent provider"]', "meta");
-        await fill(view, '[aria-label="Agent model"]', "llama-studio");
+        await choose(view, '[aria-label="Agent model"]', "muse-spark-1.3");
         await choose(view, '[aria-label="Reasoning effort"]', "ultra");
         await button(view, "Save Foreman");
         await wait(
@@ -765,7 +765,7 @@ for (const backend of backends) {
         );
         expect(repo.state().settings.foremanAgent).toEqual({
           provider: "meta",
-          model: "llama-studio",
+          model: "muse-spark-1.3",
           reasoningEffort: "ultra",
         });
         await button(view, "Reviews", ".section-tabs");
@@ -855,7 +855,7 @@ test("empty workspace: author the constitution without starter documents or inve
   await nav(view, "Automation");
   expect(
     await view.evaluate<boolean>(
-      `document.querySelector('.task-toolbar button')?.classList.contains('primary') === true && ![...document.querySelectorAll('.automation-page button')].some((b) => ['Work in progress', 'Ideas and experiments'].includes(b.textContent?.trim() || ''))`,
+      `document.querySelector('.page-actions button')?.classList.contains('primary') === true && ![...document.querySelectorAll('.automation-page button')].some((b) => ['Work in progress', 'Ideas and experiments'].includes(b.textContent?.trim() || ''))`,
     ),
   ).toBe(true);
   expect(

@@ -1,7 +1,9 @@
 import React from "react";
 import {
+  configurationReasoningEfforts,
+  modelOption,
   providerLabel,
-  reasoningEffortsByProvider,
+  type AgentCatalog,
   type AgentConfiguration,
   type AgentProvider,
   type ReasoningEffort,
@@ -9,12 +11,21 @@ import {
 
 export function AgentConfigurationFields({
   value,
+  catalog,
+  availableProviders,
   onChange,
 }: {
   value: AgentConfiguration;
+  catalog: AgentCatalog;
+  availableProviders: AgentProvider[];
   onChange(value: AgentConfiguration): void;
 }) {
-  const available = reasoningEffortsByProvider[value.provider];
+  const models = catalog[value.provider],
+    selected = modelOption(catalog, value),
+    efforts = configurationReasoningEfforts(catalog, value),
+    savedModelMissing =
+      !!value.model && !models.some((entry) => entry.id === value.model),
+    savedEffortMissing = !efforts.includes(value.reasoningEffort);
   return (
     <div className="form-grid agent-configuration">
       <label>
@@ -24,32 +35,70 @@ export function AgentConfigurationFields({
           value={value.provider}
           onChange={(event) => {
             const provider = event.target.value as AgentProvider;
-            const options = reasoningEffortsByProvider[provider];
+            const recommended =
+              catalog[provider].find((entry) => entry.isDefault) ||
+              catalog[provider][0];
             onChange({
               ...value,
               provider,
-              reasoningEffort: options.includes(value.reasoningEffort)
-                ? value.reasoningEffort
-                : "high",
+              model: "",
+              reasoningEffort:
+                recommended?.defaultReasoningEffort || "high",
             });
           }}
         >
-          <option value="openai">Codex · OpenAI</option>
-          <option value="anthropic">Claude · Anthropic</option>
-          <option value="meta">Muse · Meta</option>
+          <option
+            value="openai"
+            disabled={!availableProviders.includes("openai")}
+          >
+            Codex · OpenAI
+          </option>
+          <option
+            value="anthropic"
+            disabled={!availableProviders.includes("anthropic")}
+          >
+            Claude · Anthropic
+          </option>
+          <option
+            value="meta"
+            disabled={!availableProviders.includes("meta")}
+          >
+            Muse · Meta
+          </option>
         </select>
       </label>
       <label>
         Model
-        <input
+        <select
           aria-label="Agent model"
-          maxLength={120}
-          placeholder="Provider default"
           value={value.model}
-          onChange={(event) =>
-            onChange({ ...value, model: event.target.value })
-          }
-        />
+          onChange={(event) => {
+            const model = event.target.value,
+              option = model
+                ? models.find((entry) => entry.id === model)
+                : models.find((entry) => entry.isDefault) || models[0];
+            onChange({
+              ...value,
+              model,
+              reasoningEffort:
+                option && !option.reasoningEfforts.includes(value.reasoningEffort)
+                  ? option.defaultReasoningEffort
+                  : value.reasoningEffort,
+            });
+          }}
+        >
+          <option value="">
+            Provider default{selected ? ` · ${selected.label}` : ""}
+          </option>
+          {savedModelMissing && (
+            <option value={value.model}>Saved · {value.model}</option>
+          )}
+          {models.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
       </label>
       <label>
         Reasoning effort
@@ -63,7 +112,12 @@ export function AgentConfigurationFields({
             })
           }
         >
-          {available.map((effort) => (
+          {savedEffortMissing && (
+            <option value={value.reasoningEffort}>
+              Saved · {value.reasoningEffort}
+            </option>
+          )}
+          {efforts.map((effort) => (
             <option key={effort} value={effort}>
               {effort}
             </option>

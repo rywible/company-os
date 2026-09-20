@@ -4,6 +4,7 @@ import { SQLiteRepository } from "../src/adapters/sqlite";
 import { Company } from "../src/application/company";
 import { defaultPolicy, type AgentResult } from "../src/domain/model";
 import { workflowDefinitions } from "../src/domain/workflows";
+import { seededAgentCatalog } from "../src/domain/agents";
 export function fixture(empty = false) {
   const store = empty
       ? new Store(":memory:")
@@ -191,6 +192,8 @@ export function fixture(empty = false) {
     })),
     deliveryErrors: repo.deliveryErrors(),
     configured: true,
+    agentCatalog: seededAgentCatalog(),
+    availableAgentProviders: ["openai", "anthropic", "meta"],
     workflows: workflowDefinitions,
   });
   return { store, repo, company, drain, snapshot };
