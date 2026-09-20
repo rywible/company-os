@@ -15,6 +15,7 @@ export const lensSchema = z.object({
   enabled: z.boolean(),
   intervalHours: z.number().int().min(1).max(720),
   exploratory: z.boolean(),
+  inspectUI: z.boolean().default(false),
   sources: z
     .array(
       z
@@ -181,6 +182,7 @@ export function initialDiscovery(): DiscoveryState {
         intervalHours,
         exploratory,
         enabled: true,
+        inspectUI: id === "users",
         sources: id === "outside" ? ["oven-sh/bun"] : [],
       }),
     ),

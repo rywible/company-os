@@ -790,7 +790,8 @@ export class Company {
       this.repo.save(state);
     });
     if (
-      work?.mode === "ui-inspection" &&
+      (work?.mode === "ui-inspection" ||
+        (run!.discoveryLensId && context.discovery?.lens.inspectUI)) &&
       !run!.reviewRoundId &&
       !context.browser
     ) {

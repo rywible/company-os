@@ -72,7 +72,7 @@ flowchart TD
   L -->|Harm or no benefit| Pushback[Inbox: reconsider this decision]
 ```
 
-**Discovery** exposes ideas, perspectives, signals, investigations and outcomes. Nine editable perspectives cover direction, users/workflows, product possibilities, engineering health, correctness/operations, outside developments, business viability, organizational learning, and subtraction. You can add or disable perspectives, change their question/cadence, and choose which count as exploratory.
+**Discovery** exposes ideas, perspectives, signals, investigations and outcomes. Nine editable perspectives cover direction, users/workflows, product possibilities, engineering health, correctness/operations, outside developments, business viability, organizational learning, and subtraction. You can add or disable perspectives, change their question/cadence, and choose which count as exploratory. The users/workflows perspective inspects the live interface before scouting by default; this evidence collection is editable per perspective.
 
 A heartbeat selects one due perspective. New signals can bring a check forward after a 15-minute cooldown. Overdue perspectives get priority to avoid starvation. By default, after three non-exploratory scouts, the next due exploratory perspective gets the reserved slot. This reservation is owed until an exploratory perspective is due; it does not consume an extra run. The master autonomy switch, daily run budget and open-work limit still apply. **Explore next** and per-perspective **Explore** consume the same daily budget. Discovery can be paused separately; committed delivery work continues under the master autonomy settings. Older queued `HeartbeatDue` events remain compatible.
 

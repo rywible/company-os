@@ -351,6 +351,7 @@ export function DiscoveryPage(p: Props) {
                 question: "",
                 enabled: true,
                 exploratory: true,
+                inspectUI: false,
                 intervalHours: 48,
                 sources: [],
               })
@@ -400,6 +401,16 @@ export function DiscoveryPage(p: Props) {
                     setEditing({ ...editing, question: e.target.value })
                   }
                 />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={editing.inspectUI}
+                  onChange={(e) =>
+                    setEditing({ ...editing, inspectUI: e.target.checked })
+                  }
+                />{" "}
+                Inspect the live interface before scouting
               </label>
               <label>
                 GitHub release sources (owner/repo, one per line)

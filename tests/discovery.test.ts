@@ -157,6 +157,8 @@ test("scout → investigation → inbox decision → delivery → outcome → in
     1,
   );
   expect(contexts[0]!.discovery?.phase).toBe("scout");
+  expect(contexts[0]!.browser?.url).toBe("https://test.example");
+  expect(contexts[0]!.evidenceRefs).toContain(`browser:${idea.runId}`);
   expect(contexts[1]!.discovery?.phase).toBe("investigation");
   expect(repo.document(idea.knowledgeId!)!.indexed_version).toBe(1);
   outputs.push(

@@ -99,6 +99,10 @@ export class SQLiteRepository implements Repository {
     );
     s.reviewRounds ||= [];
     s.discovery ||= initialDiscovery();
+    for (const lens of s.discovery.lenses) {
+      lens.inspectUI ??= lens.id === "users";
+      lens.sources ??= [];
+    }
     s.settings.requiredReviews ??= 2;
     s.settings.allowCodeChanges ??= false;
     return s;
