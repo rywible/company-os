@@ -9,11 +9,7 @@ import {
   AgentConfigurationFields,
   agentConfigurationSummary,
 } from "./agent-configuration";
-import {
-  defaultAgentConfiguration,
-  type AgentCatalog,
-  type AgentProvider,
-} from "../domain/agents";
+import { defaultAgentConfiguration } from "../domain/agents";
 const stamp = (at: string) =>
   new Date(at).toLocaleString(undefined, {
     month: "short",
@@ -24,16 +20,12 @@ const stamp = (at: string) =>
   });
 export function AutomationPage({
   state,
-  agentCatalog,
-  availableAgentProviders,
   disabled,
   command,
   configured,
   hasConstitution,
 }: {
   state: CompanyState;
-  agentCatalog: AgentCatalog;
-  availableAgentProviders: AgentProvider[];
   disabled: boolean;
   command: CommandHandler;
   configured: boolean;
@@ -110,8 +102,6 @@ export function AutomationPage({
         </div>
         <AgentConfigurationFields
           value={lens.agent}
-          catalog={agentCatalog}
-          availableProviders={availableAgentProviders}
           onChange={(agent) => setEditing({ ...lens, agent })}
         />
         <div className="form-grid">
