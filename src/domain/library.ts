@@ -54,6 +54,7 @@ export const libraryTask = (): Lens => ({
     "Maintain coherent subject pages from new documents and findings. Preserve evidence, decisions and uncertainty; bring changes of direction to the inbox.",
   enabled: true,
   intervalHours: 1,
+  schedule: "0 * * * *",
   dailyRunLimit: 6,
   maxActiveIdeas: 6,
   maxInvestigations: 2,

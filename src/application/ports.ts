@@ -39,6 +39,7 @@ export interface Repository {
     },
     actor?: string,
   ): Document;
+  archiveDocument(id: string, expectedVersion: number): void;
   search(
     query: string,
     vector?: number[],

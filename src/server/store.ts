@@ -167,6 +167,26 @@ export class Store {
       return this.document(id)!;
     })();
   }
+  archiveDocument(id: string, expectedVersion: number) {
+    const existing = this.document(id);
+    if (!existing) throw new Conflict("Document not found.");
+    if (existing.version !== expectedVersion)
+      throw new Conflict("This document changed. Reload before deleting.");
+    const now = new Date().toISOString();
+    this.removeVectors(id);
+    this.db.query("DELETE FROM document_fts WHERE document_id=?").run(id);
+    this.db
+      .query("UPDATE documents SET archived_at=? WHERE id=?")
+      .run(now, id);
+    this.db
+      .query(
+        "UPDATE jobs SET status='completed' WHERE entity_id=? AND status='queued'",
+      )
+      .run(id);
+    this.event("EVIDENCE_DELETED", "human", id, {
+      version: expectedVersion,
+    });
+  }
   removeVectors(id: string) {
     const rows = this.db
       .query("SELECT id FROM chunks WHERE document_id=?")

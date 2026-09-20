@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { permissionSchema } from "./permissions";
 import { agentConfigurationSchema, defaultAgentConfiguration } from "./agents";
+import { cronFromHours, nextCronOccurrence, validCron } from "./cron";
 const text = z.string().trim().min(1);
 export const experimentSchema = z.object({
   track: z.enum(["research", "bug", "feature"]),
@@ -18,7 +19,13 @@ export const lensSchema = z.object({
   kind: z.enum(["research", "knowledge", "planning", "task"]).optional(),
   permissions: z.array(permissionSchema).max(4).optional(),
   targetMilestones: z.number().int().min(1).max(5).optional(),
-  intervalHours: z.number().int().min(1).max(720),
+  schedule: z
+    .string()
+    .trim()
+    .max(100)
+    .refine(validCron, "Use a valid five-field cron schedule.")
+    .optional(),
+  intervalHours: z.number().int().min(1).max(720).optional(),
   dailyRunLimit: z.number().int().min(1).max(24).default(6),
   maxActiveIdeas: z.number().int().min(1).max(20).default(6),
   maxInvestigations: z.number().int().min(1).max(3).default(2),
@@ -171,6 +178,7 @@ export function initialDiscovery(): DiscoveryState {
       name,
       question,
       intervalHours,
+      schedule: cronFromHours(intervalHours),
       dailyRunLimit: 6,
       maxActiveIdeas: 6,
       maxInvestigations: 2,
@@ -187,8 +195,12 @@ export function selectLens(d: DiscoveryState, now: string): Lens | undefined {
     (l) =>
       l.enabled &&
       (!l.lastRunAt ||
-        Date.parse(l.lastRunAt) + l.intervalHours * 3600000 <=
-          Date.parse(now) ||
+        Date.parse(
+          nextCronOccurrence(
+            l.schedule || cronFromHours(l.intervalHours || 24),
+            l.lastRunAt,
+          ) || ""
+        ) <= Date.parse(now) ||
         (d.signals.some((s) => !s.consumedBy && s.lensIds.includes(l.id)) &&
           Date.parse(l.lastRunAt) + 15 * 60000 <= Date.parse(now))),
   );
@@ -196,11 +208,14 @@ export function selectLens(d: DiscoveryState, now: string): Lens | undefined {
     const attention = (l: Lens) =>
       d.signals.filter((s) => !s.consumedBy && s.lensIds.includes(l.id)).length;
     // Overdue perspectives take priority over recently checked, signalled ones.
-    const overdue = (l: Lens) =>
-      l.lastRunAt
-        ? (Date.parse(now) - Date.parse(l.lastRunAt)) /
-          (l.intervalHours * 3600000)
-        : 2;
+    const overdue = (l: Lens) => {
+      if (!l.lastRunAt) return 2;
+      const dueAt = nextCronOccurrence(
+        l.schedule || cronFromHours(l.intervalHours || 24),
+        l.lastRunAt,
+      );
+      return dueAt && Date.parse(now) >= Date.parse(dueAt) ? 2 : 0;
+    };
     return (
       Number(overdue(b) >= 2) - Number(overdue(a) >= 2) ||
       attention(b) - attention(a) ||

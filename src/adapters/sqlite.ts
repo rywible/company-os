@@ -12,6 +12,7 @@ import { initialDiscovery } from "../domain/discovery";
 import { Store } from "../server/store";
 import { initialState, policySchema, type CompanyState } from "../domain/model";
 import { defaultAgentConfiguration } from "../domain/agents";
+import { cronFromHours } from "../domain/cron";
 import {
   eventPayloads,
   type DomainEvent,
@@ -163,6 +164,7 @@ export class SQLiteRepository implements Repository {
       this.save(s);
     }
     for (const lens of s.discovery.lenses) {
+      lens.schedule ??= cronFromHours(lens.intervalHours || 24);
       lens.inspectUI ??= lens.id === "users";
       lens.sources ??= [];
       lens.agent ??= defaultAgentConfiguration();
@@ -337,6 +339,9 @@ export class SQLiteRepository implements Repository {
   }
   saveDocument(input: Parameters<Store["saveDocument"]>[0], actor = "human") {
     return this.store.saveDocument(input, actor, false);
+  }
+  archiveDocument(id: string, expectedVersion: number) {
+    this.store.archiveDocument(id, expectedVersion);
   }
   search(query: string, vector?: number[], model?: string, limit = 6) {
     return this.store.search(query, vector, model, limit);

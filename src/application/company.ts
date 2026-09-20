@@ -278,6 +278,14 @@ export class Company {
             !this.repo.document(cmd.attachment.id, cmd.attachment.version)
           )
             throw new DomainError("Attached revision does not exist.");
+          if (
+            cmd.attachment &&
+            !state.library.pages[cmd.attachment.id] &&
+            this.repo.document(cmd.attachment.id)?.level === "knowledge"
+          )
+            throw new DomainError(
+              "Evidence can be searched for Library maintenance, but cannot be attached to model context.",
+            );
           const thread: Thread = {
             id: this.ids.next(),
             kind: "conversation",
@@ -357,7 +365,7 @@ export class Company {
           const t = this.thread(state, cmd.threadId);
           t.status = cmd.status;
           t.updatedAt = this.now();
-          t.unread = false;
+          t.unread = cmd.status === "open";
           this.emit(
             {
               type: "ThreadStatusChanged",
@@ -563,6 +571,16 @@ export class Company {
             "human",
             d.id,
           );
+          break;
+        }
+        case "DeleteEvidence": {
+          const d = this.repo.document(cmd.documentId);
+          if (!d || d.level !== "knowledge" || state.library.pages[d.id])
+            throw new DomainError("Choose a source evidence record.");
+          this.repo.archiveDocument(d.id, cmd.expectedVersion);
+          delete state.library.pending[d.id];
+          delete state.library.processed[d.id];
+          delete state.policies[d.id];
           break;
         }
         case "WithdrawEvidenceReference": {
@@ -855,8 +873,7 @@ export class Company {
         (!requested &&
           maintenance.enabled &&
           (!maintenance.lastRunAt ||
-            Date.parse(maintenance.lastRunAt) +
-              maintenance.intervalHours * 3600000 <=
+            Date.parse(taskDueAt(state, maintenance) || "") <=
               Date.parse(this.now())) &&
           !taskBlocker(
             state,

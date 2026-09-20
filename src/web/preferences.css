@@ -6,26 +6,35 @@
   padding-bottom: 32px;
 }
 .section-tabs {
-  display: flex;
-  gap: 8px;
+  display: inline-flex;
+  gap: 4px;
   align-items: center;
-  border: 0;
-  margin-bottom: 32px;
+  flex-wrap: wrap;
+  padding: 4px;
+  background: var(--wash);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  margin-bottom: 26px;
+  width: fit-content;
+  max-width: 100%;
 }
 .section-tabs button {
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  padding: 9px 13px;
-  color: var(--ink);
-  background: var(--card);
-  box-shadow: var(--shadow-sm);
+  min-height: 34px;
+  border-radius: 999px;
+  border-color: transparent;
+  padding: 7px 14px;
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 600;
 }
 .section-tabs button:hover {
-  background: #fff;
-  border-color: var(--line-strong);
+  background: var(--wash-2);
+  border-color: transparent;
   color: var(--ink);
-  transform: translateY(-0.5px);
-  box-shadow: var(--shadow-sm);
+  transform: none;
+  box-shadow: none;
 }
 .section-tabs button[aria-pressed="true"],
 .section-tabs button[aria-selected="true"] {
@@ -34,6 +43,12 @@
   color: #fff;
   font-weight: 700;
   box-shadow: var(--shadow-sm);
+}
+.section-tabs button[aria-pressed="true"]:hover,
+.section-tabs button[aria-selected="true"]:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
 }
 .preference-section {
   padding: 26px 0;
@@ -90,10 +105,10 @@
   font-size: 13px;
 }
 .settings-page .install-card {
-  border: 0;
-  padding: 26px 0;
+  padding: 20px;
   margin: 0;
-  max-width: none;
+  max-width: 720px;
+  gap: 18px;
 }
 .automation-status {
   padding: 4px 0 24px;
@@ -214,12 +229,12 @@
 }
 @media (max-width: 760px) {
   .section-tabs {
-    gap: 8px;
+    gap: 4px;
     margin-bottom: 24px;
   }
   .section-tabs button {
-    font-size: 13px;
-    padding: 9px 11px;
+    font-size: 12px;
+    padding: 7px 12px;
   }
   .preference-heading,
   .automation-status {
@@ -289,6 +304,11 @@
   font-size: 13px;
   margin: 18px 0 8px;
 }
+.task-schedule code,
+.task-editor input[aria-label="Cron schedule"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.field-error { color: var(--danger); font-size: 12px; margin-top: 6px; display: block; }
 .task-status,
 .task-last-run {
   font-size: 12px;

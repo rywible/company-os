@@ -4,6 +4,8 @@ import type { CompanyState, Command, Context, Run } from "../domain/model";
 import { parseDocumentRef, type LibraryPage } from "../domain/library";
 import { libraryFreshness } from "../domain/freshness";
 import { documentRef } from "../domain/library";
+import { Modal } from "./modal";
+import { MessageCircle, Pencil, Trash2 } from "lucide-react";
 import "./library.css";
 type Props = {
   state: CompanyState & { documents: Document[] };
@@ -74,6 +76,8 @@ export function KnowledgeLibrary({
   const collections = [...new Set(pages.map(collectionOf))].sort();
   const document = state.documents.find((d) => d.id === selected),
     meta = document && state.library.pages[document.id];
+  const isEvidence =
+    document?.level === "knowledge" && !state.library.pages[document.id];
   useEffect(() => {
     setHistory(null);
     setSource(null);
@@ -87,6 +91,15 @@ export function KnowledgeLibrary({
   async function readSource(ref: string) {
     const parsed = parseDocumentRef(ref);
     if (!parsed) return;
+    const current = state.documents.find((d) => d.id === parsed.id);
+    if (
+      current?.level === "knowledge" &&
+      !state.library.pages[current.id]
+    ) {
+      setSelected(current.id);
+      setSource(null);
+      return;
+    }
     try {
       const result = await api(
         `/knowledge/${encodeURIComponent(parsed.id)}?version=${parsed.version}`,
@@ -125,7 +138,7 @@ export function KnowledgeLibrary({
         {markdown(source.content)}
       </article>
     );
-  if (document)
+  if (document && !isEvidence)
     return (
       <article className="library-reader">
         <button className="back" onClick={() => setSelected(null)}>
@@ -551,9 +564,24 @@ export function KnowledgeLibrary({
     : candidates;
   return (
     <section className="library-index" aria-label="Knowledge library">
-      <div className="library-tools">
+      {document && isEvidence && (
+        <EvidenceDialog
+          document={document}
+          disabled={disabled}
+          policy={state.policies[document.id] || {
+            inclusion: "reference",
+            status: "active",
+          }}
+          close={() => setSelected(null)}
+          command={command}
+          discuss={() => discuss(document)}
+          markdown={markdown}
+        />
+      )}
+      <div className="section-tabs library-tools" role="tablist" aria-label="Knowledge sections">
         <button
-          aria-pressed={!evidence}
+          role="tab"
+          aria-selected={!evidence}
           onClick={() => {
             setEvidence(false);
             setMatches(null);
@@ -563,7 +591,8 @@ export function KnowledgeLibrary({
           Library
         </button>
         <button
-          aria-pressed={evidence}
+          role="tab"
+          aria-selected={evidence}
           onClick={() => {
             setEvidence(true);
             setMatches(null);
@@ -646,6 +675,128 @@ export function KnowledgeLibrary({
         </p>
       )}
     </section>
+  );
+}
+
+function EvidenceDialog({
+  document,
+  policy,
+  disabled,
+  close,
+  command,
+  discuss,
+  markdown,
+}: {
+  document: Document;
+  policy: CompanyState["policies"][string];
+  disabled: boolean;
+  close(): void;
+  command(c: Command): Promise<boolean>;
+  discuss(): void;
+  markdown(content: string): React.ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(document.title);
+  const [content, setContent] = useState(document.content);
+  useEffect(() => {
+    setTitle(document.title);
+    setContent(document.content);
+  }, [document.id, document.version]);
+  return (
+    <Modal className="evidence-dialog" title="Evidence" close={close}>
+      {editing ? (
+        <form
+          className="editor evidence-editor"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void command({
+              type: "SaveKnowledge",
+              id: document.id,
+              expectedVersion: document.version,
+              title,
+              content,
+              level: "knowledge",
+              policy,
+            }).then((saved) => {
+              if (saved) setEditing(false);
+            });
+          }}
+        >
+          <label>
+            Title
+            <input
+              required
+              maxLength={160}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+          <label>
+            Evidence
+            <textarea
+              required
+              rows={14}
+              maxLength={24000}
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+            />
+          </label>
+          <div className="evidence-modal-actions">
+            <button type="button" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+            <button
+              className="primary"
+              disabled={disabled || !title.trim() || !content.trim()}
+            >
+              Save changes
+            </button>
+          </div>
+        </form>
+      ) : (
+        <article className="evidence-view">
+          <div className="evidence-heading">
+            <div>
+              <h2>{document.title}</h2>
+              <p className="library-meta">
+                Added {new Date(document.updated_at).toLocaleDateString()} · v
+                {document.version}
+              </p>
+            </div>
+            <button onClick={() => setEditing(true)} disabled={disabled}>
+              <Pencil size={15} /> Edit
+            </button>
+          </div>
+          <div className="library-body">{markdown(document.content)}</div>
+          <footer className="evidence-modal-actions">
+            <button onClick={discuss}>
+              <MessageCircle size={15} /> Discuss with Foreman
+            </button>
+            <button
+              className="danger-button"
+              disabled={disabled}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    "Delete this evidence entry? It will be removed from search and Library maintenance.",
+                  )
+                )
+                  return;
+                void command({
+                  type: "DeleteEvidence",
+                  documentId: document.id,
+                  expectedVersion: document.version,
+                }).then((deleted) => {
+                  if (deleted) close();
+                });
+              }}
+            >
+              <Trash2 size={15} /> Delete
+            </button>
+          </footer>
+        </article>
+      )}
+    </Modal>
   );
 }
 

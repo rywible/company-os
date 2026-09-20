@@ -202,6 +202,12 @@ export async function assembleContext(
     if (d.level === "constitution") {
       included = true;
       reason = "Constitution: always included";
+    } else if (
+      d.level === "knowledge" &&
+      !state.library.pages[d.id] &&
+      run?.trigger !== "maintenance"
+    ) {
+      reason = "Source evidence: searchable only for Library maintenance";
     } else if (pinned) {
       included = true;
       reason = `Explicit attachment at v${d.version}`;

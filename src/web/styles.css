@@ -280,8 +280,9 @@ kbd {
   color: var(--muted);
   background: transparent;
 }
-.filters button:hover { color: var(--ink); background: rgb(255 255 255 / 0.7); transform: none; }
+.filters button:hover { color: var(--ink); background: var(--wash-2); transform: none; }
 .filters .active { background: var(--ink); color: #fff; box-shadow: var(--shadow-sm); }
+.filters .active:hover { background: var(--ink); color: #fff; border-color: transparent; }
 
 /* Inbox */
 .thread-layout { min-width: 0; }
@@ -434,7 +435,7 @@ kbd {
   max-width: 100%; background: var(--wash); border: 1px solid var(--line);
   border-radius: 999px; padding: 4px 10px;
   font: 650 10.5px/1.4 ui-monospace, monospace;
-  letter-spacing: 0.02em; text-transform: lowercase;
+  letter-spacing: 0.02em; text-transform: capitalize;
   overflow-wrap: anywhere; white-space: nowrap; flex-shrink: 0;
 }
 .badge[data-status="running"], .badge[data-status="review"] { background: var(--info-wash); border-color: #b9ccff; color: #0a3fb8; }

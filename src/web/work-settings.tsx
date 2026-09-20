@@ -3,7 +3,10 @@ import type { Settings } from "../domain/model";
 import type { AgentRole } from "../domain/planning";
 import type { AgentCatalog, AgentProvider } from "../domain/agents";
 import type { CommandHandler } from "./settings";
-import { AgentConfigurationFields } from "./agent-configuration";
+import {
+  AgentConfigurationFields,
+  agentConfigurationSummary,
+} from "./agent-configuration";
 
 type Shared = { disabled: boolean; command: CommandHandler };
 export function RolesSettings({
@@ -18,11 +21,15 @@ export function RolesSettings({
 }) {
   return (
     <section className="preference-section">
-      <h2>Agent roles</h2>
-      <p className="muted">
-        Foreman chooses by purpose. You control the model and reasoning behind
-        each role. Queued runs keep their original configuration.
-      </p>
+      <div className="roles-heading">
+        <div>
+          <h2>Agent roles</h2>
+          <p className="muted">
+            Each role has one responsibility and its own execution profile.
+          </p>
+        </div>
+        <span>{settings.roles.filter((role) => role.enabled).length} active</span>
+      </div>
       <div className="role-list">
         {settings.roles.map((role) => (
           <RoleForm
@@ -53,8 +60,14 @@ function RoleForm({
   return (
     <details className="role-form">
       <summary>
-        {role.name}
-        <span>{role.enabled ? "Enabled" : "Paused"}</span>
+        <span className="role-identity">
+          <strong>{role.name}</strong>
+          <span>{role.purpose}</span>
+        </span>
+        <span className="role-profile">{agentConfigurationSummary(role.agent)}</span>
+        <span className="role-state" data-enabled={role.enabled}>
+          {role.enabled ? "Active" : "Paused"}
+        </span>
       </summary>
       <form
         className="editor"

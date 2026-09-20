@@ -946,6 +946,42 @@ test("editing raw evidence keeps it as evidence and invalidates dependents", () 
   expect(freshness()[page.id]?.status).toBe("needs_review");
 });
 
+test("raw evidence cannot be attached to ordinary model context", () => {
+  const raw = repo.saveDocument(
+    { title: "Private observation", content: "Raw notes", level: "knowledge" },
+    "foreman",
+  );
+  expect(() =>
+    company.execute({
+      type: "StartConversation",
+      subject: "Discuss an observation",
+      content: "What should we learn from this?",
+      attachment: { id: raw.id, version: raw.version },
+    }),
+  ).toThrow("cannot be attached to model context");
+});
+
+test("deleting evidence removes it from search and maintenance while retaining revision history", () => {
+  const raw = repo.saveDocument(
+    { title: "Disposable observation", content: "Temporary notes", level: "knowledge" },
+    "foreman",
+  );
+  const state = repo.state();
+  state.library.pending[raw.id] = raw.version;
+  repo.save(state);
+  company.execute({
+    type: "DeleteEvidence",
+    documentId: raw.id,
+    expectedVersion: raw.version,
+  });
+  expect(repo.document(raw.id)).toBeUndefined();
+  expect(repo.document(raw.id, raw.version)?.content).toBe("Temporary notes");
+  expect(repo.state().library.pending[raw.id]).toBeUndefined();
+  expect(repo.search("Temporary notes").map((result) => result.id)).not.toContain(
+    raw.id,
+  );
+});
+
 test("human review proposals remain withheld and source changes invalidate pending acceptance", async () => {
   const source = save("Constitution", "Direction", "constitution");
   const page = linked("Manual account", [documentRef(source)], false);

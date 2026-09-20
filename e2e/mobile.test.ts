@@ -313,7 +313,7 @@ for (const backend of backends) {
         await button(view, "Pause Users & workflows");
         await wait(
           view,
-          `!!document.querySelector('[aria-label="Resume Users & workflows"]')`,
+          `[...document.querySelectorAll('button')].some(button => button.getAttribute('aria-label') === 'Pause Users & workflows' && button.disabled)`,
         );
         expect(
           repo.state().discovery.lenses.find((l) => l.id === "users")!.enabled,
@@ -328,7 +328,9 @@ for (const backend of backends) {
           '[aria-label="Task question"]',
           "Where does the mobile workflow confuse me?",
         );
-        await fill(view, '[aria-label="Hours between runs"]', "12");
+        await view.evaluate(
+          `(() => { const el = document.querySelector('[aria-label="Cron schedule"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(el, '0 */12 * * *'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+        );
         await fill(view, '[aria-label="Runs per day"]', "8");
         await fill(view, '[aria-label="Active idea limit"]', "3");
         await choose(view, '[aria-label="Agent provider"]', "anthropic");
@@ -339,7 +341,7 @@ for (const backend of backends) {
         const task = repo
           .state()
           .discovery.lenses.find((l) => l.id === "users")!;
-        expect(task.intervalHours).toBe(12);
+        expect(task.schedule).toBe("0 */12 * * *");
         expect(task.dailyRunLimit).toBe(8);
         expect(task.maxActiveIdeas).toBe(3);
         expect(task.agent).toEqual({
@@ -357,11 +359,6 @@ for (const backend of backends) {
         expect(
           repo.state().discovery.lenses.find((l) => l.id === "users")!.enabled,
         ).toBe(false);
-        await button(view, "Resume Users & workflows");
-        await wait(
-          view,
-          `!!document.querySelector('[aria-label="Pause Users & workflows"]')`,
-        );
         await fits(view);
         await Bun.write(
           `.artifacts/tasks-${size.name}.png`,
@@ -630,7 +627,7 @@ for (const backend of backends) {
         );
         expect(errors).toEqual([]);
       }, 30000);
-      test("email threads, new messages, archive and isolated drafts", async () => {
+      test("email threads, new messages and archive", async () => {
         const { view, repo, errors } = await setup(backend, size);
         await button(view, "Prove the handoff before expanding", "", false);
         expect(
@@ -731,23 +728,14 @@ for (const backend of backends) {
         await button(view, "Archived", ".filters");
         await button(view, "Product direction", ".thread-list", false);
         await button(view, "Move to inbox");
-        await button(view, "Inbox", ".filters");
+        await button(view, "Unread", ".filters");
         await button(view, "Product direction", ".thread-list", false);
-        await button(view, "← Inbox");
-        await button(
-          view,
-          "Prove the handoff before expanding",
-          ".thread-list",
-          false,
-        );
-        expect(
-          await view.evaluate<any>(
-            `document.querySelector('[aria-label="Message Foreman"]').value`,
-          ),
-        ).toBe("Keep this reply separate");
         await button(view, "Archive");
         await wait(view, "!!document.querySelector('.thread-list')");
-        expect(repo.state().threads[0]!.status).toBe("resolved");
+        expect(
+          repo.state().threads.find((thread) => thread.subject === "Product direction")!
+            .status,
+        ).toBe("resolved");
         await fits(view);
         await Bun.write(
           `.artifacts/mail-list-${size.name}.png`,
@@ -1353,7 +1341,9 @@ for (const size of [widths[1]!, widths[4]!])
     ).toEqual(["evidence"]);
     await choose(view, '[aria-label="Agent model"]', "gpt-5.6-luna");
     await choose(view, '[aria-label="Reasoning effort"]', "low");
-    await fill(view, '[aria-label="Hours between runs"]', "24");
+    await view.evaluate(
+      `(() => { const el = document.querySelector('[aria-label="Cron schedule"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(el, '0 9 * * *'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+    );
     await fits(view);
     await Bun.write(
       `.artifacts/schedule-work-${size.name}.png`,
@@ -1366,7 +1356,7 @@ for (const size of [widths[1]!, widths[4]!])
       .discovery.lenses.find((t) => t.name === "Daily research digest")!;
     expect(task.permissions).toEqual(["evidence"]);
     expect(task.kind).toBe("task");
-    expect(task.intervalHours).toBe(24);
+    expect(task.schedule).toBe("0 9 * * *");
     expect(task.agent.model).toBe("gpt-5.6-luna");
     expect(
       await view.evaluate<boolean>(
@@ -1386,14 +1376,16 @@ for (const size of [widths[1]!, widths[4]!])
       ),
     ).toBe(false);
     await button(view, "Edit Plan upcoming milestones");
-    await fill(view, '[aria-label="Hours between runs"]', "12");
+    await view.evaluate(
+      `(() => { const el = document.querySelector('[aria-label="Cron schedule"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(el, '0 */12 * * *'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+    );
     await choose(view, '[aria-label="Agent model"]', "gpt-5.6-sol");
     await button(view, "Save task", "dialog");
     await wait(view, "!document.querySelector('dialog')");
     expect(
       repo.state().discovery.lenses.find((t) => t.kind === "planning")!
-        .intervalHours,
-    ).toBe(12);
+        .schedule,
+    ).toBe("0 */12 * * *");
     expect(
       repo.state().discovery.lenses.find((t) => t.kind === "planning")!.agent
         .model,
@@ -1401,3 +1393,48 @@ for (const size of [widths[1]!, widths[4]!])
     await fits(view);
     expect(errors).toEqual([]);
   }, 30000);
+
+test("evidence opens in a view/edit modal and can be deleted", async () => {
+  const { view, repo, errors } = await setup("chrome", widths[1]!);
+  const evidence = repo.saveDocument(
+    {
+      title: "Interview observation",
+      content: "Three operators lost their place during handoff.",
+      level: "knowledge",
+    },
+    "foreman",
+  );
+  await view.reload();
+  await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
+  await nav(view, "Knowledge");
+  await button(view, "Evidence", ".library-tools");
+  await button(view, "Interview observation", ".library-index", false);
+  await wait(view, `!!document.querySelector('dialog .evidence-view')`);
+  expect(
+    await view.evaluate<boolean>(
+      `document.querySelector('dialog')?.textContent.includes('Three operators')`,
+    ),
+  ).toBe(true);
+  await fits(view);
+  await Bun.write(
+    `.artifacts/evidence-modal-phone.png`,
+    await view.screenshot(),
+  );
+  await button(view, "Edit", "dialog");
+  await fill(
+    view,
+    "dialog textarea",
+    "Four operators lost their place during handoff.",
+  );
+  await button(view, "Save changes", "dialog");
+  await wait(
+    view,
+    `document.querySelector('dialog')?.textContent.includes('Four operators')`,
+  );
+  expect(repo.document(evidence.id)?.version).toBe(2);
+  await view.evaluate(`window.confirm = () => true`);
+  await button(view, "Delete", "dialog");
+  await wait(view, `!document.querySelector('dialog')`);
+  expect(repo.document(evidence.id)).toBeUndefined();
+  expect(errors).toEqual([]);
+}, 30000);

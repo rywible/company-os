@@ -328,6 +328,11 @@ export const commandSchema = z.discriminatedUnion("type", [
     status: z.enum(["active", "retired"]),
   }),
   z.object({
+    type: z.literal("DeleteEvidence"),
+    documentId: text,
+    expectedVersion: z.number().int().positive(),
+  }),
+  z.object({
     type: z.literal("WithdrawEvidenceReference"),
     reference: text.max(500),
     reason: text.max(1000),

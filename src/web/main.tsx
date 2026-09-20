@@ -333,7 +333,7 @@ function App() {
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
   const [selectedWork, setSelectedWork] = useState<string | null>(null),
     [trackFilter, setTrackFilter] = useState("all"),
-    [inboxFilter, setInboxFilter] = useState("open"),
+    [inboxFilter, setInboxFilter] = useState("unread"),
     [constitutionHistory, setConstitutionHistory] = useState<any[] | null>(
       null,
     ),
@@ -735,17 +735,13 @@ function App() {
                   <section className="thread-list" aria-label="Inbox threads">
                     {page === "Inbox" && (
                       <div className="filters">
-                        {["open", "resolved", "all"].map((f) => (
+                        {["unread", "resolved"].map((f) => (
                           <button
                             key={f}
                             className={inboxFilter === f ? "active" : ""}
                             onClick={() => setInboxFilter(f)}
                           >
-                            {f === "open"
-                              ? "Inbox"
-                              : f === "resolved"
-                                ? "Archived"
-                                : "All mail"}
+                            {f === "unread" ? "Unread" : "Archived"}
                           </button>
                         ))}
                       </div>
@@ -753,9 +749,8 @@ function App() {
                     {state.threads
                       .filter(
                         (t) =>
-                          inboxFilter === "all" ||
-                          (inboxFilter === "open"
-                            ? t.status !== "resolved"
+                          (inboxFilter === "unread"
+                            ? t.unread && t.status !== "resolved"
                             : t.status === "resolved"),
                       )
                       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -782,9 +777,8 @@ function App() {
                       ))}
                     {!state.threads.some(
                       (t) =>
-                        inboxFilter === "all" ||
-                        (inboxFilter === "open"
-                          ? t.status !== "resolved"
+                        (inboxFilter === "unread"
+                          ? t.unread && t.status !== "resolved"
                           : t.status === "resolved"),
                     ) && (
                       <Empty
@@ -1555,8 +1549,19 @@ function App() {
                   )
                 }
                 discuss={(d) => {
-                  setAttachment({ id: d.id, version: d.version });
-                  setDraftSubject(d.title);
+                  const sourceEvidence =
+                    d.level === "knowledge" && !state.library.pages[d.id];
+                  setAttachment(
+                    sourceEvidence
+                      ? undefined
+                      : { id: d.id, version: d.version },
+                  );
+                  setDraftSubject(`Discuss ${d.title}`);
+                  if (sourceEvidence)
+                    setDrafts((drafts) => ({
+                      ...drafts,
+                      new: `I want to discuss the evidence entry “${d.title}” without adding its contents to model context. `,
+                    }));
                   setComposeOpen(true);
                 }}
                 markdown={(content) => <Markdown>{content}</Markdown>}

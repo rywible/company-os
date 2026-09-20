@@ -3,6 +3,7 @@ import { hasLibraryWork, libraryFreshness } from "./freshness";
 import type { CompanyState, Run } from "./model";
 import { automationPermissions } from "./permissions";
 import type { Lens } from "./discovery";
+import { cronFromHours, nextCronOccurrence } from "./cron";
 export const activeIdea = (idea: { status: string }) =>
   ["candidate", "investigating", "ready", "pursued", "evaluating"].includes(
     idea.status,
@@ -48,13 +49,19 @@ export function taskDueAt(state: CompanyState, lens: Lens) {
     state.discovery.signals.some(
       (s) => !s.consumedBy && s.lensIds.includes(lens.id),
     );
-  return new Date(
-    Date.parse(lens.lastRunAt) +
-      (signalled
-        ? Math.min(lens.intervalHours * 60, 15)
-        : lens.intervalHours * 60) *
-        60000,
-  ).toISOString();
+  const scheduled = nextCronOccurrence(
+    lens.schedule || cronFromHours(lens.intervalHours || 24),
+    lens.lastRunAt,
+  );
+  if (!scheduled) return null;
+  return signalled
+    ? new Date(
+        Math.min(
+          Date.parse(scheduled),
+          Date.parse(lens.lastRunAt) + 15 * 60000,
+        ),
+      ).toISOString()
+    : scheduled;
 }
 export function runCanProceed(state: CompanyState, run: Run) {
   if (

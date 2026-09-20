@@ -138,7 +138,7 @@ export function SettingsPage({
               checked={allow}
               onChange={(e) => setAllow(e.target.checked)}
             />{" "}
-            Allow verified code corrections
+            Let agents apply fixes requested in review
           </label>
           <p className="field-help">
             Corrections are limited to linked codex/ branches and must pass
@@ -150,16 +150,6 @@ export function SettingsPage({
             </button>
             {saved && <span role="status">Saved</span>}
           </div>
-          <details className="preference-note">
-            <summary>How reviews work</summary>
-            <p>
-              New commits restart review. The original worker receives the
-              combined findings; three unsuccessful rounds reach your inbox.
-              Reviews use separate agent runs with the owning automation’s
-              profile or the Foreman default. They share one GitHub account, so
-              they do not count as independent GitHub account approvals.
-            </p>
-          </details>
         </form>
       )}
     </div>

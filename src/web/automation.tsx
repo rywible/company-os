@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import type { CompanyState } from "../domain/model";
 import {
   automationPermissions,
-  permissionLabels,
   type AutomationPermission,
 } from "../domain/permissions";
 import type { Lens } from "../domain/discovery";
@@ -19,6 +18,7 @@ import {
   type AgentCatalog,
   type AgentProvider,
 } from "../domain/agents";
+import { cronFromHours, validCron } from "../domain/cron";
 const stamp = (at: string) =>
   new Date(at).toLocaleString(undefined, {
     month: "short",
@@ -27,6 +27,12 @@ const stamp = (at: string) =>
     minute: "2-digit",
     timeZoneName: "short",
   });
+const permissionDescriptions: Record<AutomationPermission, string> = {
+  evidence: "Add searchable evidence",
+  knowledge: "Create and update Library pages",
+  milestones: "Propose milestones for approval",
+  investigate: "Investigate ideas and recommend work",
+};
 export function AutomationPage({
   state,
   agentCatalog,
@@ -62,6 +68,7 @@ export function AutomationPage({
       question: "",
       enabled: true,
       intervalHours: 24,
+      schedule: "0 9 * * *",
       dailyRunLimit: 6,
       maxActiveIdeas: 6,
       maxInvestigations: 2,
@@ -114,21 +121,25 @@ export function AutomationPage({
             onChange={(e) => setEditing({ ...lens, question: e.target.value })}
           />
         </label>
-        <label className="check">
+        <label>
+          Schedule
           <input
-            type="checkbox"
-            checked={lens.enabled}
-            onChange={(e) => setEditing({ ...lens, enabled: e.target.checked })}
-          />{" "}
-          Run on a schedule
+            required
+            aria-label="Cron schedule"
+            aria-invalid={
+              !validCron(lens.schedule || cronFromHours(lens.intervalHours || 24))
+            }
+            value={lens.schedule || cronFromHours(lens.intervalHours || 24)}
+            onChange={(e) =>
+              setEditing({ ...lens, schedule: e.target.value })
+            }
+            placeholder="0 9 * * 1-5"
+          />
+          {!validCron(
+            lens.schedule || cronFromHours(lens.intervalHours || 24),
+          ) && <span className="field-error">Use a five-field cron schedule.</span>}
         </label>
-        <div>
-          <h3>Execution profile</h3>
-          <p className="field-help">
-            Foreman uses this model for this automation. Your Inbox
-            conversations keep their own model.
-          </p>
-        </div>
+        <h3>Execution profile</h3>
         <AgentConfigurationFields
           value={lens.agent}
           catalog={agentCatalog}
@@ -136,8 +147,8 @@ export function AutomationPage({
           onChange={(agent) => setEditing({ ...lens, agent })}
         />
         <fieldset className="automation-permissions">
-          <legend>Allowed changes</legend>
-          {(Object.keys(permissionLabels) as AutomationPermission[])
+          <legend>Permissions</legend>
+          {(Object.keys(permissionDescriptions) as AutomationPermission[])
             .filter((p) =>
               lens.kind === "knowledge"
                 ? p === "knowledge"
@@ -164,18 +175,12 @@ export function AutomationPage({
                     })
                   }
                 />
-                {permissionLabels[permission]}
+                {permissionDescriptions[permission]}
               </label>
             ))}
-          <p className="field-help">
-            All automations can read relevant context. Only the selected changes
-            are permitted. Milestones still require your approval; company
-            direction remains yours to edit.
-          </p>
         </fieldset>
         <div className="form-grid">
           {[
-            { key: "intervalHours", label: "Hours between runs", max: 720 },
             { key: "dailyRunLimit", label: "Runs per day", max: 24 },
             { key: "maxActiveIdeas", label: "Active idea limit", max: 20 },
             {
@@ -189,7 +194,7 @@ export function AutomationPage({
               (f) =>
                 !lens.kind ||
                 lens.kind === "research" ||
-                ["intervalHours", "dailyRunLimit"].includes(f.key),
+                f.key === "dailyRunLimit",
             )
             .map((f) => (
               <label key={f.key}>
@@ -224,20 +229,8 @@ export function AutomationPage({
                 })
               }
             />
-            <span className="field-help">
-              Wait for capacity when this many milestones are proposed, active
-              or paused.
-            </span>
           </label>
         )}
-        <p className="field-help">
-          {lens.kind === "knowledge"
-            ? "Maintenance runs only when new evidence is waiting. Each pass processes up to three sources. "
-            : !lens.kind || lens.kind === "research"
-              ? "These limits cover this task’s research, investigations, delivery and outcome checks. "
-              : "This automation follows its own cadence and run allowance. "}
-          The daily limit resets at midnight UTC.
-        </p>
         {lens.kind !== "knowledge" && (
           <>
             <label className="check">
@@ -263,7 +256,15 @@ export function AutomationPage({
           </>
         )}
         <div className="actions">
-          <button className="primary" disabled={disabled}>
+          <button
+            className="primary"
+            disabled={
+              disabled ||
+              !validCron(
+                lens.schedule || cronFromHours(lens.intervalHours || 24),
+              )
+            }
+          >
             Save task
           </button>
           <button type="button" onClick={close}>
@@ -326,37 +327,36 @@ export function AutomationPage({
                         }
                       >
                         <span className="dot" aria-hidden="true" />
-                        {live ? "live" : "paused"}
+                        {lens.enabled ? (live ? "Live" : "Waiting") : "Paused"}
                       </span>
                     </p>
                     <h2>{lens.name}</h2>
                     <p>{lens.question}</p>
                   </div>
                   <button
-                    disabled={disabled}
-                    aria-label={`${lens.enabled ? "Pause" : "Resume"} ${lens.name}`}
+                    disabled={disabled || !lens.enabled}
+                    aria-label={`Pause ${lens.name}`}
                     onClick={() =>
                       void command({
                         type: "SaveDiscoveryLens",
-                        lens: { ...lens, enabled: !lens.enabled },
+                        lens: { ...lens, enabled: false },
                       })
                     }
                   >
-                    {lens.enabled ? "Pause" : "Resume"}
+                    Pause
                   </button>
                 </div>
                 <p className="task-schedule">
-                  Every {lens.intervalHours}{" "}
-                  {lens.intervalHours === 1 ? "hour" : "hours"}. {used} of{" "}
-                  {lens.dailyRunLimit} runs used today.
+                  <code>{lens.schedule || cronFromHours(lens.intervalHours || 24)}</code>
+                  {" · "}{used} of {lens.dailyRunLimit} runs used today.
                 </p>
                 <p className="task-model">
                   {agentConfigurationSummary(lens.agent)}
                 </p>
                 <p className="task-permissions">
-                  Allowed changes:{" "}
+                  Permissions:{" "}
                   {automationPermissions(lens)
-                    .map((p) => permissionLabels[p].toLowerCase())
+                    .map((p) => permissionDescriptions[p].toLowerCase())
                     .join(", ") || "read only"}
                 </p>
                 <div

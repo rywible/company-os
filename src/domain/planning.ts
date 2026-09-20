@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { agentConfigurationSchema, defaultAgentConfiguration } from "./agents";
+import { cronFromHours } from "./cron";
 const text = z.string().trim().min(1);
 export const roleSchema = z.object({
   id: text.regex(/^[a-z][a-z0-9-]*$/).max(60),
@@ -208,6 +209,7 @@ export function planningAutomation(
       "Review company direction, existing work and evidence. Propose useful next milestones with clear outcomes, acceptance criteria and bounded authority. Decompose the work internally, establish interfaces first and parallelize independent streams. Do not duplicate existing milestones or manufacture busywork.",
     enabled: state.enabled,
     intervalHours: state.intervalHours,
+    schedule: cronFromHours(state.intervalHours),
     dailyRunLimit: state.dailyRunLimit,
     targetMilestones: state.targetMilestones,
     maxActiveIdeas: 6,
