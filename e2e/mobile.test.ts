@@ -782,9 +782,14 @@ for (const backend of backends) {
         });
         await button(view, "Reviews", ".section-tabs");
         await fill(view, 'input[type="number"][max="5"]', "3");
+        await click(view, '.settings-page input[type="checkbox"]');
+        await fill(view, '.settings-page textarea', "Playtest the complete player journey.");
+        expect(await view.evaluate<boolean>(`document.querySelector('.settings-page').innerText.includes('project')`)).toBe(false);
+        expect(await view.evaluate<boolean>(`document.querySelector('.settings-page').innerText.includes('Command')`)).toBe(false);
         await button(view, "Save review policy");
         await wait(view, `!document.querySelector('button.primary:disabled')`);
         expect(repo.state().settings.requiredReviews).toBe(3);
+        expect(repo.state().settings.delivery.milestoneRequirements).toBe("Playtest the complete player journey.");
         expect(repo.state().settings.delivery.correctionRounds).toBe(2);
         expect(repo.state().settings.delivery.autoMerge).toBe(true);
         await fits(view);

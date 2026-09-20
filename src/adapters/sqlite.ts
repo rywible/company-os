@@ -1,4 +1,4 @@
-import { initialDeliveryPolicy } from "../domain/delivery";
+import { migrateDeliveryPolicy } from "../domain/delivery";
 import {
   initialPlanning,
   planningAutomation,
@@ -199,7 +199,16 @@ export class SQLiteRepository implements Repository {
       }
     if (assignedAuthority) this.save(s);
     delete s.settings.objective;
-    s.settings.delivery ??= initialDeliveryPolicy();
+    s.settings.delivery = migrateDeliveryPolicy(s.settings.delivery);
+    for (const milestone of s.planning.milestones)
+      if (milestone.delivery)
+        milestone.delivery.policy = migrateDeliveryPolicy(
+          milestone.delivery.policy,
+        );
+    for (const run of s.runs)
+      if (run.status !== "completed" && run.context?.acceptance?.policy)
+        delete run.context.acceptance;
+
     for (const work of s.work.filter(
       (w: any) => w.pullRequest && !w.reviewProgress,
     )) {

@@ -8,7 +8,7 @@ const pr = {
   branch: "codex/correction",
   url: "https://github.com/rywible/company-os/pull/12",
 };
-function fixture(fail = false) {
+function fixture() {
   const calls: { path: string; body: any; method?: string }[] = [];
   let tests = 0;
   const gateway = async (
@@ -59,20 +59,9 @@ function fixture(fail = false) {
   };
   const port = {
     gateway,
-    executePayload: async (_s: string, p: any) => {
+    executePayload: async () => {
       tests++;
-      expect(p.changes[0].path).toBe("src/example.ts");
-      return {
-        exitCode: fail ? 1 : 0,
-        stderr: fail ? "test failed" : "",
-        stdout: JSON.stringify(
-          p.checks.map((c: any) => ({
-            name: c.name,
-            passed: true,
-            output: "passed",
-          })),
-        ),
-      };
+      throw Error("Checks belong in repository CI");
     },
   };
   return {
@@ -82,7 +71,7 @@ function fixture(fail = false) {
     tests: () => tests,
   };
 }
-test("review publication is pinned and correction publishing follows successful verification without force", async () => {
+test("review publication is pinned and corrections publish for repository CI without local commands", async () => {
   const f = fixture();
   await f.adapter.publishReview(pr, "review-id", "Summary", [], "approve");
   expect(f.calls.at(-1)!.body).toMatchObject({
@@ -92,21 +81,12 @@ test("review publication is pinned and correction publishing follows successful 
   const updated = await f.adapter.revise(pr, "run-id", [
     { path: "src/example.ts", content: "fixed" },
   ]);
-  expect(f.tests()).toBe(1);
+  expect(f.tests()).toBe(0);
   expect(updated.head).toBe("next-commit");
   expect(f.calls.at(-1)).toMatchObject({
     method: "PATCH",
     body: { sha: "next-commit", force: false },
   });
-});
-test("failed verification never creates or updates GitHub objects", async () => {
-  const f = fixture(true);
-  await expect(
-    f.adapter.revise(pr, "run-id", [
-      { path: "src/example.ts", content: "fixed" },
-    ]),
-  ).rejects.toThrow("verification");
-  expect(f.calls.some((c) => !!c.body)).toBe(false);
 });
 test("corrections cannot write configuration, escape source paths or target an unapproved branch", async () => {
   const f = fixture();
@@ -186,6 +166,19 @@ test("integration publishes only the tested merge candidate and never force upda
   const writes: any[] = [];
   const adapter = new GitHubPullRequests({
     gateway: async (_p: string, _c: unknown, path: string, body?: any) => {
+      if (path.includes("/check-runs?"))
+        return {
+          check_runs: [
+            {
+              head_sha: "tested-merge",
+              name: "CI",
+              status: "completed",
+              conclusion: "success",
+            },
+          ],
+        };
+      if (path.includes("/check-suites?")) return { check_suites: [] };
+      if (path.includes("/status?")) return { statuses: [] };
       if (path.endsWith("commits/main")) return { sha: base };
       if (path.includes("compare/")) return { status: "diverged" };
       if (path.endsWith("pulls/12"))
@@ -225,71 +218,109 @@ test("integration publishes only the tested merge candidate and never force upda
   expect(writes).toHaveLength(1);
 });
 
-test("engineering authority is rechecked after verification before any GitHub writes", async () => {
+test("engineering authority is checked before any GitHub writes", async () => {
   const f = fixture();
   await expect(
     f.adapter.revise(
       pr,
       "run-id",
       [{ path: "src/example.ts", content: "fixed" }],
-      undefined,
       () => false,
     ),
   ).rejects.toThrow("revoked");
-  expect(f.tests()).toBe(1);
+  expect(f.tests()).toBe(0);
   expect(f.calls.some((c) => !!c.body)).toBe(false);
 });
 
-test("verification checks cannot silently change the source that will be published", async () => {
-  const { mkdtemp, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const root = await mkdtemp(tmpdir() + "/company-verification-");
-  try {
-    const f = fixture();
-    f.port.executePayload = async (script: string, payload: any) => {
-      const file = root + "/input.json";
-      await Bun.write(file, JSON.stringify(payload));
-      const child = Bun.spawn(
-        [
-          process.execPath,
-          "-e",
-          script.replace(
-            "/home/sprite/company-os/verification/",
-            root + "/checkout/",
-          ),
-          file,
-        ],
-        { stdout: "pipe", stderr: "pipe" },
+function ciFixture() {
+  const evidence = {
+    runs: [
+      {
+        head_sha: "candidate",
+        name: "Tests",
+        status: "completed",
+        conclusion: "success",
+        output: { summary: "All tests passed" },
+      },
+    ] as any[],
+    statuses: [] as any[],
+    suites: [
+      { head_sha: "candidate", status: "completed", conclusion: "success" },
+    ] as any[],
+  };
+  const adapter = new GitHubPullRequests({
+    gateway: async (_p: string, _c: unknown, path: string) => {
+      const page = Number(
+        new URL("https://github.test/" + path).searchParams.get("page") || 1,
       );
-      const [exitCode, stdout, stderr] = await Promise.all([
-        child.exited,
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-      ]);
-      return { exitCode, stdout, stderr };
-    };
-    await expect(
-      f.adapter.revise(
-        pr,
-        "integrity-test",
-        [{ path: "src/example.ts", content: "proposed" }],
-        {
-          instructions: "Verify the submitted source",
-          checks: [
-            {
-              name: "Mutating check",
-              command: [
-                process.execPath,
-                "-e",
-                "await Bun.write('src/example.ts','silently fixed');",
-              ],
-            },
-          ],
-        },
-      ),
-    ).rejects.toThrow("A check changed tracked source");
-    expect(f.calls.some((c) => !!c.body)).toBe(false);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+      const response = (key: string, rows: any[]) => ({
+        [key]: rows.slice((page - 1) * 100, page * 100),
+        total_count: rows.length,
+      });
+      if (path.includes("/annotations?")) return [{ path: "src/level.ts", start_line: 12, message: "The win condition never becomes true" }];
+      if (path.includes("/check-runs?"))
+        return response("check_runs", evidence.runs);
+      if (path.includes("/status?"))
+        return response("statuses", evidence.statuses);
+      if (path.includes("/check-suites?"))
+        return response("check_suites", evidence.suites);
+      throw Error(path);
+    },
+  } as unknown as Integrations);
+  return {
+    evidence,
+    adapter,
+    verify: () => adapter.verify(pr.repository, "candidate", "run"),
+  };
+}
+
+test("CI verifies the exact integration commit and fails closed on missing or unfinished evidence", async () => {
+  const f = ciFixture();
+  expect(await f.verify()).toMatchObject({ head: "candidate", passed: true });
+  f.evidence.runs[0].head_sha = "old";
+  await expect(f.verify()).rejects.toThrow("does not match");
+  f.evidence.runs[0].head_sha = "candidate";
+  f.evidence.runs[0].status = "in_progress";
+  await expect(f.verify()).rejects.toThrow("Waiting for GitHub CI");
+  f.evidence.runs = [];
+  f.evidence.suites = [];
+  await expect(f.verify()).rejects.toThrow("Waiting for GitHub CI");
+});
+
+test("queued workflows and pending legacy statuses wait even if registered checks pass", async () => {
+  const f = ciFixture();
+  f.evidence.suites[0].status = "queued";
+  await expect(f.verify()).rejects.toThrow("Waiting for GitHub CI");
+  f.evidence.suites[0].status = "completed";
+  f.evidence.statuses = [{ context: "External tests", state: "pending" }];
+  await expect(f.verify()).rejects.toThrow("Waiting for GitHub CI");
+  f.evidence.statuses[0].state = "failure";
+  expect((await f.verify()).passed).toBe(false);
+});
+
+test("CI paginates checks and includes failed suites; skipped results alone cannot pass", async () => {
+  const f = ciFixture();
+  f.evidence.runs = Array.from({ length: 101 }, (_, i) => ({
+    ...f.evidence.runs[0],
+    name: `Check ${i}`,
+    conclusion: i === 100 ? "failure" : "success",
+  }));
+  const result = await f.verify();
+  expect(result.checks).toHaveLength(101);
+  expect(result.passed).toBe(false);
+  f.evidence.runs = [{ ...f.evidence.runs[0], conclusion: "skipped" }];
+  expect((await f.verify()).passed).toBe(false);
+  f.evidence.runs[0].conclusion = "success";
+  f.evidence.suites[0].conclusion = "failure";
+  expect((await f.verify()).passed).toBe(false);
+});
+
+
+test("failed CI includes repository diagnostics for the correction agent", async () => {
+  const f = ciFixture();
+  f.evidence.runs[0] = { ...f.evidence.runs[0], id: 123, conclusion: "failure", output: { annotations_count: 1 } };
+  const result = await f.verify();
+  expect(result.passed).toBe(false);
+  expect(result.checks[0]!.output).toContain("src/level.ts:12");
+  expect(result.checks[0]!.output).toContain("The win condition never becomes true");
 });

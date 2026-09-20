@@ -1,56 +1,40 @@
 import { z } from "zod";
 const text = z.string().trim().min(1);
-export const acceptancePolicySchema = z.object({
-  instructions: text.max(8000),
-  checks: z
-    .array(
-      z.object({
-        name: text.max(120),
-        command: z.array(text.max(1000)).min(1).max(30),
-      }),
-    )
-    .min(1)
-    .max(12),
-});
 export const deliveryPolicySchema = z.object({
-  verificationChecks: acceptancePolicySchema.shape.checks,
   autoMerge: z.boolean(),
   correctionRounds: z.number().int().min(0).max(3),
   acceptanceAttempts: z.number().int().min(1).max(3),
-  companyAcceptance: acceptancePolicySchema,
-  projectAcceptance: acceptancePolicySchema.nullable(),
+  milestoneRequirements: z.string().trim().max(8000),
 });
 export type DeliveryPolicy = z.infer<typeof deliveryPolicySchema>;
-export type AcceptancePolicy = z.infer<typeof acceptancePolicySchema>;
 export const initialDeliveryPolicy = (): DeliveryPolicy => ({
-  verificationChecks: [
-    {
-      name: "Install dependencies",
-      command: ["bun", "install", "--frozen-lockfile"],
-    },
-    { name: "Type checking", command: ["bun", "run", "typecheck"] },
-    { name: "Unit tests", command: ["bun", "test", "tests"] },
-    { name: "Build", command: ["bun", "run", "build"] },
-  ],
   autoMerge: true,
   correctionRounds: 2,
   acceptanceAttempts: 2,
-  companyAcceptance: {
-    instructions:
-      "Verify the integrated milestone against its acceptance criteria. All configured checks must pass. Report evidence and limitations; a successful build alone is not proof of the requested behavior.",
-    checks: [
-      {
-        name: "Install dependencies",
-        command: ["bun", "install", "--frozen-lockfile"],
-      },
-      { name: "Type checking", command: ["bun", "run", "typecheck"] },
-      { name: "Unit tests", command: ["bun", "test", "tests"] },
-      { name: "Build", command: ["bun", "run", "build"] },
-      { name: "Browser acceptance", command: ["bun", "run", "test:ui"] },
-    ],
-  },
-  projectAcceptance: null,
+  milestoneRequirements: "",
 });
+// Preserve company requirements while retiring executable checks and project overrides.
+export function migrateDeliveryPolicy(value: unknown): DeliveryPolicy {
+  const prior = (value || {}) as Record<string, any>;
+  return deliveryPolicySchema.parse({
+    ...initialDeliveryPolicy(),
+    ...prior,
+    milestoneRequirements:
+      prior.milestoneRequirements ??
+      prior.companyAcceptance?.instructions ??
+      "",
+  });
+}
+export function milestoneCriteria(
+  criteria: string,
+  requirements: string,
+): string {
+  return requirements.trim()
+    ? `${criteria}\n\nAdditional company requirements\n${requirements}`
+    : criteria;
+}
+// Waiting for external CI is a durable retry, never another agent attempt.
+export class ChecksPending extends Error {}
 export type Verification = {
   head: string;
   passed: boolean;
@@ -101,11 +85,3 @@ export function assignmentBranch(milestoneId: string, workId: string) {
 }
 export class IntegrationChanged extends Error {}
 export class VerificationFailed extends Error {}
-
-export const engineeringChecks = (
-  policy: DeliveryPolicy,
-): AcceptancePolicy => ({
-  instructions:
-    "Verify this assignment without requiring downstream milestone behavior.",
-  checks: policy.verificationChecks,
-});

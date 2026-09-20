@@ -104,7 +104,6 @@ export interface PullRequestPort {
     head: string,
     runId: string,
     changes: { path: string; content: string }[],
-    policy?: import("../domain/delivery").AcceptancePolicy,
     authorize?: () => boolean,
   ): Promise<string>;
   open?(
@@ -121,7 +120,6 @@ export interface PullRequestPort {
     repository: string,
     head: string,
     runId: string,
-    policy: import("../domain/delivery").AcceptancePolicy,
   ): Promise<import("../domain/delivery").Verification>;
   merge?(
     candidate: import("../domain/delivery").IntegrationCandidate,
@@ -143,7 +141,6 @@ export interface PullRequestPort {
     pullRequest: PullRequest,
     runId: string,
     changes: { path: string; content: string }[],
-    policy?: import("../domain/delivery").AcceptancePolicy,
     authorize?: () => boolean,
   ): Promise<PullRequest>;
 }

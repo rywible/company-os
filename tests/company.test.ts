@@ -592,7 +592,7 @@ test("WorkCompleted starts N independent pinned reviews; all approvals merge wit
   company.execute({
     type: "ConfigureReviews",
     requiredReviews: 3,
-    allowCodeChanges: false,
+    allowCodeChanges: true,
   });
   const { workId, original } = await linked();
   outputs.push(
@@ -661,6 +661,11 @@ test("a requested correction is verified and published, then receives a fresh fu
 });
 test("review publication failure cannot count as an approval and retry cannot double-count it", async () => {
   const gh = reviews();
+  company.execute({
+    type: "ConfigureReviews",
+    requiredReviews: 2,
+    allowCodeChanges: true,
+  });
   await linked();
   outputs.push(verdict("approve"), verdict("approve"));
   for (let i = 0; i < 3; i++) {
@@ -692,6 +697,11 @@ test("review publication failure cannot count as an approval and retry cannot do
 });
 test("new PR commits invalidate old findings before delivery and require every reviewer again", async () => {
   const gh = reviews();
+  company.execute({
+    type: "ConfigureReviews",
+    requiredReviews: 2,
+    allowCodeChanges: true,
+  });
   await linked();
   const start = repo.claim()!;
   await company.deliver(start);
@@ -909,4 +919,14 @@ test("existing PR state migrates its correction count and historical findings in
   expect(migrated.findings[0]!.problem).toBe("Historical boundary defect");
   expect(migrated.findings[0]!.status).toBe("open");
   expect(migrated.findings[0]!.evidence).toContain("not recorded");
+});
+
+test("disabling engineering authority still allows reviews but pauses automatic merging", async () => {
+  const gh = reviews();
+  await linked();
+  outputs.push(verdict("approve"), verdict("approve"));
+  await expect(drain()).rejects.toThrow("Automatic merging is paused");
+  expect(gh.published).toHaveLength(2);
+  expect(repo.state().reviewRounds[0]!.status).toBe("approved");
+  expect(repo.state().work[0]!.mergedHead).toBeUndefined();
 });

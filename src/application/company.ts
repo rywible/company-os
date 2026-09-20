@@ -1,8 +1,4 @@
-import {
-  IntegrationChanged,
-  VerificationFailed,
-  engineeringChecks,
-} from "../domain/delivery";
+import { IntegrationChanged, VerificationFailed } from "../domain/delivery";
 import { DeliveryWorkflow } from "./delivery";
 import {
   automationPermissions,
@@ -1308,7 +1304,7 @@ export class Company {
         instructions:
           run.trigger === "review"
             ? "Review this exact commit. Block only concrete correctness, security, failing-check or unmet-acceptance defects. Return structured review.issues with stable IDs, evidence, verification and status. Style and optional improvements are suggestions. In later rounds explicitly resolve or retain prior blockers, focus on fixes and regressions, and justify any newly discovered material blocker."
-            : "You are the original worker, resumed by ReviewCompleted. Address the combined findings with complete replacement source files in changes. Never claim a correction was tested; the adapter tests before publishing.",
+            : "You are the original worker, resumed by ReviewCompleted. Address the combined findings with complete replacement source files in changes. Never claim a correction was tested; repository CI checks the published changes before integration.",
         ...(run.trigger !== "review"
           ? {
               findings: round.reviews.flatMap((r) => r.findings),
@@ -1616,9 +1612,6 @@ export class Company {
             context.review!.pullRequest,
             run!.executionId || run!.id,
             output.changes,
-            engineeringChecks(
-              milestone?.delivery?.policy || latestState.settings.delivery,
-            ),
             () => {
               const s = this.repo.state();
               return (
@@ -2625,6 +2618,7 @@ export class Company {
       throw new DomainError("GitHub adapter unavailable.");
     if (prior.status === "approved") {
       if (
+        !state.settings.allowCodeChanges ||
         !state.settings.delivery.autoMerge ||
         (milestone?.delivery && !milestone.delivery.policy.autoMerge)
       )
@@ -2646,50 +2640,49 @@ export class Company {
           return;
         }
         candidate = await this.pullRequests.candidate(prior.pullRequest);
-        const policy = milestone?.delivery?.policy || state.settings.delivery;
-        const check = await this.pullRequests.verify(
-          prior.pullRequest.repository,
-          candidate.head,
-          `merge-${roundId}`,
-          engineeringChecks(policy),
-        );
-        if (!check.passed) {
-          this.repo.transaction(() => {
-            const s = this.repo.state(),
-              rd = s.reviewRounds.find((r) => r.id === roundId)!,
-              w = s.work.find((w) => w.id === work.id)!;
-            rd.status = "changes_requested";
-            rd.reviews.push({
-              id: `checks-${roundId}`,
-              runId: "",
-              status: "completed",
-              verdict: "changes_requested",
-              summary: "Integration checks failed",
-              findings: check.checks
-                .filter((c) => !c.passed)
-                .map((c) => `${c.name}: ${c.output}`),
-            });
-            this.emit(
-              {
-                type: "ReviewCompleted",
-                payload: { roundId, workId: w.id, approved: false },
-              },
-              "system",
-              w.id,
-              cause,
-            );
-            this.repo.save(s);
-          });
-          return;
-        }
         this.repo.transaction(() => {
           const s = this.repo.state();
           s.work.find((w) => w.id === work.id)!.mergeCandidate = candidate;
           this.repo.save(s);
         });
       }
+      const check = await this.pullRequests.verify(
+        prior.pullRequest.repository,
+        candidate.head,
+        `merge-${roundId}`,
+      );
+      if (!check.passed) {
+        this.repo.transaction(() => {
+          const s = this.repo.state(),
+            rd = s.reviewRounds.find((r) => r.id === roundId)!,
+            w = s.work.find((w) => w.id === work.id)!;
+          rd.status = "changes_requested";
+          rd.reviews.push({
+            id: `checks-${roundId}`,
+            runId: "",
+            status: "completed",
+            verdict: "changes_requested",
+            summary: "Integration checks failed",
+            findings: check.checks
+              .filter((c) => !c.passed)
+              .map((c) => `${c.name}: ${c.output}`),
+          });
+          this.emit(
+            {
+              type: "ReviewCompleted",
+              payload: { roundId, workId: w.id, approved: false },
+            },
+            "system",
+            w.id,
+            cause,
+          );
+          this.repo.save(s);
+        });
+        return;
+      }
       const latest = this.repo.state();
       if (
+        !latest.settings.allowCodeChanges ||
         !latest.settings.delivery.autoMerge ||
         (milestone &&
           latest.planning.milestones.find((m) => m.id === milestone.id)
@@ -2700,6 +2693,10 @@ export class Company {
       try {
         head = await this.pullRequests.merge(candidate);
       } catch (error) {
+        if (error instanceof VerificationFailed)
+          throw new Deferred(
+            "CI results changed before merge; checking the current result.",
+          );
         if (!(error instanceof IntegrationChanged)) throw error;
         let stopped = false;
         this.repo.transaction(() => {

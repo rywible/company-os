@@ -8,9 +8,11 @@ import type {
 import { DomainError } from "../domain/model";
 import type { Milestone } from "../domain/planning";
 import {
+  ChecksPending,
   IntegrationChanged,
+  VerificationFailed,
   assignmentBranch,
-  engineeringChecks,
+  milestoneCriteria,
 } from "../domain/delivery";
 import type { DomainEvent, EventInput } from "../domain/events";
 import type { PullRequestPort, Repository } from "./ports";
@@ -107,7 +109,6 @@ export class DeliveryWorkflow {
       run.context!.implementation!.head,
       run.executionId || run.id,
       output.changes,
-      engineeringChecks(m.delivery.policy),
       () => {
         const s = this.h.repo.state();
         return (
@@ -166,7 +167,10 @@ export class DeliveryWorkflow {
         track: "feature",
         title: `Accept ${m.title}`,
         instruction: m.objective,
-        criteria: m.criteria,
+        criteria: milestoneCriteria(
+          m.criteria,
+          m.delivery.policy.milestoneRequirements,
+        ),
         status: "queued",
         result: "",
         key: `${m.id}:acceptance:${m.delivery.attempts + 1}`,
@@ -197,15 +201,15 @@ export class DeliveryWorkflow {
     const m = this.milestone(this.h.repo.state(), work)!;
     const delivery = m.delivery!,
       github = this.h.github;
-    const policy =
-      delivery.policy.projectAcceptance || delivery.policy.companyAcceptance;
-    context.acceptance = { policy, attempt: delivery.attempts };
+    const requirements = delivery.policy.milestoneRequirements;
+    const criteria = milestoneCriteria(m.criteria, requirements);
+    context.acceptance = { criteria, requirements, attempt: delivery.attempts };
     context.assignmentReview = {
       result:
         context.dependencies
           ?.map((w) => `${w.title}\n${w.result}`)
           .join("\n\n") || "",
-      criteria: m.criteria,
+      criteria,
       expectedOutputs: m.assignments.flatMap((a) => a.outputs),
       evidence: context.dependencies?.flatMap((w) => w.evidence) || [],
     };
@@ -220,14 +224,25 @@ export class DeliveryWorkflow {
       delivery.branch,
       "main",
       m.title,
-      `${m.objective}\n\n${m.criteria}\n\nCompany OS milestone ${m.id}`,
+      `${m.objective}\n\n${criteria}\n\nCompany OS milestone ${m.id}`,
     );
-    const candidate = await github.candidate(pr);
+    const saved = delivery.candidate;
+    const candidate =
+      saved?.pullRequest.head === pr.head && saved.pullRequest.base === pr.base
+        ? saved
+        : await github.candidate(pr);
+    this.h.repo.transaction(() => {
+      const s = this.h.repo.state();
+      Object.assign(
+        s.planning.milestones.find((n) => n.id === m.id)!.delivery!,
+        { candidate, pullRequest: pr },
+      );
+      this.h.repo.save(s);
+    });
     const verification = await github.verify(
       delivery.repository,
       candidate.head,
       run.id,
-      policy,
     );
     context.acceptance.verification = verification;
     if (github.source)
@@ -260,10 +275,32 @@ export class DeliveryWorkflow {
       throw new DomainError("Milestone acceptance is paused.");
     if (!output.review || output.outcome !== "completed")
       throw new DomainError("Acceptance requires an evidence-based verdict.");
-    const checks = run.context!.acceptance!.verification;
+    let checks = run.context!.acceptance!.verification;
+    if (m.delivery!.candidate && this.h.github?.verify) {
+      checks = await this.h.github.verify(
+        m.delivery!.repository,
+        m.delivery!.candidate.head,
+        run.id,
+      );
+      this.h.repo.transaction(() => {
+        const s = this.h.repo.state();
+        s.runs.find((r) => r.id === run.id)!.context!.acceptance!.verification =
+          checks;
+        s.planning.milestones.find(
+          (n) => n.id === m.id,
+        )!.delivery!.verification = checks;
+        this.h.repo.save(s);
+      });
+    }
     const passed =
       output.review.verdict === "approve" && (!checks || checks.passed);
     let mergedHead: string | undefined;
+    state = this.h.repo.state();
+    if (
+      state.planning.milestones.find((n) => n.id === m.id)?.status !==
+      "acceptance"
+    )
+      throw new DomainError("Milestone acceptance is paused.");
     if (passed && m.delivery!.candidate) {
       if (
         !state.settings.delivery.autoMerge ||
@@ -282,6 +319,10 @@ export class DeliveryWorkflow {
       try {
         mergedHead = await this.h.github.merge(m.delivery!.candidate);
       } catch (error) {
+        if (error instanceof VerificationFailed)
+          throw new ChecksPending(
+            "CI results changed before merge; checking the current result.",
+          );
         if (!(error instanceof IntegrationChanged)) throw error;
         this.h.repo.transaction(() => {
           const s = this.h.repo.state(),
@@ -351,7 +392,10 @@ export class DeliveryWorkflow {
           track: "feature",
           title: `Resolve acceptance findings: ${current.title}`,
           instruction: `${current.objective}\n\nResolve these acceptance failures without expanding scope:\n${output.review!.summary}\n${output.review!.findings.join("\n")}\n${JSON.stringify(checks || {})}`,
-          criteria: current.criteria,
+          criteria: milestoneCriteria(
+            current.criteria,
+            current.delivery!.policy.milestoneRequirements,
+          ),
           dependsOn: state.work
             .filter((w) => w.milestoneId === current.id && !w.phase)
             .map((w) => w.id),

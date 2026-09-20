@@ -158,6 +158,18 @@ export function MilestonesPage({
             {markdown(m.objective)}
             <h3>Success looks like</h3>
             {markdown(m.criteria)}
+            {!!(
+              m.delivery?.policy.milestoneRequirements ??
+              state.settings.delivery.milestoneRequirements
+            ) && (
+              <>
+                <h3>Additional company requirements</h3>
+                {markdown(
+                  m.delivery?.policy.milestoneRequirements ??
+                    state.settings.delivery.milestoneRequirements,
+                )}
+              </>
+            )}
             <h3>Authority and boundaries</h3>
             {markdown(m.boundaries)}
           </div>
@@ -203,14 +215,6 @@ export function MilestonesPage({
                   : m.status === "acceptance"
                     ? "Testing the integrated result against the approved requirements."
                     : "The integrated result will be tested before this milestone completes."}
-              </p>
-              <p className="muted">
-                {
-                  (
-                    m.delivery.policy.projectAcceptance ||
-                    m.delivery.policy.companyAcceptance
-                  ).instructions
-                }
               </p>
               {m.delivery.verification && (
                 <details>

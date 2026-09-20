@@ -498,6 +498,9 @@ export class Planning {
           this.h.now(),
         ),
         planning: run.trigger === "planning",
+        milestoneRequirements:
+          context.milestoneRequirements ??
+          state.settings.delivery.milestoneRequirements,
       };
     const threadMilestoneId = state.threads.find(
       (t) => t.id === run.threadId,

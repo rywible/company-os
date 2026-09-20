@@ -145,6 +145,7 @@ export type Context = {
     allowedChanges: import("./permissions").AutomationPermission[];
   };
   role?: Pick<AgentRole, "id" | "name" | "purpose">;
+  milestoneRequirements?: string;
   coordination?: {
     roles: Pick<AgentRole, "id" | "name" | "purpose">[];
     milestones: Pick<
@@ -154,6 +155,7 @@ export type Context = {
     availability: Availability;
     availableNow: boolean;
     planning: boolean;
+    milestoneRequirements: string;
   };
   milestone?: Milestone;
   dependencies?: {
@@ -171,7 +173,8 @@ export type Context = {
     files: unknown[];
   };
   acceptance?: {
-    policy: import("./delivery").AcceptancePolicy;
+    criteria: string;
+    requirements: string;
     verification?: import("./delivery").Verification;
     attempt: number;
   };

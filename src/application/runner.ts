@@ -1,3 +1,4 @@
+import { ChecksPending } from "../domain/delivery";
 import { Company, Deferred } from "./company";
 // Deliveries are durable and idempotent. External work may overlap up to the
 // configured pool capacity; repository transitions remain transactional.
@@ -56,7 +57,7 @@ export class Runner {
       this.company.repo.acknowledge(job.id);
     } catch (e) {
       const error = e instanceof Error ? e.message : "Execution failed";
-      const deferred = e instanceof Deferred;
+      const deferred = e instanceof Deferred || e instanceof ChecksPending;
       const retry =
         deferred ||
         (job.attempts < 3 &&

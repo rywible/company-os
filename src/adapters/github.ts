@@ -1,9 +1,9 @@
-import { IntegrationChanged, VerificationFailed } from "../domain/delivery";
-import type {
-  AcceptancePolicy,
-  IntegrationCandidate,
-  Verification,
+import {
+  ChecksPending,
+  IntegrationChanged,
+  VerificationFailed,
 } from "../domain/delivery";
+import type { IntegrationCandidate, Verification } from "../domain/delivery";
 import type { PullRequestPort } from "../application/ports";
 import type { PullRequest } from "../domain/model";
 import { Integrations } from "../server/integrations";
@@ -139,7 +139,6 @@ export class GitHubPullRequests implements PullRequestPort {
     pr: PullRequest,
     runId: string,
     changes: { path: string; content: string }[],
-    policy?: AcceptancePolicy,
     authorize?: () => boolean,
   ) {
     if (!pr.branch.startsWith("codex/"))
@@ -174,7 +173,6 @@ export class GitHubPullRequests implements PullRequestPort {
         pr.head,
         runId,
         changes,
-        policy,
         authorize,
       ),
     };
@@ -185,34 +183,9 @@ export class GitHubPullRequests implements PullRequestPort {
     head: string,
     runId: string,
     changes: { path: string; content: string }[],
-    policy?: AcceptancePolicy,
     authorize?: () => boolean,
   ) {
     const pr = { repository, branch, head };
-    const files = await this.checkout(repository, head);
-    const tested = await this.runChecks(
-      files,
-      changes,
-      runId,
-      policy?.checks || [
-        {
-          name: "Install dependencies",
-          command: ["bun", "install", "--frozen-lockfile"],
-        },
-        { name: "Type checking", command: ["bun", "run", "typecheck"] },
-        { name: "Unit tests", command: ["bun", "test", "tests"] },
-        { name: "Build", command: ["bun", "run", "build"] },
-        { name: "Browser tests", command: ["bun", "run", "test:ui"] },
-      ],
-    );
-    if (!tested.every((c) => c.passed))
-      throw new VerificationFailed(
-        "Changes failed verification: " +
-          tested
-            .filter((c) => !c.passed)
-            .map((c) => c.output)
-            .join("\n"),
-      );
     if (authorize && !authorize())
       throw Error("Engineering authority was revoked before publication.");
     const commit = await this.request(pr.repository, `git/commits/${pr.head}`),
@@ -335,7 +308,6 @@ export class GitHubPullRequests implements PullRequestPort {
     head: string,
     runId: string,
     changes: { path: string; content: string }[],
-    policy?: AcceptancePolicy,
     authorize?: () => boolean,
   ) {
     this.safeBranch(branch);
@@ -362,15 +334,7 @@ export class GitHubPullRequests implements PullRequestPort {
         return current.sha;
       throw Error("Assignment branch changed before publication.");
     }
-    return this.publishChanges(
-      repo,
-      branch,
-      head,
-      runId,
-      changes,
-      policy,
-      authorize,
-    );
+    return this.publishChanges(repo, branch, head, runId, changes, authorize);
   }
   async open(
     repo: string,
@@ -421,45 +385,113 @@ export class GitHubPullRequests implements PullRequestPort {
     );
     return { pullRequest: pr, base: base.sha, head: merged.sha };
   }
-  private async runChecks(
-    files: { path: string; base64: string }[],
-    changes: { path: string; content: string }[],
-    runId: string,
-    checks: AcceptancePolicy["checks"],
-  ) {
-    if (!/^[a-zA-Z0-9_-]+$/.test(runId))
-      throw Error("Invalid verification identifier.");
-    const script = `const p=await Bun.file(process.argv[1]).json();const fs=await import('node:fs/promises');const path=await import('node:path');const dir='/home/sprite/company-os/verification/'+p.runId;await fs.rm(dir,{recursive:true,force:true});await fs.mkdir(dir,{recursive:true});for(const f of p.files){const target=path.resolve(dir,f.path);if(!target.startsWith(dir+'/'))throw Error('Unsafe source path');await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,Buffer.from(f.base64,'base64'));}for(const f of p.changes){const target=path.resolve(dir,f.path);if(!target.startsWith(dir+'/'))throw Error('Unsafe change path');await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,f.content);}const results=[];for(const check of p.checks){const out=Bun.spawnSync(check.command,{cwd:dir,env:{PATH:process.env.PATH,HOME:dir,TMPDIR:dir,NODE_ENV:'test',CI:'1'},timeout:180000,stdout:'pipe',stderr:'pipe'});results.push({name:check.name,passed:out.exitCode===0,output:(Buffer.from(out.stdout).toString()+'\\n'+Buffer.from(out.stderr).toString()).slice(-12000)});if(out.exitCode!==0)break;}const expected=new Map(p.files.map(f=>[f.path,Buffer.from(f.base64,'base64')]));for(const f of p.changes)expected.set(f.path,Buffer.from(f.content));for(const [name,bytes] of expected){const actual=await fs.readFile(path.join(dir,name)).catch(()=>null);if(!actual||!actual.equals(bytes)){results.push({name:'Source integrity',passed:false,output:'A check changed tracked source: '+name});break;}}console.log(JSON.stringify(results));`;
-    const result = await this.integrations.executePayload(
-      script,
-      { runId, files, changes, checks },
-      { timeout: 2400000, maxBuffer: 1024 * 1024 },
-    );
-    if (result.exitCode !== 0)
-      throw Error(
-        "Execution failed verification: " + String(result.stderr).slice(-3000),
+  private async pages(repo: string, path: string, key: string) {
+    const rows: any[] = [];
+    for (let page = 1; page <= 20; page++) {
+      const result = await this.request(
+        repo,
+        `${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`,
       );
-    const parsed = JSON.parse(String(result.stdout).trim());
-    if (!Array.isArray(parsed) || !parsed.length)
-      throw Error("Verification returned no evidence.");
-    return parsed as Verification["checks"];
+      const batch = result[key];
+      if (!Array.isArray(batch))
+        throw Error("GitHub returned incomplete CI evidence.");
+      rows.push(...batch);
+      if (batch.length < 100 && rows.length >= (result.total_count || 0))
+        return rows;
+    }
+    throw Error("GitHub CI evidence exceeds the pagination limit.");
   }
   async verify(
     repo: string,
     head: string,
-    runId: string,
-    policy: AcceptancePolicy,
+    _runId: string,
   ): Promise<Verification> {
-    const checks = await this.runChecks(
-      await this.checkout(repo, head),
-      [],
-      runId,
-      policy.checks,
-    );
+    // Inspect the exact integration commit, never an earlier PR-head result.
+    // Suites cover queued workflows whose individual jobs are not registered yet.
+    const [runs, statuses, suites] = await Promise.all([
+      this.pages(
+        repo,
+        `commits/${head}/check-runs?filter=latest`,
+        "check_runs",
+      ),
+      this.pages(repo, `commits/${head}/status`, "statuses"),
+      this.pages(repo, `commits/${head}/check-suites`, "check_suites"),
+    ]);
+    if (
+      runs.some((r) => r.head_sha !== head) ||
+      suites.some((s) => s.head_sha !== head)
+    )
+      throw Error("GitHub CI evidence does not match the integration commit.");
+    if (
+      (!runs.length && !statuses.length) ||
+      runs.some((r) => r.status !== "completed") ||
+      suites.some((s) => s.status !== "completed") ||
+      statuses.some((s) => s.state === "pending")
+    )
+      throw new ChecksPending(
+        `Waiting for GitHub CI on ${head}. Checks must run on managed integration branches.`,
+      );
+    const accepted = (conclusion: string) =>
+      ["success", "neutral", "skipped"].includes(conclusion);
+    const checks: Verification["checks"] = runs.map((r) => ({
+      name: r.name,
+      passed: accepted(r.conclusion),
+      output: [
+        r.conclusion,
+        r.output?.title,
+        r.output?.summary,
+        r.output?.text,
+        r.details_url || r.html_url,
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .slice(-12000),
+    }));
+    for (const [index, run] of runs.entries()) {
+      if (checks[index]!.passed || !run.output?.annotations_count) continue;
+      const annotations = await this.request(
+        repo,
+        `check-runs/${run.id}/annotations?per_page=50`,
+      );
+      if (!Array.isArray(annotations))
+        throw Error("GitHub returned incomplete CI diagnostics.");
+      checks[index]!.output = [
+        checks[index]!.output,
+        ...annotations.map(
+          (a: any) =>
+            `${a.path || ""}:${a.start_line || ""} ${a.title || ""}\n${a.message || ""}`,
+        ),
+      ]
+        .join("\n")
+        .slice(-16000);
+    }
+    for (const status of statuses)
+      checks.push({
+        name: status.context,
+        passed: status.state === "success",
+        output: [status.state, status.description, status.target_url]
+          .filter(Boolean)
+          .join("\n"),
+      });
+    for (const suite of suites.filter((s) => !accepted(s.conclusion)))
+      checks.push({
+        name: suite.app?.name || "CI workflow",
+        passed: false,
+        output: `Workflow concluded: ${suite.conclusion || "unknown"}`,
+      });
+    if (
+      !runs.some((r) => r.conclusion === "success") &&
+      !statuses.some((s) => s.state === "success")
+    )
+      checks.push({
+        name: "CI evidence",
+        passed: false,
+        output:
+          "No automated check succeeded; skipped or neutral results alone cannot authorize integration.",
+      });
     return {
       head,
-      passed:
-        checks.length === policy.checks.length && checks.every((c) => c.passed),
+      passed: checks.length > 0 && checks.every((c) => c.passed),
       checks,
     };
   }
@@ -485,6 +517,20 @@ export class GitHubPullRequests implements PullRequestPort {
     const current = await this.head(pr.repository, pr.number);
     if (current.head !== pr.head || current.base !== pr.base || current.merged)
       throw new IntegrationChanged("PR changed before merge.");
+    // Recheck before the write: a rerun can invalidate earlier successful evidence.
+    const verification = await this.verify(
+      pr.repository,
+      candidate.head,
+      `merge-${pr.number}`,
+    );
+    if (!verification.passed)
+      throw new VerificationFailed(
+        "GitHub CI no longer passes: " +
+          verification.checks
+            .filter((c) => !c.passed)
+            .map((c) => `${c.name}: ${c.output}`)
+            .join("\n"),
+      );
     // Publish the exact tested merge commit. A concurrent target update rejects
     // this non-force fast-forward rather than merging an untested combination.
     try {

@@ -52,6 +52,7 @@ function fixture() {
     acceptanceFails = 0,
     advanceTarget = 0,
     losePublication = false;
+  const verificationResults = new Map<string, boolean>();
   const adapter: Required<PullRequestPort> = {
     ensureBranch: async (_repo, branch, from) => {
       if (!branches.has(branch)) {
@@ -117,12 +118,12 @@ function fixture() {
       base: branches.get(pr.base!)!,
       head: `merge-${pr.head}-${branches.get(pr.base!)}`,
     }),
-    verify: async (_repo, head, runId, policy) => {
+    verify: async (_repo, head, runId) => {
       const acceptance = !runId.startsWith("merge-");
-      const failed = acceptance && acceptanceFails-- > 0;
-      actions.push(
-        `verify:${acceptance ? "acceptance" : "assignment"}:${policy.instructions}`,
-      );
+      const failed =
+        verificationResults.get(head) ?? (acceptance && acceptanceFails-- > 0);
+      verificationResults.set(head, failed);
+      actions.push(`verify:${acceptance ? "acceptance" : "assignment"}`);
       return {
         head,
         passed: !failed,
@@ -280,10 +281,7 @@ test("approved DAG creates assignment PRs, reviews and merges before dependencie
 test("failed playtest blocks main even when the model approves, creates one bounded corrective assignment, and reruns acceptance", async () => {
   const f = fixture();
   const s = f.repo.state();
-  s.settings.delivery.projectAcceptance = {
-    instructions: "Actually play the level",
-    checks: [{ name: "Playtest", command: ["bun", "run", "playtest"] }],
-  };
+  s.settings.delivery.milestoneRequirements = "Actually play the level";
   f.repo.save(s);
   f.failAcceptance(1);
   f.start();
@@ -297,7 +295,9 @@ test("failed playtest blocks main even when the model approves, creates one boun
   ).toHaveLength(1);
   expect(f.actions.filter((a) => a === "merge:main")).toHaveLength(1);
   expect(
-    f.actions.some((a) => a === "verify:acceptance:Actually play the level"),
+    f.contexts.some(
+      (c) => c.acceptance?.requirements === "Actually play the level",
+    ),
   ).toBe(true);
 });
 test("acceptance exhaustion never merges main or manufactures unbounded replacement work", async () => {
@@ -457,4 +457,171 @@ test("repeated verification failure stops without inventing replacement assignme
     "Verification failed",
   );
   expect(f.prs).toHaveLength(0);
+});
+
+test("company requirements augment milestone acceptance, are frozen on approval, and do not block early interfaces", async () => {
+  const f = fixture();
+  const state = f.repo.state();
+  state.settings.delivery.milestoneRequirements =
+    "Record an end-to-end playtest";
+  f.repo.save(state);
+  f.start();
+  const updated = f.repo.state();
+  updated.settings.delivery.milestoneRequirements =
+    "A later company requirement";
+  f.repo.save(updated);
+  await f.drain();
+  const acceptance = f.contexts.find((c) => c.acceptance)!;
+  expect(acceptance.acceptance!.criteria).toContain("The player can win");
+  expect(acceptance.acceptance!.criteria).toContain(
+    "Record an end-to-end playtest",
+  );
+  expect(acceptance.acceptance!.criteria).not.toContain(
+    "A later company requirement",
+  );
+  expect(acceptance.assignmentReview!.criteria).toBe(
+    acceptance.acceptance!.criteria,
+  );
+  const firstWork = f.repo
+    .state()
+    .work.find((w) => w.assignmentKey === "contract")!;
+  expect(firstWork.criteria).toBe("Contract tests pass");
+  expect(
+    f.contexts.find((c) => c.work?.id === firstWork.id)!.milestoneRequirements,
+  ).toBe("Record an end-to-end playtest");
+  expect(
+    f.repo.state().work.find((w) => w.phase === "acceptance")!.criteria,
+  ).toBe(acceptance.acceptance!.criteria);
+});
+
+test("saved policies retire commands and project overrides while preserving company requirements", () => {
+  const f = fixture();
+  f.start();
+  const s = f.repo.state();
+  const legacy = {
+    autoMerge: true,
+    correctionRounds: 1,
+    acceptanceAttempts: 2,
+    verificationChecks: [{ name: "Old check", command: ["echo", "old"] }],
+    companyAcceptance: { instructions: "Keep company acceptance", checks: [] },
+    projectAcceptance: { instructions: "Remove project override", checks: [] },
+  };
+  s.settings.delivery = legacy as any;
+  s.planning.milestones[0]!.delivery!.policy = legacy as any;
+  f.repo.save(s);
+  const migrated = f.repo.state();
+  expect(migrated.settings.delivery).toEqual({
+    autoMerge: true,
+    correctionRounds: 1,
+    acceptanceAttempts: 2,
+    milestoneRequirements: "Keep company acceptance",
+  });
+  expect(migrated.planning.milestones[0]!.delivery!.policy).toEqual(
+    migrated.settings.delivery,
+  );
+});
+
+test.each(["assignment", "acceptance"])(
+  "waiting for %s CI retries durable work without consuming agent runs or acceptance attempts",
+  async (phase) => {
+    const { ChecksPending } = await import("../src/domain/delivery");
+    const { Runner } = await import("../src/application/runner");
+    const f = fixture();
+    const verify = f.adapter.verify;
+    let pending = true;
+    f.adapter.verify = async (...args) => {
+      if (
+        pending &&
+        (phase === "acceptance"
+          ? !args[2].startsWith("merge-")
+          : args[2].startsWith("merge-"))
+      )
+        throw new ChecksPending("Waiting for CI");
+      return verify(...args);
+    };
+    f.start();
+    const isolated = f.repo.state();
+    for (const task of isolated.discovery.lenses) task.enabled = false;
+    f.repo.save(isolated);
+    const runner = new Runner(f.company, () => true);
+    for (let i = 0; i < 40; i++) {
+      f.repo.store.db.exec(
+        "UPDATE deliveries SET available_at=0 WHERE status='pending'",
+      );
+      await runner.tick();
+      if (
+        f.repo.store.db
+          .query("SELECT 1 FROM deliveries WHERE error='Waiting for CI'")
+          .get()
+      )
+        break;
+    }
+    expect(
+      f.repo.store.db
+        .query("SELECT 1 FROM deliveries WHERE error='Waiting for CI'")
+        .get(),
+    ).toBeTruthy();
+    const waiting = f.repo.state();
+    const count = waiting.runs.length;
+    const contexts = f.contexts.length;
+    const attempts = waiting.planning.milestones[0]!.delivery!.attempts;
+    for (let i = 0; i < 4; i++) {
+      f.repo.store.db.exec(
+        "UPDATE deliveries SET available_at=0 WHERE status='pending'",
+      );
+      await runner.tick();
+    }
+    expect(f.repo.state().runs).toHaveLength(count);
+    expect(f.contexts).toHaveLength(contexts);
+    expect(f.actions.some((a) => a === "merge:main")).toBe(false);
+    expect(f.repo.state().planning.milestones[0]!.delivery!.attempts).toBe(
+      attempts,
+    );
+    expect(f.repo.deliveryErrors()).toEqual([]);
+    pending = false;
+    f.repo.store.db.exec(
+      "UPDATE deliveries SET available_at=0 WHERE status='pending'",
+    );
+    await f.drain();
+    expect(f.repo.state().planning.milestones[0]!.status).toBe("completed");
+  },
+);
+
+test("failed assignment CI feeds correction evidence and persistent failure reaches the existing stop limit", async () => {
+  const f = fixture();
+  f.plan.assignments = [f.plan.assignments[0]!];
+  f.adapter.verify = async (_repo, head) => ({
+    head,
+    passed: false,
+    checks: [
+      {
+        name: "Contract tests",
+        passed: false,
+        output: "Missing required interface member",
+      },
+    ],
+  });
+  f.respond((c) =>
+    c.review && !c.review.reviewId && !c.adjudication
+      ? answer({ changes: [{ path: "src/example.ts", content: "corrected" }] })
+      : c.implementation && !c.review
+        ? answer({
+            changes: [{ path: "src/example.ts", content: "implemented" }],
+          })
+        : approve(),
+  );
+  f.start();
+  await f.drain();
+  const state = f.repo.state(),
+    work = state.work.find((w) => !w.phase)!;
+  expect(work.reviewProgress!.stopped).toBeTruthy();
+  expect(state.runs.filter((r) => r.trigger === "revision")).toHaveLength(3);
+  expect(
+    f.contexts.some((c) =>
+      c.review?.findings?.some((finding) =>
+        finding.includes("Missing required interface member"),
+      ),
+    ),
+  ).toBe(true);
+  expect(f.actions.some((a) => a.startsWith("merge:"))).toBe(false);
 });

@@ -76,7 +76,7 @@ export async function assembleContext(
   const thread = state.threads.find((t) => t.id === run?.threadId),
     work = state.work.find((w) => w.id === run?.workId);
   const milestone = state.planning.milestones.find(
-    (m) => m.id === work?.milestoneId,
+    (m) => m.id === (work?.milestoneId || thread?.milestoneId),
   );
   const sharedDocuments = new Set([
     ...(milestone?.documentIds || []),
@@ -158,6 +158,9 @@ export async function assembleContext(
   const context: Context = {
     query: input.query,
     assignment: task,
+    milestoneRequirements:
+      milestone?.delivery?.policy.milestoneRequirements ??
+      state.settings.delivery.milestoneRequirements,
     subject: input.subject,
     conversationSummary: input.conversationSummary,
     scope: "company",
