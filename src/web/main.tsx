@@ -1,3 +1,6 @@
+import { MarkdownEditor } from "./markdown-editor";
+import { SettingsPage } from "./settings";
+import { AutomationPage } from "./automation";
 import { DiscoveryPage } from "./discovery";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -39,7 +42,6 @@ import type {
   Run,
   Context,
   Policy,
-  Settings,
 } from "../domain/model";
 type Knowledge = Document & { policy: Policy };
 type Workspace = CompanyState & {
@@ -49,12 +51,9 @@ type Workspace = CompanyState & {
   workflows: { name: string; steps: string[] }[];
 };
 import "./styles.css";
-import {
-  ConnectionNotice,
-  InstallCard,
-  useConnection,
-  useMobileViewport,
-} from "./platform";
+import "./writing.css";
+import "./preferences.css";
+import { ConnectionNotice, useConnection, useMobileViewport } from "./platform";
 import "./pwa";
 
 async function api<T = any>(
@@ -251,6 +250,7 @@ const pages = [
   { name: "Inbox", icon: Inbox },
   { name: "Documents", icon: BookOpen },
   { name: "Knowledge", icon: Brain },
+  { name: "Automation", icon: Activity },
 ];
 const freshPolicy: Policy = {
   inclusion: "relevant",
@@ -266,11 +266,13 @@ function App() {
     [password, setPassword] = useState("");
   const [state, setState] = useState<Workspace | null>(null),
     [page, setPage] = useState(
-      ["Foreman", "Work", "Discovery"].includes(location.hash.slice(1))
-        ? "Inbox"
-        : location.hash.slice(1) === "Understanding"
-          ? "Knowledge"
-          : location.hash.slice(1) || "Inbox",
+      ["Work", "Discovery"].includes(location.hash.slice(1))
+        ? "Automation"
+        : location.hash === "#Foreman"
+          ? "Inbox"
+          : location.hash.slice(1) === "Understanding"
+            ? "Knowledge"
+            : location.hash.slice(1) || "Inbox",
     ),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -360,7 +362,7 @@ function App() {
     const sync = () => {
       const p = location.hash.slice(1);
       if (p === "Foreman" || p === "Work" || p === "Discovery") {
-        setPage("Inbox");
+        setPage(p === "Foreman" ? "Inbox" : "Automation");
         setInboxView(
           p === "Work" ? "work" : p === "Discovery" ? "ideas" : "requests",
         );
@@ -372,11 +374,13 @@ function App() {
   }, []);
   function navigate(name: string) {
     const target =
-      name === "Foreman" || name === "Work" || name === "Discovery"
-        ? "Inbox"
-        : name === "Understanding"
-          ? "Knowledge"
-          : name;
+      name === "Work" || name === "Discovery"
+        ? "Automation"
+        : name === "Foreman"
+          ? "Inbox"
+          : name === "Understanding"
+            ? "Knowledge"
+            : name;
     setInboxView(
       name === "Work" ? "work" : name === "Discovery" ? "ideas" : "requests",
     );
@@ -473,8 +477,17 @@ function App() {
       setContextBusy(false);
     }
   }
+  async function command(cmd: CompanyCommand) {
+    let ok = false;
+    await perform(async () => {
+      const result = await act(cmd);
+      if (result.skipped) throw Error(result.skipped);
+      ok = true;
+    });
+    return ok;
+  }
   const renderDiscovery = (
-    mode: "archive" | "idea" | "settings",
+    mode: "archive" | "idea" | "perspectives" | "signals" | "limits",
     ideaId = selectedIdea,
   ) =>
     state ? (
@@ -484,15 +497,7 @@ function App() {
         disabled={disabled}
         selected={ideaId}
         select={setSelectedIdea}
-        command={async (cmd) => {
-          let ok = false;
-          await perform(async () => {
-            const result = await act(cmd);
-            if (result.skipped) throw Error(result.skipped);
-            ok = true;
-          });
-          return ok;
-        }}
+        command={command}
         openWork={(id) => {
           navigate("Work");
           setSelectedWork(id);
@@ -571,7 +576,7 @@ function App() {
             <Plus size={16} /> New entry
           </button>
         )}
-        {page === "Inbox" && inboxView === "work" && (
+        {page === "Automation" && inboxView === "work" && (
           <button disabled={disabled} onClick={() => setWorkForm(true)}>
             <Plus size={16} /> New work
           </button>
@@ -710,31 +715,18 @@ function App() {
                   </button>
                 </div>
               )}
-            {page === "Inbox" &&
-              (inboxView === "requests" ? (
-                !currentThread && (
-                  <details className="inbox-background">
-                    <summary>Background activity</summary>
-                    <button onClick={() => navigate("Work")}>
-                      Work in progress
-                    </button>
-                    <button onClick={() => navigate("Discovery")}>
-                      Ideas and experiments
-                    </button>
-                  </details>
-                )
-              ) : (
-                <div className="inbox-drilldown">
-                  <button onClick={() => navigate("Inbox")}>
-                    Back to inbox
-                  </button>
-                  <h2>
-                    {inboxView === "work"
-                      ? "Work in progress"
-                      : "Ideas and experiments"}
-                  </h2>
-                </div>
-              ))}
+            {page === "Automation" && inboxView !== "requests" && (
+              <div className="inbox-drilldown">
+                <button onClick={() => navigate("Automation")}>
+                  ← Automation
+                </button>
+                <h2>
+                  {inboxView === "work"
+                    ? "Work in progress"
+                    : "Ideas and experiments"}
+                </h2>
+              </div>
+            )}
             {page === "Inbox" && inboxView === "requests" && (
               <div
                 className={
@@ -1015,10 +1007,10 @@ function App() {
                 )}
               </div>
             )}
-            {page === "Inbox" &&
+            {page === "Automation" &&
               inboxView === "ideas" &&
               renderDiscovery("archive")}
-            {page === "Inbox" && inboxView === "work" && (
+            {page === "Automation" && inboxView === "work" && (
               <>
                 <div className="autonomy-strip">
                   <span
@@ -1050,7 +1042,7 @@ function App() {
                   >
                     Check now
                   </button>
-                  <button onClick={() => navigate("Settings")}>
+                  <button onClick={() => navigate("Automation")}>
                     Configure
                   </button>
                 </div>
@@ -1351,8 +1343,10 @@ function App() {
                     <p className="muted">
                       v{currentDoc.version} · {date(currentDoc.updated_at)}
                     </p>
-                    <div className="context-contract">
-                      <span className="eyebrow">Context policy</span>
+                    <Markdown>{currentDoc.content}</Markdown>
+                    <details className="context-contract">
+                      <summary>Context & usage</summary>
+
                       <div className="badges">
                         <span className="badge">
                           {currentDoc.policy.inclusion}
@@ -1401,8 +1395,7 @@ function App() {
                           Discuss with Foreman
                         </button>
                       </div>
-                    </div>
-                    <Markdown>{currentDoc.content}</Markdown>
+                    </details>
                   </article>
                 )}
               </div>
@@ -1486,46 +1479,22 @@ function App() {
                 </div>
               </>
             )}
+            {page === "Automation" && inboxView === "requests" && (
+              <AutomationPage
+                state={state}
+                disabled={disabled}
+                command={command}
+                discovery={renderDiscovery}
+                openWork={() => navigate("Work")}
+                openIdeas={() => navigate("Discovery")}
+              />
+            )}
             {page === "Settings" && (
-              <>
-                <p className="muted">
-                  Foreman takes its direction from the constitution.
-                </p>
-                <details className="settings-discovery">
-                  <summary>Exploration settings</summary>
-                  {renderDiscovery("settings")}
-                </details>
-                <AutonomySettings
-                  settings={state.settings}
-                  disabled={disabled}
-                  save={(settings) =>
-                    void perform(async () => {
-                      await act({ type: "ConfigureAutonomy", ...settings });
-                    })
-                  }
-                />
-                <ReviewSettings
-                  settings={state.settings}
-                  disabled={disabled}
-                  save={(requiredReviews, allowCodeChanges) =>
-                    void perform(async () => {
-                      await act({
-                        type: "ConfigureReviews",
-                        requiredReviews,
-                        allowCodeChanges,
-                      });
-                    })
-                  }
-                />
-                <p className="muted">
-                  One agent run at a time. Autonomous work is bounded by the
-                  daily run budget and open-work limit. Research and browser
-                  inspection run here. Linked PRs support independent review and
-                  verified source corrections. PR creation, merging and
-                  deployment remain manual.
-                </p>
-                <InstallCard />
-              </>
+              <SettingsPage
+                settings={state.settings}
+                disabled={disabled}
+                command={command}
+              />
             )}
           </main>
         )}
@@ -1632,6 +1601,9 @@ function App() {
         })()}
       {editor && (
         <Modal
+          className={
+            page === "Knowledge" ? undefined : "document-editor-dialog"
+          }
           title={
             page === "Knowledge"
               ? editor.id
@@ -1646,7 +1618,7 @@ function App() {
           close={() => setEditor(null)}
         >
           <form
-            className="editor"
+            className={page === "Knowledge" ? "editor" : "editor document-form"}
             onSubmit={(e) => {
               e.preventDefault();
               void perform(async () => {
@@ -1680,74 +1652,92 @@ function App() {
                 {error}
               </p>
             )}
-            <label>
-              {page === "Knowledge" ? "Subject" : "Title"}
-              <input
-                required
-                maxLength={160}
-                value={editor.title || ""}
-                onChange={(e) =>
-                  setEditor({ ...editor, title: e.target.value })
-                }
-              />
-            </label>
-            {!editor.id && page !== "Knowledge" && (
-              <label>
-                Type
-                <select
-                  value={editor.level}
-                  onChange={(e) =>
-                    setEditor({
-                      ...editor,
-                      level: e.target.value as Document["level"],
-                    })
-                  }
-                >
-                  {[
-                    ...(state?.documents.some((d) => d.level === "constitution")
-                      ? []
-                      : ["constitution"]),
-                    "product",
-                    "architecture",
-                    "execution",
-                    "knowledge",
-                  ].map((x) => (
-                    <option key={x}>{x}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label>
-              Content
-              <textarea
-                required
-                rows={12}
-                maxLength={24000}
-                value={editor.content || ""}
-                onChange={(e) =>
-                  setEditor({ ...editor, content: e.target.value })
-                }
-              />
-            </label>
-            {page !== "Knowledge" && (
-              <>
-                <details className="editor-context-policy">
-                  <summary>Context settings</summary>
-                  <PolicyFields
-                    policy={editor.policy || freshPolicy}
-                    protectedRecord={editor.level === "constitution"}
-                    change={(policy) => setEditor({ ...editor, policy })}
+            <div className="document-form-body">
+              <div className="document-meta">
+                <label>
+                  {page === "Knowledge" ? "Subject" : "Title"}
+                  <input
+                    required
+                    maxLength={160}
+                    value={editor.title || ""}
+                    onChange={(e) =>
+                      setEditor({ ...editor, title: e.target.value })
+                    }
                   />
-                </details>
-                <p className="muted">
-                  Your edits update keyword search immediately and refresh
-                  meaning search. Earlier revisions remain in history.
-                </p>
-              </>
-            )}
-            <button className="primary" disabled={disabled}>
-              {page === "Knowledge" ? "Save" : "Save revision"}
-            </button>
+                </label>
+                {!editor.id && page !== "Knowledge" && (
+                  <label>
+                    Type
+                    <select
+                      value={editor.level}
+                      onChange={(e) =>
+                        setEditor({
+                          ...editor,
+                          level: e.target.value as Document["level"],
+                        })
+                      }
+                    >
+                      {[
+                        ...(state?.documents.some(
+                          (d) => d.level === "constitution",
+                        )
+                          ? []
+                          : ["constitution"]),
+                        "product",
+                        "architecture",
+                        "execution",
+                        "knowledge",
+                      ].map((x) => (
+                        <option key={x}>{x}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+              {page === "Knowledge" ? (
+                <label>
+                  Content
+                  <textarea
+                    required
+                    rows={12}
+                    maxLength={24000}
+                    value={editor.content || ""}
+                    onChange={(e) =>
+                      setEditor({ ...editor, content: e.target.value })
+                    }
+                  />
+                </label>
+              ) : (
+                <MarkdownEditor
+                  value={editor.content || ""}
+                  change={(content) => setEditor({ ...editor, content })}
+                  preview={(content) => <Markdown>{content}</Markdown>}
+                  disabled={readOnly}
+                />
+              )}
+              {page !== "Knowledge" && (
+                <>
+                  <details className="editor-context-policy">
+                    <summary>Context settings</summary>
+                    <PolicyFields
+                      policy={editor.policy || freshPolicy}
+                      protectedRecord={editor.level === "constitution"}
+                      change={(policy) => setEditor({ ...editor, policy })}
+                    />
+                  </details>
+                </>
+              )}
+            </div>
+            <footer className="editor-footer">
+              <button
+                className="primary"
+                disabled={
+                  disabled || !editor.title?.trim() || !editor.content?.trim()
+                }
+              >
+                {page === "Knowledge" ? "Save" : "Save revision"}
+              </button>
+            </footer>
           </form>
         </Modal>
       )}
@@ -1901,10 +1891,12 @@ function Empty({ title, text }: { title: string; text: string }) {
 }
 function Modal({
   title,
+  className,
   close,
   children,
 }: {
   title: string;
+  className?: string;
   close: () => void;
   children: React.ReactNode;
 }) {
@@ -1916,6 +1908,7 @@ function Modal({
   return (
     <dialog
       ref={ref}
+      className={className}
       aria-label={title}
       onCancel={(e) => {
         e.preventDefault();
@@ -2331,152 +2324,6 @@ function WorkForm({
       </p>
       <button disabled={disabled} className="primary">
         Create work
-      </button>
-    </form>
-  );
-}
-function AutonomySettings({
-  settings,
-  disabled,
-  save,
-}: {
-  settings: Settings;
-  disabled: boolean;
-  save: (s: Omit<Settings, "nextHeartbeatAt">) => void;
-}) {
-  const [value, set] = useState(settings);
-  return (
-    <form
-      className="editor settings-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save(value);
-      }}
-    >
-      <h2>Foreman autonomy</h2>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={value.enabled}
-          onChange={(e) => set({ ...value, enabled: e.target.checked })}
-        />{" "}
-        Heartbeat enabled
-      </label>
-      <label>
-        Repository scope
-        <input
-          required
-          value={value.scope}
-          onChange={(e) => set({ ...value, scope: e.target.value })}
-        />
-      </label>
-      <div className="form-grid">
-        <label>
-          Heartbeat minutes
-          <input
-            type="number"
-            min={15}
-            max={1440}
-            required
-            value={value.intervalMinutes}
-            onChange={(e) =>
-              set({ ...value, intervalMinutes: Number(e.target.value) })
-            }
-          />
-        </label>
-        <label>
-          Autonomous runs per day
-          <input
-            type="number"
-            min={1}
-            max={24}
-            required
-            value={value.dailyBudget}
-            onChange={(e) =>
-              set({ ...value, dailyBudget: Number(e.target.value) })
-            }
-          />
-        </label>
-        <label>
-          Open work limit
-          <input
-            type="number"
-            min={1}
-            max={10}
-            required
-            value={value.maxOpenWork}
-            onChange={(e) =>
-              set({ ...value, maxOpenWork: Number(e.target.value) })
-            }
-          />
-        </label>
-      </div>
-      <p className="muted">
-        Next heartbeat: {date(settings.nextHeartbeatAt)}. Pausing prevents new
-        autonomous execution; a running invocation can finish.
-      </p>
-      <button className="primary" disabled={disabled}>
-        Save autonomy settings
-      </button>
-    </form>
-  );
-}
-
-function ReviewSettings({
-  settings,
-  disabled,
-  save,
-}: {
-  settings: Settings;
-  disabled: boolean;
-  save: (count: number, allow: boolean) => void;
-}) {
-  const [count, setCount] = useState(settings.requiredReviews),
-    [allow, setAllow] = useState(settings.allowCodeChanges);
-  return (
-    <form
-      className="editor settings-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save(count, allow);
-      }}
-    >
-      <h2>Pull request reviews</h2>
-      <label>
-        Required independent reviews
-        <input
-          type="number"
-          required
-          min={1}
-          max={5}
-          value={count}
-          onChange={(e) => setCount(Number(e.target.value))}
-        />
-      </label>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={allow}
-          onChange={(e) => setAllow(e.target.checked)}
-        />{" "}
-        Allow verified corrections to linked codex/ branches
-      </label>
-      <p className="muted">
-        Every reviewer must approve the same commit. New commits restart review.
-        The original assignment receives the combined findings; three
-        unsuccessful rounds reach your inbox. This limit applies separately from
-        the heartbeat budget. Changes to the review count apply to the next
-        round.
-      </p>
-      <p className="muted">
-        Reviews are separate agent invocations using the same model, published
-        as GitHub review comments. They are not separate GitHub account
-        approvals or branch protection checks. Corrections must pass type
-        checking, unit tests, a build and Chrome tests. Nothing merges
-        automatically.
-      </p>
-      <button className="primary" disabled={disabled}>
-        Save review policy
       </button>
     </form>
   );

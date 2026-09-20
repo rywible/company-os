@@ -195,8 +195,7 @@ async function fill(view: Bun.WebView, selector: string, value: string) {
 
 async function nav(view: Bun.WebView, name: string) {
   if (name === "Work" || name === "Discovery") {
-    await nav(view, "Inbox");
-    await click(view, ".inbox-background summary");
+    await nav(view, "Automation");
     await button(
       view,
       name === "Work" ? "Work in progress" : "Ideas and experiments",
@@ -236,7 +235,12 @@ for (const backend of backends) {
           await view.evaluate<any>(
             `[...document.querySelectorAll('nav[aria-label="Workspace navigation"] button')].map(b=>b.getAttribute('aria-label'))`,
           ),
-        ).toEqual(["Open Inbox", "Open Documents", "Open Knowledge"]);
+        ).toEqual([
+          "Open Inbox",
+          "Open Documents",
+          "Open Knowledge",
+          "Open Automation",
+        ]);
         await button(view, "Explore next");
         await nav(view, "Inbox");
         await button(view, "Make navigation clearer", ".thread-list", false);
@@ -261,8 +265,36 @@ for (const backend of backends) {
         );
         expect(repo.state().discovery.ideas[0]!.status).toBe("learned");
         await fits(view);
-        await nav(view, "Settings");
-        await click(view, ".settings-discovery > summary");
+        await nav(view, "Automation");
+        await button(view, "Pause automation");
+        await wait(
+          view,
+          `document.querySelector('.automation-status h2')?.textContent === 'Foreman is paused'`,
+        );
+        expect(repo.state().settings.enabled).toBe(false);
+        await button(view, "Edit schedule");
+        await fill(view, 'input[type="number"][min="15"]', "90");
+        await button(view, "Save schedule");
+        await wait(
+          view,
+          `document.querySelector('.automation-metrics').textContent.includes('90 min')`,
+        );
+        expect(repo.state().settings.intervalMinutes).toBe(90);
+        await button(view, "Adjust limits");
+        await fill(view, 'input[name="capacity"]', "6");
+        await button(view, "Save discovery settings");
+        expect(repo.state().discovery.maxActiveIdeas).toBe(6);
+        await button(view, "Close limits");
+        await button(view, "Resume automation");
+        await wait(
+          view,
+          `document.querySelector('.automation-status h2')?.textContent === 'Foreman is on'`,
+        );
+        await fits(view);
+        await Bun.write(
+          `.artifacts/automation-${size.name}.png`,
+          await view.screenshot(),
+        );
         await button(view, "Perspectives");
         await fits(view);
         await button(view, "Edit Users & workflows");
@@ -279,13 +311,13 @@ for (const backend of backends) {
         expect(
           repo.state().discovery.lenses.find((l) => l.id === "users")!.question,
         ).toContain("mobile workflow");
-        await button(view, "Signals");
+        await button(view, "Feedback", ".section-tabs");
         await fill(
           view,
           '[aria-label="Discovery signal"]',
           "I could not tell which navigation label to use on my phone.",
         );
-        await button(view, "Add signal");
+        await button(view, "Add feedback");
         await wait(
           view,
           `document.querySelector('.discovery-signal')?.textContent.includes('navigation label')`,
@@ -311,10 +343,58 @@ for (const backend of backends) {
         await fits(view);
         await button(view, "Edit");
         await fill(view, "dialog input", "A clearer architecture");
+        await click(view, '[aria-label="Document content"]');
+        await view.evaluate<any>(
+          `(() => {const el = document.querySelector('[aria-label="Document content"]'); const start = el.value.indexOf('The application'); el.setSelectionRange(start, start + 15);})()`,
+        );
+        await button(view, "Bold", ".format-tools");
+        await wait(
+          view,
+          `document.querySelector('[aria-label="Document content"]').value.includes('**The application**')`,
+        );
+        await button(view, "Preview", ".view-switch");
+        await wait(
+          view,
+          `!!document.querySelector('.document-preview strong') && !!document.querySelector('.document-preview .diagram svg')`,
+        );
+        await fits(view);
+        expect(
+          await view.evaluate<any>(
+            `(() => {const r=document.querySelector('.editor-footer').getBoundingClientRect();return r.top >= 0 && r.bottom <= innerHeight + 1;})()`,
+          ),
+        ).toBe(true);
+        await Bun.write(
+          `.artifacts/editor-preview-${size.name}.png`,
+          await view.screenshot(),
+        );
+        await button(view, "Write", ".view-switch");
+        await click(view, '[aria-label="Document content"]');
+        // Exercise Chrome's native undo command; WebView key injection does not
+        // consistently dispatch platform editing shortcuts on headless Chrome.
+        await view.evaluate<any>(`document.execCommand('undo')`);
+        await wait(
+          view,
+          `!document.querySelector('[aria-label="Document content"]').value.includes('**The application**')`,
+        );
+        await Bun.write(
+          `.artifacts/editor-write-${size.name}.png`,
+          await view.screenshot(),
+        );
+        await view.press("b", { modifiers: ["Control"] });
+        await wait(
+          view,
+          `document.querySelector('[aria-label="Document content"]').value.includes('**The application**')`,
+        );
+        await button(view, "Preview", ".view-switch");
+        await wait(
+          view,
+          `!!document.querySelector('.document-preview strong')`,
+        );
         await button(view, "Save revision", "dialog");
         await wait(view, `!document.querySelector('dialog')`);
         expect(repo.document("architecture")!.version).toBe(2);
         expect(repo.document("architecture")!.indexed_version).toBe(2);
+        await click(view, ".context-contract > summary");
         await button(view, "Preview selection");
         await button(view, "Preview", "dialog");
         await wait(view, `!!document.querySelector('.context-view')`);
@@ -490,6 +570,23 @@ for (const backend of backends) {
             `document.querySelector('main').innerText.includes('Objective')`,
           ),
         ).toBe(false);
+        expect(
+          await view.evaluate<any>(
+            `document.querySelectorAll('.settings-page input').length`,
+          ),
+        ).toBe(1);
+        await fill(view, ".settings-page input", "rywible/company-os");
+        await button(view, "Save workspace");
+        await wait(
+          view,
+          `document.querySelector('.settings-page [role="status"]')?.textContent === 'Saved'`,
+        );
+        expect(repo.state().settings.scope).toBe("rywible/company-os");
+        await Bun.write(
+          `.artifacts/settings-${size.name}.png`,
+          await view.screenshot(),
+        );
+        await button(view, "Reviews", ".section-tabs");
         await fill(view, 'input[type="number"][max="5"]', "3");
         await button(view, "Save review policy");
         await wait(view, `!document.querySelector('button.primary:disabled')`);
@@ -609,6 +706,7 @@ test("empty workspace: author the constitution without starter documents or inve
     ),
   ).toBe(true);
   await nav(view, "Documents");
+  await click(view, ".context-contract > summary");
   await button(view, "Discuss with Foreman");
   await wait(
     view,
@@ -687,9 +785,9 @@ test("browser inspection uses the real accessible names at desktop and phone wid
       "test-secret",
     );
     const evidence = await browser.inspect("browser-contract");
-    expect(evidence.steps).toHaveLength(8);
+    expect(evidence.steps).toHaveLength(10);
     expect(evidence.errors).toEqual([]);
-    for (const label of ["Inbox", "Documents", "Knowledge"]) {
+    for (const label of ["Inbox", "Documents", "Knowledge", "Automation"]) {
       expect(
         evidence.steps.some(
           (s) => s.action === "Phone: click " + label && s.title === label,

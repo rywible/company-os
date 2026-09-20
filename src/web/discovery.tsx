@@ -3,7 +3,7 @@ import type { CompanyState, Command, Context } from "../domain/model";
 import type { Lens } from "../domain/discovery";
 
 type Props = {
-  mode?: "archive" | "idea" | "settings";
+  mode?: "archive" | "idea" | "perspectives" | "signals" | "limits";
   state: CompanyState;
   disabled: boolean;
   selected: string | null;
@@ -18,10 +18,10 @@ const stamp = (at?: string) =>
   at ? new Date(at).toLocaleString() : "Not checked yet";
 export function DiscoveryPage(p: Props) {
   const d = p.state.discovery;
-  const [tab, setTab] = useState(
-      p.mode === "settings" ? "perspectives" : "ideas",
-    ),
-    [filter, setFilter] = useState("active"),
+  const tab = ["perspectives", "signals", "limits"].includes(p.mode || "")
+    ? p.mode
+    : "ideas";
+  const [filter, setFilter] = useState("active"),
     [reason, setReason] = useState(""),
     [feedback, setFeedback] = useState(""),
     [feedbackLens, setFeedbackLens] = useState("users"),
@@ -69,19 +69,6 @@ export function DiscoveryPage(p: Props) {
             feed back into Knowledge.
           </p>
         </>
-      )}
-      {p.mode === "settings" && (
-        <div
-          className="discovery-tabs"
-          role="group"
-          aria-label="Discovery views"
-        >
-          {["perspectives", "signals"].map((t) => (
-            <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
-              {t[0]!.toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
       )}
       {tab === "ideas" && (
         <>
@@ -301,10 +288,10 @@ export function DiscoveryPage(p: Props) {
           </div>
         </>
       )}
-      {tab === "perspectives" && (
+      {tab === "limits" && (
         <>
           <form
-            className="discovery-settings"
+            className="discovery-settings editor"
             onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
@@ -328,7 +315,7 @@ export function DiscoveryPage(p: Props) {
               Discovery enabled
             </label>
             <label>
-              Reserve an exploratory scout every{" "}
+              Reserve exploration every{" "}
               <input
                 name="exploration"
                 type="number"
@@ -360,31 +347,32 @@ export function DiscoveryPage(p: Props) {
             </label>
             <button disabled={p.disabled}>Save discovery settings</button>
           </form>
-          <p className="muted">
-            Scouts and their work share the automatic run budget in Settings.
-            Exploratory perspectives reserve time for questions without an
-            existing ticket. All perspectives use repository context, Knowledge
-            and your signals; UI experiments also inspect Chrome. Perspectives
-            can also read current public GitHub releases from up to three
-            repositories you choose. General web search is not connected.
+        </>
+      )}
+      {tab === "perspectives" && (
+        <>
+          <p className="section-intro">
+            Questions Foreman revisits. Choose what it looks into and how often.
           </p>
-          <button
-            disabled={p.disabled}
-            onClick={() =>
-              setEditing({
-                id: crypto.randomUUID(),
-                name: "",
-                question: "",
-                enabled: true,
-                exploratory: true,
-                inspectUI: false,
-                intervalHours: 48,
-                sources: [],
-              })
-            }
-          >
-            Add perspective
-          </button>
+          {!editing && (
+            <button
+              disabled={p.disabled}
+              onClick={() =>
+                setEditing({
+                  id: crypto.randomUUID(),
+                  name: "",
+                  question: "",
+                  enabled: true,
+                  exploratory: true,
+                  inspectUI: false,
+                  intervalHours: 48,
+                  sources: [],
+                })
+              }
+            >
+              Add perspective
+            </button>
+          )}
           {editing && (
             <form
               className="discovery-editor"
@@ -494,48 +482,43 @@ export function DiscoveryPage(p: Props) {
               </button>
             </form>
           )}
-          <div className="discovery-lenses">
-            {d.lenses.map((l) => (
-              <article key={l.id}>
-                <h3>{l.name}</h3>
-                <p>{l.question}</p>
-                <p className="muted">
-                  {l.enabled ? `Every ${l.intervalHours}h` : "Disabled"}
-                  {l.exploratory ? " · exploratory" : ""}
-                  <br />
-                  {stamp(l.lastRunAt)}
-                </p>
-                {l.lastRunId && (
-                  <p>
-                    {p.state.runs.find((r) => r.id === l.lastRunId)?.status} ·{" "}
-                    {p.state.runs.find((r) => r.id === l.lastRunId)?.result
-                      ?.message || "Awaiting result"}
+          {!editing && (
+            <div className="discovery-lenses">
+              {d.lenses.map((l) => (
+                <article key={l.id}>
+                  <h3>{l.name}</h3>
+                  <p>{l.question}</p>
+                  <p className="muted">
+                    {l.enabled ? `Every ${l.intervalHours}h` : "Disabled"}
+                    {l.exploratory ? " · exploratory" : ""}
+                    <br />
+                    {stamp(l.lastRunAt)}
                   </p>
-                )}
-                <div>
-                  <button
-                    disabled={p.disabled}
-                    onClick={() => setEditing({ ...l })}
-                  >
-                    Edit {l.name}
-                  </button>
-                  <button
-                    disabled={
-                      p.disabled ||
-                      !l.enabled ||
-                      !d.enabled ||
-                      !p.state.settings.enabled
-                    }
-                    onClick={() =>
-                      void command({ type: "ExploreDiscovery", lensId: l.id })
-                    }
-                  >
-                    Explore {l.name}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
+                  <div>
+                    <button
+                      disabled={p.disabled}
+                      onClick={() => setEditing({ ...l })}
+                    >
+                      Edit {l.name}
+                    </button>
+                    <button
+                      disabled={
+                        p.disabled ||
+                        !l.enabled ||
+                        !d.enabled ||
+                        !p.state.settings.enabled
+                      }
+                      onClick={() =>
+                        void command({ type: "ExploreDiscovery", lensId: l.id })
+                      }
+                    >
+                      Explore {l.name}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </>
       )}
       {tab === "signals" && (
@@ -554,7 +537,7 @@ export function DiscoveryPage(p: Props) {
             }}
           >
             <label>
-              Feedback, a surprising result, or something worth looking into
+              What should Foreman look into?
               <textarea
                 aria-label="Discovery signal"
                 value={feedback}
@@ -578,7 +561,7 @@ export function DiscoveryPage(p: Props) {
               </select>
             </label>
             <button disabled={p.disabled || !feedback.trim()}>
-              Add signal
+              Add feedback
             </button>
           </form>
           <p className="muted">

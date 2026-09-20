@@ -6,7 +6,7 @@ Company OS separates decisions about company state from HTTP, SQLite, agents, Gi
 C4Container
   Person(ryan, "Ryan", "Direction, triage, review, auditing")
   System_Boundary(os, "Company OS") {
-    Container(ui, "Workspace", "React · Bun build", "Inbox, Documents, Knowledge")
+    Container(ui, "Workspace", "React · Bun build", "Inbox, Documents, Knowledge, Automation")
     Container(app, "Application", "TypeScript · Bun", "Commands, context assembly, durable workflow runner")
     ContainerDb(db, "Company state", "SQLite · FTS5 · sqlite-vec", "State, ordered events, deliveries, revisions, vectors")
     Container(sprite, "Worker Sprite", "Bun · Codex CLI · Chrome", "Agent invocations, read-only browser inspection, correction verification")
@@ -46,7 +46,7 @@ Keep one Fly application Machine. This design does not support multiple worker o
 
 ## Context and present understanding
 
-The primary navigation is Inbox, Documents, and Knowledge; Settings is a utility control. Both human-started conversations and agent requests appear in Inbox. New message opens a subject/body composer; each thread opens on a single reading surface, with replies and archiving. Knowledge exposes subject and content for editing, while versioning, policies and indexing stay behind the application boundary. Work and experiment history are optional drill-downs inside Inbox. Developed discovery recommendations expose their decision controls directly in their inbox threads.
+The primary navigation is Inbox, Documents, Knowledge, and Automation; Settings is a utility control. Automation holds heartbeat scheduling, perspectives, feedback and background work. Settings separates workspace configuration from review policy. Both human-started conversations and agent requests appear in Inbox. New message opens a subject/body composer; each thread opens on a single reading surface, with replies and archiving. Knowledge exposes subject and content for editing, while versioning, policies and indexing stay behind the application boundary. Work and experiment history are optional drill-downs inside Automation. Developed discovery recommendations expose their decision controls directly in their inbox threads.
 
 Documents and observations share a canonical, versioned source. Each record has scope, inclusion (`always`, `relevant`, `reference`) and lifecycle (`active`, `draft`, `retired`). The constitution is the sole source of company direction: Settings has no separate objective. The constitution is always included and can only be edited by a human. Proposals cannot alter it.
 

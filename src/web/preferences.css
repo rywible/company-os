@@ -1,0 +1,250 @@
+/* Configuration is a sequence of small rows, not a dashboard of cards. */
+.settings-page,
+.automation-page {
+  width: 100%;
+  max-width: 840px;
+  padding-bottom: 32px;
+}
+.section-tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 32px;
+}
+.section-tabs button {
+  border-radius: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 0 14px;
+  color: var(--muted);
+}
+.section-tabs button[aria-pressed="true"] {
+  border-bottom-color: #171717;
+  color: #171717;
+  font-weight: 600;
+}
+.preference-section {
+  padding: 26px 0;
+  border-bottom: 1px solid var(--line);
+}
+.preference-section h2,
+.automation-status h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 550;
+  letter-spacing: -0.015em;
+}
+.preference-section p,
+.automation-status p {
+  line-height: 1.6;
+  max-width: 64ch;
+  margin: 0;
+}
+.preference-section input[type="number"] {
+  max-width: 130px;
+  display: block;
+}
+.preference-section .form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.preference-heading,
+.automation-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+}
+.preference-heading {
+  margin-bottom: 12px;
+}
+.preference-heading > button,
+.automation-status > button {
+  border-color: var(--line);
+  flex-shrink: 0;
+}
+.preference-section .check {
+  font-size: 14px;
+  font-weight: 400;
+}
+.field-help {
+  font-size: 12px;
+  color: var(--muted);
+}
+.preference-note {
+  font-size: 13px;
+  margin: 0;
+}
+.preference-note summary {
+  font-size: 13px;
+}
+.settings-page .install-card {
+  border: 0;
+  padding: 26px 0;
+  margin: 0;
+  max-width: none;
+}
+.automation-status {
+  padding: 4px 0 24px;
+}
+.automation-metrics {
+  max-width: 560px;
+  display: grid;
+  gap: 16px;
+  padding: 8px 0 22px;
+}
+.automation-metrics > div {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: baseline;
+}
+.automation-metrics strong {
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.automation-metrics span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.automation-links {
+  display: flex;
+  gap: 4px 18px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 20px;
+}
+.automation-links button {
+  padding-left: 0;
+  padding-right: 0;
+  font-size: 13px;
+}
+.automation-page .discovery-page {
+  padding: 0;
+  margin: 0;
+  max-width: none;
+}
+.section-intro {
+  margin: 0 0 20px;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 64ch;
+}
+.automation-page .discovery-lenses {
+  display: block;
+}
+.automation-page .discovery-lenses article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 28px;
+  padding: 24px 0;
+}
+.automation-page .discovery-lenses h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 550;
+}
+.automation-page .discovery-lenses article > p {
+  margin: 0 0 10px;
+  grid-column: 1;
+  line-height: 1.6;
+  max-width: 64ch;
+}
+.automation-page .discovery-lenses article > div {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+}
+.automation-page .discovery-lenses article > div button {
+  font-size: 12px;
+}
+.automation-page .discovery-settings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 16px 0 0;
+}
+.automation-page .discovery-settings label {
+  display: block;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.automation-page .discovery-settings label:first-child {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+}
+.automation-page .discovery-settings button {
+  justify-self: start;
+  grid-column: 1 / -1;
+  border-color: var(--line);
+}
+.automation-page .discovery-settings input[type="number"] {
+  display: block;
+  width: 100%;
+  max-width: 120px;
+  margin-top: 8px;
+}
+.automation-page input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #171717;
+}
+.automation-page .discovery-editor {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  gap: 22px;
+}
+.automation-page .discovery-editor > label {
+  display: block;
+  line-height: 1.6;
+}
+.automation-page .discovery-editor > label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+}
+.automation-page .discovery-editor > button {
+  align-self: flex-start;
+  border-color: var(--line);
+}
+@media (max-width: 760px) {
+  .navigation nav {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .section-tabs {
+    gap: 22px;
+    margin-bottom: 24px;
+  }
+  .section-tabs button {
+    font-size: 13px;
+  }
+  .preference-heading,
+  .automation-status {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .preference-section .form-grid,
+  .automation-page .discovery-settings {
+    grid-template-columns: 1fr;
+  }
+  .automation-page .discovery-lenses article {
+    display: block;
+  }
+  .automation-page .discovery-lenses article > div {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+}
+
+.settings-page > .preference-section {
+  padding-top: 4px;
+}
+.preference-section input {
+  font-weight: 400;
+}
