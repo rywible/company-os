@@ -5,7 +5,7 @@ A private workspace for steering a software company through its Foreman. The fir
 ## What works
 
 - One inbox for conversations with Foreman, questions, blockers and document proposals. New message starts a thread; replies stay in that thread.
-- Research, bug and feature work tracks, bounded autonomous heartbeats, and read-only Chrome UI inspection on the Sprite.
+- Research, bug and feature work tracks, independently scheduled, bounded research tasks, and read-only Chrome UI inspection on the Sprite.
 - Configurable independent PR reviews, commit-specific quorum, worker feedback, verified corrections and new review rounds.
 - Human-readable, editable understanding records with context policies, revision history, semantic/keyword search and reindexing on edits.
 - Context previews and pinned run manifests showing document inclusion, exclusions, repository evidence and screenshots.

@@ -305,7 +305,10 @@ test("accepted proposals create knowledge revisions and reject stale bases", asy
 });
 test("heartbeat respects pause, active runs and daily budget; work generation is deduplicated", async () => {
   const s = repo.state();
-  s.settings.dailyBudget = 1;
+  for (const lens of s.discovery.lenses) {
+    lens.enabled = lens.id === "direction";
+    lens.dailyRunLimit = 1;
+  }
   s.settings.nextHeartbeatAt = now.toISOString();
   repo.save(s);
   outputs.push(
@@ -344,7 +347,7 @@ test("heartbeat respects pause, active runs and daily budget; work generation is
   }
   expect(repo.state().work).toHaveLength(1);
   expect((company.execute({ type: "Heartbeat" }) as any).skipped).toBe(
-    "daily budget reached",
+    "No task is due with available capacity.",
   );
   company.execute({
     type: "CreateWork",
@@ -356,9 +359,8 @@ test("heartbeat respects pause, active runs and daily budget; work generation is
   });
   expect(repo.state().work).toHaveLength(2);
   company.execute({
-    type: "ConfigureAutonomy",
-    ...repo.state().settings,
-    enabled: false,
+    type: "SaveDiscoveryLens",
+    lens: { ...repo.state().discovery.lenses[0]!, enabled: false },
   });
   const count = repo.state().runs.length;
   company.heartbeat();

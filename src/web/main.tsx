@@ -247,11 +247,33 @@ function Markdown({ children }: { children: string }) {
 }
 
 const pages = [
-  { name: "Inbox", icon: Inbox },
-  { name: "Documents", icon: BookOpen },
-  { name: "Knowledge", icon: Brain },
-  { name: "Automation", icon: Activity },
+  { name: "Inbox", icon: Inbox, key: "1" },
+  { name: "Documents", icon: BookOpen, key: "2" },
+  { name: "Knowledge", icon: Brain, key: "3" },
+  { name: "Automation", icon: Activity, key: "4" },
 ];
+const pageMeta: Record<string, { kicker: string; blurb: string }> = {
+  Inbox: {
+    kicker: "Foreman · triage",
+    blurb: "Decisions, proposals, and replies. Unread first, archive when done.",
+  },
+  Documents: {
+    kicker: "Source of truth",
+    blurb: "Constitution first. Everything Foreman does traces back to here.",
+  },
+  Knowledge: {
+    kicker: "Understanding",
+    blurb: "Searchable memory. Retrieval-aware entries Foreman can cite.",
+  },
+  Automation: {
+    kicker: "Runs itself",
+    blurb: "Scheduled tasks, work in progress, and ideas on a loop.",
+  },
+  Settings: {
+    kicker: "Workspace",
+    blurb: "Repository scope, review policy, and app install.",
+  },
+};
 const freshPolicy: Policy = {
   inclusion: "relevant",
   status: "active",
@@ -310,6 +332,7 @@ function App() {
     [query, setQuery] = useState(""),
     [searchIds, setSearchIds] = useState<string[] | null>(null),
     [history, setHistory] = useState<any[] | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     if (state && !state.documents.some((d) => d.id === docId))
       setDocId(
@@ -372,6 +395,47 @@ function App() {
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
+  useEffect(() => {
+    if (!session) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
+      if (typing || paletteOpen) {
+        if (e.key === "Escape" && paletteOpen) setPaletteOpen(false);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const byKey = pages.find((p) => p.key === e.key);
+      if (byKey) {
+        e.preventDefault();
+        navigate(byKey.name);
+      } else if (e.key === "/") {
+        if (page === "Knowledge") {
+          e.preventDefault();
+          document
+            .querySelector<HTMLInputElement>('input[aria-label="Search knowledge"]')
+            ?.focus();
+        }
+      } else if (e.key.toLowerCase() === "c") {
+        if (page === "Inbox" && inboxView === "requests") {
+          e.preventDefault();
+          setComposeOpen(true);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [session, page, inboxView, paletteOpen]);
   function navigate(name: string) {
     const target =
       name === "Work" || name === "Discovery"
@@ -486,10 +550,7 @@ function App() {
     });
     return ok;
   }
-  const renderDiscovery = (
-    mode: "archive" | "idea" | "perspectives" | "signals" | "limits",
-    ideaId = selectedIdea,
-  ) =>
+  const renderDiscovery = (mode: "archive" | "idea", ideaId = selectedIdea) =>
     state ? (
       <DiscoveryPage
         mode={mode}
@@ -516,9 +577,20 @@ function App() {
       />
     ) : null;
   const heading = (
-    <header className="page-header">
-      <h1>{page}</h1>
-      <div className="actions">
+    <>
+      <header className="page-header">
+        <div>
+          <p className="page-kicker">{pageMeta[page]?.kicker || "Company OS"}</p>
+          <h1>{page}</h1>
+        </div>
+        <div className="actions">
+          <button
+            aria-label="Quick switcher"
+            title="Quick switcher (⌘K)"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <Search size={16} />
+          </button>
         {page !== "Settings" && (
           <button
             aria-label="Open Settings"
@@ -581,8 +653,12 @@ function App() {
             <Plus size={16} /> New work
           </button>
         )}
-      </div>
-    </header>
+        </div>
+      </header>
+      {pageMeta[page]?.blurb && (
+        <p className="page-description">{pageMeta[page]?.blurb}</p>
+      )}
+    </>
   );
   if (session === null)
     return <div className="loading">{error || "Loading…"}</div>;
@@ -591,6 +667,7 @@ function App() {
       <main className="login">
         <Brand />
         <h1>Sign in</h1>
+        <p className="login-sub">Your company, on call. One key opens it.</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -633,6 +710,8 @@ function App() {
             <button
               key={p.name}
               aria-label={"Open " + p.name}
+              aria-keyshortcuts={p.key}
+              title={`${p.name} (${p.key})`}
               aria-current={page === p.name ? "page" : undefined}
               className={page === p.name ? "active" : ""}
               onClick={() => navigate(p.name)}
@@ -654,6 +733,9 @@ function App() {
             </button>
           ))}
         </nav>
+        <p className="nav-hint">
+          <Command size={12} /> K to jump · 1–4 to switch · / to search
+        </p>
         <div className="nav-bottom">
           <span>Ryan’s workspace</span>
           <button
@@ -699,7 +781,12 @@ function App() {
               inboxView === "requests" &&
               !currentThread && (
                 <div className="constitution-setup">
-                  <p>Add a constitution to give Foreman direction.</p>
+                  <p>
+                    Give Foreman direction with a constitution.
+                    <small>
+                      One page on what matters. Foreman reads it before every run.
+                    </small>
+                  </p>
                   <button
                     disabled={disabled}
                     onClick={() =>
@@ -844,8 +931,11 @@ function App() {
                     </div>
                     <div className="conversation-messages">
                       {currentThread?.reason && (
-                        <article className="message email-original">
+                        <article className="message email-original foreman">
                           <div className="message-meta">
+                            <span className="avatar" aria-hidden="true">
+                              F
+                            </span>
                             <b>Foreman</b>
                             <time>{date(currentThread.createdAt)}</time>
                           </div>
@@ -869,6 +959,16 @@ function App() {
                       {currentThread?.messages.map((m) => (
                         <article key={m.id} className={"message " + m.role}>
                           <div className="message-meta">
+                            <span
+                              className="avatar"
+                              aria-hidden="true"
+                            >
+                              {m.role === "human"
+                                ? "Y"
+                                : m.role === "system"
+                                  ? "S"
+                                  : "F"}
+                            </span>
                             <b>
                               {m.role === "human"
                                 ? "You"
@@ -983,7 +1083,9 @@ function App() {
                           }}
                         />
                         <div>
-                          <span />
+                          <span className="composer-hint">
+                            ⌘ + Enter to send
+                          </span>
                           <button
                             className="primary"
                             aria-label="Send message"
@@ -1012,40 +1114,6 @@ function App() {
               renderDiscovery("archive")}
             {page === "Automation" && inboxView === "work" && (
               <>
-                <div className="autonomy-strip">
-                  <span
-                    className={
-                      "status-dot " + (state.settings.enabled ? "enabled" : "")
-                    }
-                  />
-                  <span>
-                    Autonomy {state.settings.enabled ? "on" : "paused"} · every{" "}
-                    {state.settings.intervalMinutes} min ·{" "}
-                    {
-                      state.runs.filter(
-                        (r) =>
-                          r.automatic &&
-                          r.createdAt.slice(0, 10) ===
-                            new Date().toISOString().slice(0, 10),
-                      ).length
-                    }
-                    /{state.settings.dailyBudget} runs today
-                  </span>
-                  <button
-                    disabled={disabled}
-                    onClick={() =>
-                      void perform(async () => {
-                        const r = await act({ type: "Heartbeat" });
-                        if (r.skipped) throw Error(r.skipped);
-                      })
-                    }
-                  >
-                    Check now
-                  </button>
-                  <button onClick={() => navigate("Automation")}>
-                    Configure
-                  </button>
-                </div>
                 <div className="filters">
                   {["all", "research", "bug", "feature"].map((t) => (
                     <button
@@ -1074,7 +1142,8 @@ function App() {
                           Discovery · {work.discoveryPhase} ↗
                         </button>
                       )}
-                      <span className="badge">
+                      <span className="badge" data-status={work.status}>
+                        <span className="dot" aria-hidden="true" />
                         {work.track} · {work.status}
                       </span>
                     </div>
@@ -1235,12 +1304,17 @@ function App() {
                           key={w.id}
                           onClick={() => setSelectedWork(w.id)}
                         >
-                          <span className="badge">{w.track}</span>
+                          <span className="badge" data-status={w.track}>
+                            {w.track}
+                          </span>
                           <div>
                             <strong>{w.title}</strong>
                             <p>{w.criteria}</p>
                           </div>
-                          <span className="badge">{w.status}</span>
+                          <span className="badge" data-status={w.status}>
+                            <span className="dot" aria-hidden="true" />
+                            {w.status}
+                          </span>
                           <ChevronRight size={16} />
                         </button>
                       ))}
@@ -1484,7 +1558,11 @@ function App() {
                 state={state}
                 disabled={disabled}
                 command={command}
-                discovery={renderDiscovery}
+                configured={state.configured}
+                hasConstitution={state.documents.some(
+                  (d) => d.level === "constitution" && !!d.content.trim(),
+                )}
+                openDocuments={() => navigate("Documents")}
                 openWork={() => navigate("Work")}
                 openIdeas={() => navigate("Discovery")}
               />
@@ -1871,6 +1949,132 @@ function App() {
           />
         </Modal>
       )}
+      {paletteOpen && state && (
+        <Palette
+          close={() => setPaletteOpen(false)}
+          go={(name) => {
+            navigate(name);
+            setPaletteOpen(false);
+          }}
+          compose={() => {
+            navigate("Inbox");
+            setComposeOpen(true);
+            setPaletteOpen(false);
+          }}
+          newWork={() => {
+            navigate("Work");
+            setWorkForm(true);
+            setPaletteOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+function Palette({
+  close,
+  go,
+  compose,
+  newWork,
+}: {
+  close(): void;
+  go(name: string): void;
+  compose(): void;
+  newWork(): void;
+}) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => inputRef.current?.focus(), []);
+  const items = [
+    ...pages.map((p) => ({
+      label: "Go to " + p.name,
+      hint: p.key,
+      icon: p.icon,
+      run: () => go(p.name),
+    })),
+    {
+      label: "Go to Settings",
+      hint: "S",
+      icon: Settings2,
+      run: () => go("Settings"),
+    },
+    {
+      label: "Go to Work in progress",
+      hint: "W",
+      icon: ArrowRight,
+      run: () => go("Work"),
+    },
+    {
+      label: "Go to Ideas and experiments",
+      hint: "D",
+      icon: ArrowRight,
+      run: () => go("Discovery"),
+    },
+    {
+      label: "New message to Foreman",
+      hint: "C",
+      icon: Plus,
+      run: compose,
+    },
+    { label: "New work", hint: "", icon: Plus, run: newWork },
+  ].filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()));
+  useEffect(() => setSel(0), [q]);
+  return (
+    <div
+      className="palette-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
+      <div className="palette" role="dialog" aria-label="Quick switcher">
+        <input
+          ref={inputRef}
+          aria-label="Quick switcher"
+          placeholder="Jump to Inbox, Documents, Work…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setSel((s) => Math.min(s + 1, items.length - 1));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setSel((s) => Math.max(s - 1, 0));
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              items[sel]?.run();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              close();
+            }
+          }}
+        />
+        <div className="palette-list">
+          {items.map((item, i) => (
+            <button
+              key={item.label}
+              className={i === sel ? "sel" : ""}
+              onMouseEnter={() => setSel(i)}
+              onClick={item.run}
+            >
+              <item.icon size={16} />
+              {item.label}
+              {item.hint ? <small>{item.hint}</small> : null}
+            </button>
+          ))}
+          {!items.length && (
+            <p className="muted" style={{ padding: "12px" }}>
+              No matches.
+            </p>
+          )}
+        </div>
+        <div className="palette-foot">
+          <span>↑↓ to move</span>
+          <span>↵ to open</span>
+          <span>esc to close</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1884,8 +2088,11 @@ function Brand() {
 function Empty({ title, text }: { title: string; text: string }) {
   return (
     <div className="empty">
+      <span className="empty-icon" aria-hidden="true">
+        <Inbox size={18} />
+      </span>
       <h3>{title}</h3>
-      <p>{text}</p>
+      {text ? <p>{text}</p> : null}
     </div>
   );
 }
@@ -1958,7 +2165,10 @@ function RunRow({
   return (
     <div className="run-row">
       <span>{run.trigger}</span>
-      <span className="badge">{run.status}</span>
+      <span className="badge" data-status={run.status}>
+        <span className="dot" aria-hidden="true" />
+        {run.status}
+      </span>
       <time>{date(run.createdAt)}</time>
       {run.context && <button onClick={inspect}>Context & evidence</button>}
       {run.status === "failed" && <button onClick={retry}>Retry</button>}

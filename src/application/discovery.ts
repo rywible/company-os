@@ -1,3 +1,4 @@
+import { taskUsage, taskCapacity } from "../domain/automation";
 import { evidenceReferences } from "../domain/evidence";
 import {
   duplicateIdea,
@@ -29,7 +30,12 @@ type Host = {
     correlation: string,
     cause?: string | null,
   ): void;
-  work(state: CompanyState, input: Experiment, cause: string, key: string): Work;
+  work(
+    state: CompanyState,
+    input: Experiment,
+    cause: string,
+    key: string,
+  ): Work;
   inbox(
     state: CompanyState,
     input: {
@@ -49,10 +55,7 @@ export class Discovery {
   constructor(private h: Host) {}
   configure(state: CompanyState, cmd: Command): boolean {
     const d = state.discovery;
-    if (cmd.type === "ConfigureDiscovery") {
-      const { type, ...settings } = cmd;
-      Object.assign(d, settings);
-    } else if (cmd.type === "SaveDiscoveryLens") {
+    if (cmd.type === "SaveDiscoveryLens") {
       const lens = d.lenses.find((l) => l.id === cmd.lens.id);
       if (lens) Object.assign(lens, cmd.lens);
       else {
@@ -110,33 +113,22 @@ export class Discovery {
       "discovery",
       sourceEventId,
     );
-    // Signals can bring attention forward, with a cooldown per perspective.
-    const wakeAt = new Date(
-      Date.parse(this.h.now()) + 15 * 60000,
-    ).toISOString();
-    for (const lens of d.lenses.filter((l) => lensIds.includes(l.id))) {
-      if (
-        !lens.lastRunAt ||
-        Date.parse(lens.lastRunAt) + 15 * 60000 <= Date.parse(this.h.now())
-      ) {
-        // Keep lastRunAt as truthful history; signal-aware selection is handled in scout().
-        if (state.settings.nextHeartbeatAt > wakeAt)
-          state.settings.nextHeartbeatAt = wakeAt;
-      }
-    }
     return signal;
   }
   scout(state: CompanyState, requested?: string): Lens | undefined {
     const d = state.discovery;
-    if (!d.enabled) return undefined;
-    if (d.ideas.filter(active).length >= d.maxActiveIdeas) return undefined;
+    const eligible = (lens: Lens) =>
+      taskUsage(state, lens, this.h.now()) < lens.dailyRunLimit &&
+      taskCapacity(state, lens);
     if (requested) {
-      const lens = d.lenses.find((l) => l.id === requested && l.enabled);
-      if (!lens) throw new DomainError("Choose an enabled perspective.");
-      return lens;
+      const lens = d.lenses.find((l) => l.id === requested);
+      if (!lens) throw new DomainError("Task not found.");
+      return eligible(lens) ? lens : undefined;
     }
-    const chosen = selectLens(d, this.h.now());
-    return d.lenses.find((l) => l.id === chosen?.id);
+    return selectLens(
+      { ...d, lenses: d.lenses.filter(eligible) },
+      this.h.now(),
+    );
   }
   attach(state: CompanyState, run: Run, lens: Lens) {
     run.discoveryLensId = lens.id;
@@ -148,9 +140,6 @@ export class Discovery {
       if (run.discoverySignalIds.includes(s.id)) s.consumedBy = run.id;
     lens.lastRunAt = this.h.now();
     lens.lastRunId = run.id;
-    state.discovery.scoutsSinceExploration = lens.exploratory
-      ? 0
-      : state.discovery.scoutsSinceExploration + 1;
   }
   context(state: CompanyState, run: Run, context: Context) {
     const work = state.work.find((w) => w.id === run.workId);
@@ -218,11 +207,16 @@ export class Discovery {
   investigate(state: CompanyState, id: string): boolean {
     const idea = state.discovery.ideas.find((i) => i.id === id);
     if (!idea || !["candidate", "pursued"].includes(idea.status)) return true;
+    const lens = state.discovery.lenses.find((l) => l.id === idea.lensId)!;
     if (
-      !state.settings.enabled ||
-      !state.discovery.enabled ||
-      state.work.filter((w) => !["done", "cancelled"].includes(w.status))
-        .length >= state.settings.maxOpenWork
+      !lens.enabled ||
+      state.work.filter(
+        (w) =>
+          !["done", "cancelled"].includes(w.status) &&
+          state.discovery.ideas.some(
+            (i) => i.id === w.discoveryId && i.lensId === lens.id,
+          ),
+      ).length >= lens.maxOpenWork
     )
       return false;
     if (idea.status === "pursued") {
@@ -243,7 +237,9 @@ export class Discovery {
       idea.status = "evaluating";
     } else {
       if (
-        idea.investigationWorkIds.length >= state.discovery.maxInvestigations
+        idea.investigationWorkIds.length >=
+        state.discovery.lenses.find((l) => l.id === idea.lensId)!
+          .maxInvestigations
       ) {
         idea.status = "parked";
         return true;
@@ -272,8 +268,14 @@ export class Discovery {
           "An investigated recommendation is required before pursuing it.",
         );
       if (
-        state.work.filter((w) => !["done", "cancelled"].includes(w.status))
-          .length >= state.settings.maxOpenWork
+        state.work.filter(
+          (w) =>
+            !["done", "cancelled"].includes(w.status) &&
+            state.discovery.ideas.some(
+              (i) => i.id === w.discoveryId && i.lensId === idea.lensId,
+            ),
+        ).length >=
+        state.discovery.lenses.find((l) => l.id === idea.lensId)!.maxOpenWork
       )
         throw new DomainError(
           "Finish or cancel open work before pursuing another idea.",
@@ -294,8 +296,10 @@ export class Discovery {
           "Describe what changed before revisiting this idea.",
         );
       if (
-        state.discovery.ideas.filter(active).length >=
-        state.discovery.maxActiveIdeas
+        !taskCapacity(
+          state,
+          state.discovery.lenses.find((l) => l.id === idea.lensId)!,
+        )
       )
         throw new DomainError("Discovery is at capacity.");
       if (
@@ -427,8 +431,10 @@ export class Discovery {
         throw new DomainError("A scout cannot assess unperformed work.");
       for (const candidate of output.discoveries || []) {
         if (
-          state.discovery.ideas.filter(active).length >=
-          state.discovery.maxActiveIdeas
+          !taskCapacity(
+            state,
+            state.discovery.lenses.find((l) => l.id === run.discoveryLensId)!,
+          )
         )
           break;
         if (duplicateIdea(state.discovery.ideas, candidate)) continue;
@@ -495,7 +501,9 @@ export class Discovery {
       } else if (assessment.verdict === "discard") idea.status = "discarded";
       else if (
         assessment.nextExperiment &&
-        idea.investigationWorkIds.length < state.discovery.maxInvestigations
+        idea.investigationWorkIds.length <
+          state.discovery.lenses.find((l) => l.id === idea.lensId)!
+            .maxInvestigations
       ) {
         idea.experiment = assessment.nextExperiment;
         idea.status = "candidate";

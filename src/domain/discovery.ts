@@ -14,7 +14,10 @@ export const lensSchema = z.object({
   question: text.max(2000),
   enabled: z.boolean(),
   intervalHours: z.number().int().min(1).max(720),
-  exploratory: z.boolean(),
+  dailyRunLimit: z.number().int().min(1).max(24).default(6),
+  maxActiveIdeas: z.number().int().min(1).max(20).default(6),
+  maxInvestigations: z.number().int().min(1).max(3).default(2),
+  maxOpenWork: z.number().int().min(1).max(10).default(4),
   inspectUI: z.boolean().default(false),
   sources: z
     .array(
@@ -89,103 +92,87 @@ export type Idea = z.infer<typeof candidateSchema> & {
   updatedAt: string;
 };
 export type DiscoveryState = {
-  enabled: boolean;
-  explorationEvery: number;
-  maxActiveIdeas: number;
-  maxInvestigations: number;
-  scoutsSinceExploration: number;
+  taskSettingsVersion: 1;
   lenses: Lens[];
   ideas: Idea[];
   signals: Signal[];
   observedEvents: string[];
 };
 export function initialDiscovery(): DiscoveryState {
-  const definitions: [string, string, string, number, boolean][] = [
+  const definitions: [string, string, string, number][] = [
     [
       "direction",
       "Direction",
       "Which assumption about what we are building or who it serves should we challenge?",
       168,
-      true,
     ],
     [
       "users",
       "Users & workflows",
       "Where does using the product create friction, confusion or unnecessary work? Inspect the real UI when useful.",
       24,
-      false,
     ],
     [
       "product",
       "Product possibilities",
       "What new capability could materially improve a user's outcome? What would we remove to make room?",
       48,
-      true,
     ],
     [
       "engineering",
       "Engineering health",
       "What concrete bottleneck or source of complexity merits refactoring? Require evidence before proposing a rewrite.",
       48,
-      false,
     ],
     [
       "operations",
       "Correctness & operations",
       "What failures, risks or missing feedback make the system unreliable?",
       12,
-      false,
     ],
     [
       "outside",
       "Outside developments",
       "What external change or unfamiliar approach could alter our choices? Identify missing external evidence explicitly; never invent current news.",
       72,
-      true,
     ],
     [
       "business",
       "Business viability",
       "Which assumption about value, cost or adoption needs a cheap test?",
       168,
-      true,
     ],
     [
       "learning",
       "Organizational learning",
       "What do our completed work, review findings and failed experiments teach us about how we operate?",
       24,
-      false,
     ],
     [
       "subtraction",
       "Subtraction",
       "What feature, process, abstraction or recurring work could we delete or simplify?",
       96,
-      true,
     ],
   ];
   return {
-    enabled: true,
-    explorationEvery: 4,
-    maxActiveIdeas: 6,
-    maxInvestigations: 2,
-    scoutsSinceExploration: 0,
+    taskSettingsVersion: 1,
     ideas: [],
     signals: [],
     observedEvents: [],
-    lenses: definitions.map(
-      ([id, name, question, intervalHours, exploratory]) => ({
-        id,
-        name,
-        question,
-        intervalHours,
-        exploratory,
-        enabled: true,
-        inspectUI: id === "users",
-        sources: id === "outside" ? ["oven-sh/bun"] : [],
-      }),
-    ),
+    lenses: definitions.map(([id, name, question, intervalHours]) => ({
+      id,
+      name,
+      question,
+      intervalHours,
+      dailyRunLimit: 6,
+      maxActiveIdeas: 6,
+      maxInvestigations: 2,
+      maxOpenWork: 4,
+      enabled: true,
+      inspectUI: id === "users",
+      sources: id === "outside" ? ["oven-sh/bun"] : [],
+    })),
   };
 }
 export function selectLens(d: DiscoveryState, now: string): Lens | undefined {
@@ -198,12 +185,7 @@ export function selectLens(d: DiscoveryState, now: string): Lens | undefined {
         (d.signals.some((s) => !s.consumedBy && s.lensIds.includes(l.id)) &&
           Date.parse(l.lastRunAt) + 15 * 60000 <= Date.parse(now))),
   );
-  const explorationOwed = d.scoutsSinceExploration >= d.explorationEvery - 1;
-  const eligible =
-    explorationOwed && due.some((l) => l.exploratory)
-      ? due.filter((l) => l.exploratory)
-      : due;
-  return eligible.sort((a, b) => {
+  return due.sort((a, b) => {
     const attention = (l: Lens) =>
       d.signals.filter((s) => !s.consumedBy && s.lensIds.includes(l.id)).length;
     // Overdue perspectives take priority over recently checked, signalled ones.
@@ -247,13 +229,6 @@ export function duplicateIdea(
   });
 }
 export const discoveryCommands = [
-  z.object({
-    type: z.literal("ConfigureDiscovery"),
-    enabled: z.boolean(),
-    explorationEvery: z.number().int().min(1).max(12),
-    maxActiveIdeas: z.number().int().min(1).max(20),
-    maxInvestigations: z.number().int().min(1).max(3),
-  }),
   z.object({ type: z.literal("SaveDiscoveryLens"), lens: lensSchema }),
   z.object({ type: z.literal("ExploreDiscovery"), lensId: text.optional() }),
   z.object({

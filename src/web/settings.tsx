@@ -41,8 +41,7 @@ export function SettingsPage({
             onSubmit={(e) => {
               e.preventDefault();
               void command({
-                type: "ConfigureAutonomy",
-                ...settings,
+                type: "ConfigureWorkspace",
                 scope,
               }).then(setSaved);
             }}
