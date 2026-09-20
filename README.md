@@ -4,7 +4,7 @@ A private workspace for steering a software company through its Foreman. The fir
 
 ## What works
 
-- Dedicated, isolated Foreman conversations and an inbox for questions, blockers and document proposals.
+- One inbox for conversations with Foreman, questions, blockers and document proposals. New message starts a thread; replies stay in that thread.
 - Research, bug and feature work tracks, bounded autonomous heartbeats, and read-only Chrome UI inspection on the Sprite.
 - Configurable independent PR reviews, commit-specific quorum, worker feedback, verified corrections and new review rounds.
 - Human-readable, editable understanding records with context policies, revision history, semantic/keyword search and reindexing on edits.
@@ -88,7 +88,7 @@ Work exposes workflow history, runs and delivery failures; all events and revisi
 
 ## Mobile and installation
 
-The interface uses a monochrome palette, compact headings, plain labels, document rows, and a small stamped wordmark. It uses a dedicated bottom navigation on phones and tablets, a full-screen Foreman conversation, 44px controls, safe-area spacing, and keyboard-aware viewport sizing. On phones, document editing and context inspection open full-screen; diagrams scroll horizontally to preserve readable labels. The interface uses system fonts without external font requests.
+Navigation has three destinations: Inbox, Documents and Knowledge. Knowledge editing exposes only the subject and content; saving refreshes retrieval automatically. The interface uses a monochrome palette, compact headings, plain labels, document rows, and a small stamped wordmark. It uses a dedicated bottom navigation on phones and tablets, email-style inbox threads, 44px controls, safe-area spacing, and keyboard-aware viewport sizing. On phones, document editing and context inspection open full-screen; diagrams scroll horizontally to preserve readable labels. The interface uses system fonts without external font requests.
 
 Company OS is an installable PWA. Open **Settings** for installation:
 

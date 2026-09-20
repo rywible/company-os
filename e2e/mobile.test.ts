@@ -236,33 +236,28 @@ for (const backend of backends) {
           await view.evaluate<any>(
             `[...document.querySelectorAll('nav[aria-label="Workspace navigation"] button')].map(b=>b.getAttribute('aria-label'))`,
           ),
-        ).toEqual([
-          "Open Foreman",
-          "Open Inbox",
-          "Open Documents",
-          "Open Knowledge",
-        ]);
+        ).toEqual(["Open Inbox", "Open Documents", "Open Knowledge"]);
         await button(view, "Explore next");
         await nav(view, "Inbox");
         await button(view, "Make navigation clearer", ".thread-list", false);
         await wait(
           view,
-          `document.querySelector('.discovery-detail')?.textContent.includes('Proposed work')`,
+          `!!document.querySelector('.email-original .markdown')`,
         );
         expect(repo.state().discovery.ideas[0]!.status).toBe("ready");
         expect(repo.state().threads.filter((t) => t.discoveryId)).toHaveLength(
           1,
         );
         await fits(view);
-        await fill(
-          view,
-          '[aria-label="Discovery decision note"]',
-          "Worth a small experiment",
-        );
+        expect(
+          await view.evaluate<any>(
+            `document.querySelectorAll('.conversation .discovery-detail, .conversation details').length`,
+          ),
+        ).toBe(0);
         await button(view, "Pursue");
         await wait(
           view,
-          `document.querySelector('.discovery-detail')?.textContent.includes('Outcome · inconclusive')`,
+          `![...document.querySelectorAll('.mail-decision button')].some(b => b.textContent === 'Pursue')`,
         );
         expect(repo.state().discovery.ideas[0]!.status).toBe("learned");
         await fits(view);
@@ -334,12 +329,22 @@ for (const backend of backends) {
         await fill(view, '[aria-label="Search knowledge"]', "architecture");
         await button(view, "Search");
         await button(view, "Edit A clearer architecture");
+        expect(
+          await view.evaluate<any>(
+            `[...document.querySelectorAll('dialog label')].map(l => l.firstChild.textContent.trim())`,
+          ),
+        ).toEqual(["Subject", "Content"]);
+        expect(
+          await view.evaluate<any>(
+            `document.querySelectorAll('dialog details, dialog select').length`,
+          ),
+        ).toBe(0);
         await fill(
           view,
           "dialog textarea",
           "Architecture: the founder can revise this text directly from the search results.",
         );
-        await button(view, "Save revision", "dialog");
+        await button(view, "Save", "dialog");
         await wait(view, `!document.querySelector('dialog')`);
         expect(repo.document("architecture")!.version).toBe(3);
         expect(repo.document("architecture")!.indexed_version).toBe(3);
@@ -347,12 +352,11 @@ for (const backend of backends) {
           view,
           `document.querySelector('.knowledge-card')?.textContent.includes('founder can revise')`,
         );
-        await click(view, ".knowledge-card summary");
         expect(
           await view.evaluate<any>(
-            `document.querySelector('.knowledge-card').textContent.includes('title and full text')`,
+            `document.querySelectorAll('.knowledge-card details, .knowledge-card small').length`,
           ),
-        ).toBe(true);
+        ).toBe(0);
         await fits(view);
         await Bun.write(
           `.artifacts/knowledge-${size.name}.png`,
@@ -361,44 +365,121 @@ for (const backend of backends) {
         await button(view, "A clearer architecture", "", false);
         await wait(
           view,
-          `!!document.querySelector('dialog[aria-label="Knowledge entry"]')`,
+          `!!document.querySelector('dialog[aria-label="Edit entry"]')`,
         );
         expect(
           await view.evaluate<any>(
-            `document.querySelector('dialog').textContent.includes('What meaning search uses')`,
+            `document.querySelector('dialog textarea').value.includes('founder can revise')`,
           ),
         ).toBe(true);
         await fits(view);
         expect(errors).toEqual([]);
       }, 30000);
-      test("inbox threads and isolated Foreman conversation drafts", async () => {
+      test("email threads, new messages, archive and isolated drafts", async () => {
         const { view, repo, errors } = await setup(backend, size);
         await button(view, "Prove the handoff before expanding", "", false);
-        await button(view, "Accept revision");
+        expect(
+          await view.evaluate<any>(
+            `document.querySelectorAll('.thread-list').length`,
+          ),
+        ).toBe(0);
+        await click(view, ".mail-attachment");
         await wait(
           view,
-          `document.querySelector('.revision-proposal .badge')?.textContent==='accepted'`,
+          `!!document.querySelector('dialog .markdown p') && !document.querySelector('dialog .markdown-source')`,
         );
+        await button(view, "Accept revision", "dialog");
+        await wait(view, `!document.querySelector('dialog')`);
         expect(repo.document("sequence")!.version).toBe(2);
-        await button(view, "Resolve");
-        expect(repo.state().threads[0]!.status).toBe("resolved");
-        await nav(view, "Foreman");
         await fill(
           view,
           '[aria-label="Message Foreman"]',
+          "Keep this reply separate",
+        );
+        await button(view, "New message");
+        await fill(view, "dialog input", "Product direction");
+        await fill(
+          view,
+          '[aria-label="New message content"]',
           "Preserve my direction",
         );
-        await nav(view, "Documents");
-        await nav(view, "Foreman");
+        await fits(view);
+        await button(view, "Close dialog");
         expect(
-          await view.evaluate<any>(`document.querySelector('textarea').value`),
+          await view.evaluate<any>(
+            `document.querySelector('[aria-label="Message Foreman"]').value`,
+          ),
+        ).toBe("Keep this reply separate");
+        await nav(view, "Documents");
+        await nav(view, "Inbox");
+        await button(view, "New message");
+        expect(
+          await view.evaluate<any>(
+            `document.querySelector('dialog input').value`,
+          ),
+        ).toBe("Product direction");
+        expect(
+          await view.evaluate<any>(
+            `document.querySelector('dialog textarea').value`,
+          ),
         ).toBe("Preserve my direction");
-        await button(view, "Send message");
-        await wait(view, `document.querySelectorAll('.message').length===2`);
+        await button(view, "Send", "dialog");
+        await wait(
+          view,
+          `!document.querySelector('dialog') && document.querySelectorAll('.message').length===2`,
+        );
         expect(
           repo.state().threads.filter((t) => t.kind === "conversation"),
         ).toHaveLength(1);
+        expect(
+          repo.state().threads.find((t) => t.kind === "conversation")!.subject,
+        ).toBe("Product direction");
+        await fill(
+          view,
+          '[aria-label="Message Foreman"]',
+          "A follow-up on direction",
+        );
+        await button(view, "Send message");
+        await wait(view, `document.querySelectorAll('.message').length===4`);
+        expect(
+          repo
+            .state()
+            .threads.find((t) => t.kind === "conversation")!
+            .messages.filter((m) => m.role === "human"),
+        ).toHaveLength(2);
+        await Bun.write(
+          `.artifacts/mail-thread-${size.name}.png`,
+          await view.screenshot(),
+        );
+        await button(view, "Archive");
+        await wait(view, `!!document.querySelector('.thread-list')`);
+        expect(
+          repo.state().threads.find((t) => t.kind === "conversation")!.status,
+        ).toBe("resolved");
+        await button(view, "Archived", ".filters");
+        await button(view, "Product direction", ".thread-list", false);
+        await button(view, "Move to inbox");
+        await button(view, "Inbox", ".filters");
+        await button(view, "Product direction", ".thread-list", false);
+        await button(view, "← Inbox");
+        await button(
+          view,
+          "Prove the handoff before expanding",
+          ".thread-list",
+          false,
+        );
+        expect(
+          await view.evaluate<any>(
+            `document.querySelector('[aria-label="Message Foreman"]').value`,
+          ),
+        ).toBe("Keep this reply separate");
+        await button(view, "Archive");
+        expect(repo.state().threads[0]!.status).toBe("resolved");
         await fits(view);
+        await Bun.write(
+          `.artifacts/mail-list-${size.name}.png`,
+          await view.screenshot(),
+        );
         expect(errors).toEqual([]);
       }, 30000);
       test("work, PR review count and complete event-driven round", async () => {
@@ -502,8 +583,58 @@ test("empty workspace: author the constitution without starter documents or inve
   );
   await nav(view, "Knowledge");
   expect(
-    await view.evaluate<any>(`document.querySelectorAll('.knowledge-card').length`),
+    await view.evaluate<any>(
+      `document.querySelectorAll('.knowledge-card').length`,
+    ),
   ).toBe(1);
+  await button(view, "New entry");
+  expect(
+    await view.evaluate<any>(
+      `document.querySelectorAll('dialog select, dialog details').length`,
+    ),
+  ).toBe(0);
+  await fill(view, "dialog input", "Rehearsal timing");
+  await fill(view, "dialog textarea", "Leave ten minutes between rehearsals.");
+  await button(view, "Save", "dialog");
+  await wait(view, `!document.querySelector('dialog')`);
+  const entry = repo.documents().find((d) => d.title === "Rehearsal timing")!;
+  expect(entry.level).toBe("knowledge");
+  expect(entry.indexed_version).toBe(1);
+  await fill(view, '[aria-label="Search knowledge"]', "Rehearsal timing");
+  await button(view, "Search");
+  await wait(view, `document.querySelectorAll('.knowledge-card').length === 1`);
+  expect(
+    await view.evaluate<any>(
+      `document.querySelector('.knowledge-card').textContent.includes('ten minutes')`,
+    ),
+  ).toBe(true);
+  await nav(view, "Documents");
+  await button(view, "Discuss with Foreman");
+  await wait(
+    view,
+    `!!document.querySelector('dialog[aria-label="New message"]')`,
+  );
+  expect(
+    await view.evaluate<any>(`document.querySelector('h1').textContent`),
+  ).toBe("Inbox");
+  expect(
+    await view.evaluate<any>(
+      `document.querySelector('dialog .attachment').textContent.includes('Constitution')`,
+    ),
+  ).toBe(true);
+  await fill(
+    view,
+    '[aria-label="New message content"]',
+    "Help me refine this constitution.",
+  );
+  await button(view, "Send", "dialog");
+  await wait(view, `!document.querySelector('dialog')`);
+  expect(repo.state().threads[0]!.attachment).toEqual({
+    id: repo.documents().find((d) => d.level === "constitution")!.id,
+    version: 1,
+  });
+  await view.evaluate<any>(`location.hash = 'Foreman'`);
+  await wait(view, `document.querySelector('h1')?.textContent === 'Inbox'`);
   await fits(view);
   expect(errors).toEqual([]);
 }, 30000);
@@ -556,9 +687,9 @@ test("browser inspection uses the real accessible names at desktop and phone wid
       "test-secret",
     );
     const evidence = await browser.inspect("browser-contract");
-    expect(evidence.steps).toHaveLength(10);
+    expect(evidence.steps).toHaveLength(8);
     expect(evidence.errors).toEqual([]);
-    for (const label of ["Inbox", "Documents", "Knowledge", "Foreman"]) {
+    for (const label of ["Inbox", "Documents", "Knowledge"]) {
       expect(
         evidence.steps.some(
           (s) => s.action === "Phone: click " + label && s.title === label,

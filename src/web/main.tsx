@@ -9,7 +9,6 @@ import {
   Activity,
   ArrowDownLeft,
   ArrowRight,
-  ArrowUp,
   BookOpen,
   Check,
   ChevronDown,
@@ -19,19 +18,16 @@ import {
   ExternalLink,
   FileText,
   GitBranch,
-  History,
   Layers3,
   Loader2,
   Menu,
   MoreHorizontal,
-  MessageSquare,
   Pencil,
   Plus,
   RefreshCw,
   Search,
   Settings2,
   Shield,
-  Terminal,
   X,
 } from "lucide-react";
 import type { Document, SearchHit } from "../contracts";
@@ -252,7 +248,6 @@ function Markdown({ children }: { children: string }) {
 }
 
 const pages = [
-  { name: "Foreman", icon: Terminal },
   { name: "Inbox", icon: Inbox },
   { name: "Documents", icon: BookOpen },
   { name: "Knowledge", icon: Brain },
@@ -271,7 +266,7 @@ function App() {
     [password, setPassword] = useState("");
   const [state, setState] = useState<Workspace | null>(null),
     [page, setPage] = useState(
-      ["Work", "Discovery"].includes(location.hash.slice(1))
+      ["Foreman", "Work", "Discovery"].includes(location.hash.slice(1))
         ? "Inbox"
         : location.hash.slice(1) === "Understanding"
           ? "Knowledge"
@@ -302,6 +297,9 @@ function App() {
     [contextQuery, setContextQuery] = useState(""),
     [previewOpen, setPreviewOpen] = useState(false),
     [contextBusy, setContextBusy] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [draftSubject, setDraftSubject] = useState("");
+  const [proposalId, setProposalId] = useState<string | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
   const [workForm, setWorkForm] = useState(false),
     [selectedWork, setSelectedWork] = useState<string | null>(null),
@@ -336,6 +334,9 @@ function App() {
       setSession(false);
       setState(null);
       setDrafts({});
+      setDraftSubject("");
+      setComposeOpen(false);
+      setAttachment(undefined);
       markdownCache.clear();
     };
     window.addEventListener("workspace-locked", lock);
@@ -358,9 +359,11 @@ function App() {
   useEffect(() => {
     const sync = () => {
       const p = location.hash.slice(1);
-      if (p === "Work" || p === "Discovery") {
+      if (p === "Foreman" || p === "Work" || p === "Discovery") {
         setPage("Inbox");
-        setInboxView(p === "Work" ? "work" : "ideas");
+        setInboxView(
+          p === "Work" ? "work" : p === "Discovery" ? "ideas" : "requests",
+        );
       } else if (p === "Understanding") setPage("Knowledge");
       else if (p === "Settings" || pages.some((x) => x.name === p)) setPage(p);
     };
@@ -369,7 +372,7 @@ function App() {
   }, []);
   function navigate(name: string) {
     const target =
-      name === "Work" || name === "Discovery"
+      name === "Foreman" || name === "Work" || name === "Discovery"
         ? "Inbox"
         : name === "Understanding"
           ? "Knowledge"
@@ -407,8 +410,8 @@ function App() {
   const disabled = busy || !online || readOnly;
   function openThread(t: Thread) {
     setInboxView("requests");
-    setPage(t.kind === "inbox" ? "Inbox" : "Foreman");
-    location.hash = t.kind === "inbox" ? "Inbox" : "Foreman";
+    setPage("Inbox");
+    location.hash = "Inbox";
     setThreadId(t.id);
     if (t.unread && !readOnly)
       void perform(async () => {
@@ -416,26 +419,38 @@ function App() {
       });
   }
   function discuss(d: Knowledge) {
-    navigate("Foreman");
+    navigate("Inbox");
+    setComposeOpen(true);
+    setDraftSubject(`Discuss ${d.title}`.slice(0, 160));
     setAttachment({ id: d.id, version: d.version });
     setDrafts((ds) => ({ ...ds, new: `Discuss ${d.title}: ` }));
   }
-  async function send() {
-    const key = currentThread?.id || "new",
+  async function send(newMessage = false) {
+    if (disabled) return;
+    const thread = newMessage ? undefined : currentThread;
+    const key = thread?.id || "new",
       content = drafts[key]?.trim();
     if (!content) return;
     await perform(async () => {
-      const result = currentThread
-        ? await act({ type: "Reply", threadId: currentThread.id, content })
+      const result = thread
+        ? await act({ type: "Reply", threadId: thread.id, content })
         : await act({
             type: "StartConversation",
-            subject: content.split("\n")[0]!.slice(0, 120),
+            subject:
+              draftSubject.trim() || content.split("\n")[0]!.slice(0, 120),
             content,
             attachment,
           });
       setThreadId(result.threadId);
+      setInboxView("requests");
+      setPage("Inbox");
+      location.hash = "Inbox";
+      if (newMessage) {
+        setDraftSubject("");
+        setComposeOpen(false);
+        setAttachment(undefined);
+      }
       setDrafts((d) => ({ ...d, [key]: "" }));
-      setAttachment(undefined);
     });
   }
   async function preview() {
@@ -490,9 +505,8 @@ function App() {
         openKnowledge={(id) => {
           navigate("Understanding");
           setDocId(id);
-          void perform(async () => {
-            setAudit(await api("/knowledge/" + id));
-          });
+          const document = state.documents.find((d) => d.id === id);
+          if (document) setEditor(document);
         }}
       />
     ) : null;
@@ -509,14 +523,13 @@ function App() {
             <Settings2 size={18} />
           </button>
         )}
-        {page === "Foreman" && (
+        {page === "Inbox" && inboxView === "requests" && (
           <button
-            onClick={() => {
-              setThreadId(null);
-              setAttachment(undefined);
-            }}
+            className="primary"
+            disabled={disabled}
+            onClick={() => setComposeOpen(true)}
           >
-            <Plus size={16} /> New conversation
+            <Plus size={16} /> New message
           </button>
         )}
         {page === "Documents" && (
@@ -555,7 +568,7 @@ function App() {
               })
             }
           >
-            <Plus size={16} /> New record
+            <Plus size={16} /> New entry
           </button>
         )}
         {page === "Inbox" && inboxView === "work" && (
@@ -623,16 +636,12 @@ function App() {
               <span>{p.name}</span>
               {p.name === "Inbox" &&
                 !!state?.threads.filter(
-                  (t) =>
-                    t.kind === "inbox" && t.unread && t.status !== "resolved",
+                  (t) => t.unread && t.status !== "resolved",
                 ).length && (
                   <b className="count">
                     {
                       state.threads.filter(
-                        (t) =>
-                          t.kind === "inbox" &&
-                          t.unread &&
-                          t.status !== "resolved",
+                        (t) => t.unread && t.status !== "resolved",
                       ).length
                     }
                   </b>
@@ -650,6 +659,9 @@ function App() {
                 setSession(false);
                 setState(null);
                 setDrafts({});
+                setDraftSubject("");
+                setComposeOpen(false);
+                setAttachment(undefined);
                 markdownCache.clear();
               })
             }
@@ -679,7 +691,8 @@ function App() {
             {heading}
             {page === "Inbox" &&
               !state.documents.some((d) => d.level === "constitution") &&
-              inboxView === "requests" && (
+              inboxView === "requests" &&
+              !currentThread && (
                 <div className="constitution-setup">
                   <p>Add a constitution to give Foreman direction.</p>
                   <button
@@ -699,15 +712,17 @@ function App() {
               )}
             {page === "Inbox" &&
               (inboxView === "requests" ? (
-                <details className="inbox-background">
-                  <summary>Background activity</summary>
-                  <button onClick={() => navigate("Work")}>
-                    Work in progress
-                  </button>
-                  <button onClick={() => navigate("Discovery")}>
-                    Ideas and experiments
-                  </button>
-                </details>
+                !currentThread && (
+                  <details className="inbox-background">
+                    <summary>Background activity</summary>
+                    <button onClick={() => navigate("Work")}>
+                      Work in progress
+                    </button>
+                    <button onClick={() => navigate("Discovery")}>
+                      Ideas and experiments
+                    </button>
+                  </details>
+                )
               ) : (
                 <div className="inbox-drilldown">
                   <button onClick={() => navigate("Inbox")}>
@@ -720,8 +735,7 @@ function App() {
                   </h2>
                 </div>
               ))}
-            {(page === "Foreman" ||
-              (page === "Inbox" && inboxView === "requests")) && (
+            {page === "Inbox" && inboxView === "requests" && (
               <div
                 className={
                   "thread-layout " +
@@ -730,388 +744,275 @@ function App() {
                   (currentThread ? "thread-selected" : "")
                 }
               >
-                <section
-                  className="thread-list"
-                  aria-label={
-                    page === "Inbox" ? "Inbox threads" : "Conversations"
-                  }
-                >
-                  {page === "Inbox" && (
-                    <div className="filters">
-                      {["open", "resolved", "all"].map((f) => (
-                        <button
-                          key={f}
-                          className={inboxFilter === f ? "active" : ""}
-                          onClick={() => setInboxFilter(f)}
-                        >
-                          {f === "open" ? "Needs attention" : f}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {state.threads
-                    .filter(
-                      (t) =>
-                        t.kind ===
-                          (page === "Inbox" ? "inbox" : "conversation") &&
-                        (page !== "Inbox" ||
+                {page === "Inbox" && !currentThread && (
+                  <section className="thread-list" aria-label="Inbox threads">
+                    {page === "Inbox" && (
+                      <div className="filters">
+                        {["open", "resolved", "all"].map((f) => (
+                          <button
+                            key={f}
+                            className={inboxFilter === f ? "active" : ""}
+                            onClick={() => setInboxFilter(f)}
+                          >
+                            {f === "open"
+                              ? "Inbox"
+                              : f === "resolved"
+                                ? "Archived"
+                                : "All mail"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {state.threads
+                      .filter(
+                        (t) =>
                           inboxFilter === "all" ||
                           (inboxFilter === "open"
                             ? t.status !== "resolved"
-                            : t.status === "resolved")),
-                    )
-                    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-                    .map((t) => (
-                      <button
-                        className={
-                          "thread-row " + (threadId === t.id ? "selected" : "")
+                            : t.status === "resolved"),
+                      )
+                      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                      .map((t) => (
+                        <button
+                          className={
+                            "thread-row " + (t.unread ? "is-unread" : "")
+                          }
+                          key={t.id}
+                          onClick={() => openThread(t)}
+                        >
+                          <div>
+                            <strong>{t.subject}</strong>
+                            {t.unread && (
+                              <span className="unread" aria-label="Unread" />
+                            )}
+                          </div>
+                          <p>
+                            {t.reason ||
+                              t.messages.at(-1)?.content.slice(0, 95)}
+                          </p>
+                          <small>{date(t.updatedAt)}</small>
+                        </button>
+                      ))}
+                    {!state.threads.some(
+                      (t) =>
+                        inboxFilter === "all" ||
+                        (inboxFilter === "open"
+                          ? t.status !== "resolved"
+                          : t.status === "resolved"),
+                    ) && (
+                      <Empty
+                        title={
+                          inboxFilter === "resolved"
+                            ? "No archived messages"
+                            : "Inbox empty"
                         }
-                        key={t.id}
-                        onClick={() => openThread(t)}
-                      >
-                        <div>
-                          <strong>{t.subject}</strong>
-                          {t.unread && (
-                            <span className="unread" aria-label="Unread" />
-                          )}
-                        </div>
-                        <p>
-                          {t.reason || t.messages.at(-1)?.content.slice(0, 95)}
-                        </p>
-                        <small>
-                          {t.status} · {date(t.updatedAt)}
-                        </small>
-                      </button>
-                    ))}
-                  {!state.threads.some(
-                    (t) =>
-                      t.kind === (page === "Inbox" ? "inbox" : "conversation"),
-                  ) && (
-                    <Empty
-                      title={
-                        page === "Inbox"
-                          ? "Inbox empty"
-                          : "No conversations yet"
-                      }
-                      text={
-                        page === "Inbox"
-                          ? "Questions, blockers, and reviews appear here."
-                          : "Start a conversation with Foreman."
-                      }
-                    />
-                  )}
-                </section>
-                <section
-                  className="conversation"
-                  aria-label="Foreman conversation"
-                >
-                  <div className="conversation-header">
-                    <div>
+                        text=""
+                      />
+                    )}
+                  </section>
+                )}
+                {currentThread && (
+                  <section className="conversation" aria-label="Email thread">
+                    <div className="conversation-header">
+                      <div>
+                        {currentThread && (
+                          <button
+                            className="back"
+                            onClick={() => setThreadId(null)}
+                          >
+                            ← Inbox
+                          </button>
+                        )}
+                        <h2>{currentThread.subject}</h2>
+                      </div>
                       {currentThread && (
-                        <button
-                          className="back"
-                          onClick={() => setThreadId(null)}
-                        >
-                          ← Threads
-                        </button>
+                        <div className="actions">
+                          <button
+                            disabled={disabled}
+                            onClick={() =>
+                              void perform(async () => {
+                                await act({
+                                  type: "ThreadStatus",
+                                  threadId: currentThread.id,
+                                  status:
+                                    currentThread.status === "resolved"
+                                      ? "open"
+                                      : "resolved",
+                                });
+                                if (page === "Inbox") setThreadId(null);
+                              })
+                            }
+                          >
+                            {currentThread.status === "resolved"
+                              ? "Move to inbox"
+                              : "Archive"}
+                          </button>
+                        </div>
                       )}
-                      <h2>
-                        {currentThread?.subject ||
-                          (page === "Inbox"
-                            ? "Select a thread"
-                            : "New conversation")}
-                      </h2>
                     </div>
-                    {currentThread && (
-                      <div className="actions">
-                        <button
-                          aria-label="Inspect thread history"
-                          onClick={() =>
-                            void api("/events?entity=" + currentThread.id).then(
-                              setHistory,
-                            )
-                          }
-                        >
-                          History
-                        </button>
-                        <button
-                          disabled={disabled}
-                          onClick={() =>
-                            void perform(async () => {
-                              await act({
-                                type: "ThreadStatus",
-                                threadId: currentThread.id,
-                                status:
-                                  currentThread.status === "resolved"
-                                    ? "open"
-                                    : "resolved",
-                              });
-                            })
-                          }
-                        >
-                          {currentThread.status === "resolved"
-                            ? "Reopen"
-                            : "Resolve"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="conversation-messages">
-                    {currentThread?.discoveryId &&
-                      renderDiscovery("idea", currentThread.discoveryId)}
-                    {currentThread?.reason && !currentThread.discoveryId && (
-                      <div className="request">
-                        <span className="eyebrow">Needs your input</span>
-                        <Markdown>{currentThread.reason}</Markdown>
-                        {currentThread.recommendation && (
-                          <>
-                            <h3>Recommendation</h3>
+                    <div className="conversation-messages">
+                      {currentThread?.reason && (
+                        <article className="message email-original">
+                          <div className="message-meta">
+                            <b>Foreman</b>
+                            <time>{date(currentThread.createdAt)}</time>
+                          </div>
+                          <Markdown>{currentThread.reason}</Markdown>
+                          {currentThread.recommendation && (
                             <Markdown>{currentThread.recommendation}</Markdown>
-                          </>
-                        )}
-                        <Evidence
-                          refs={currentThread.evidence}
-                          open={(id) => {
-                            setDocId(id);
-                            navigate("Documents");
-                          }}
-                        />
-                        {currentThread.discoveryId && (
-                          <button
-                            onClick={() => {
-                              setSelectedIdea(currentThread.discoveryId!);
-                              navigate("Discovery");
-                            }}
-                          >
-                            Review discovery ↗
-                          </button>
-                        )}
-                        {currentThread.workId && (
-                          <button
-                            onClick={() => {
-                              navigate("Work");
-                              setSelectedWork(currentThread.workId!);
-                            }}
-                          >
-                            Open linked work <ArrowRight size={14} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {currentThread?.attachment && (
-                      <p className="attachment">
-                        Context:{" "}
-                        {
-                          state.documents.find(
-                            (d) => d.id === currentThread.attachment!.id,
-                          )?.title
-                        }{" "}
-                        · v{currentThread.attachment.version}
-                      </p>
-                    )}
-                    {currentThread?.messages.map((m) => (
-                      <article key={m.id} className={"message " + m.role}>
-                        <div className="message-meta">
-                          <b>
-                            {m.role === "human"
-                              ? "You"
-                              : m.role === "system"
-                                ? "System"
-                                : "Foreman"}
-                          </b>
-                          <time>{date(m.at)}</time>
-                          {m.runId && (
+                          )}
+                        </article>
+                      )}
+                      {currentThread?.attachment && (
+                        <p className="attachment">
+                          Context:{" "}
+                          {
+                            state.documents.find(
+                              (d) => d.id === currentThread.attachment!.id,
+                            )?.title
+                          }{" "}
+                          · v{currentThread.attachment.version}
+                        </p>
+                      )}
+                      {currentThread?.messages.map((m) => (
+                        <article key={m.id} className={"message " + m.role}>
+                          <div className="message-meta">
+                            <b>
+                              {m.role === "human"
+                                ? "You"
+                                : m.role === "system"
+                                  ? "System"
+                                  : "Foreman"}
+                            </b>
+                            <time>{date(m.at)}</time>
+                          </div>
+                          <Markdown>{m.content}</Markdown>
+                        </article>
+                      ))}
+                      {currentThread?.proposals.map((p) => (
+                        <button
+                          className="mail-attachment"
+                          key={p.id}
+                          onClick={() => setProposalId(p.id)}
+                        >
+                          <FileText size={16} />
+                          <span>
+                            {state.documents.find((d) => d.id === p.documentId)
+                              ?.title || "Document revision"}
+                          </span>
+                          <small>
+                            {p.status === "pending"
+                              ? "Review revision"
+                              : p.status}
+                          </small>
+                        </button>
+                      ))}
+                      {currentThread?.discoveryId &&
+                        state.discovery.ideas.some(
+                          (i) =>
+                            i.id === currentThread.discoveryId &&
+                            i.status === "ready",
+                        ) && (
+                          <div className="mail-decision">
                             <button
+                              disabled={disabled}
                               onClick={() =>
-                                setContext(
-                                  state.runs.find((r) => r.id === m.runId)
-                                    ?.context || null,
-                                )
+                                void perform(async () => {
+                                  await act({
+                                    type: "DecideDiscovery",
+                                    ideaId: currentThread.discoveryId!,
+                                    action: "pursue",
+                                    reason: "Approved from inbox.",
+                                  });
+                                })
                               }
                             >
-                              Context
+                              Pursue
                             </button>
-                          )}
-                        </div>
-                        <Markdown>{m.content}</Markdown>
-                      </article>
-                    ))}
-                    {currentThread?.proposals.map((p) => (
-                      <div className="revision-proposal" key={p.id}>
-                        <h3>
-                          {
-                            state.documents.find((d) => d.id === p.documentId)
-                              ?.title
-                          }{" "}
-                          · v{p.version}
-                        </h3>
-                        <Markdown>{p.reason}</Markdown>
-                        <Evidence
-                          refs={p.evidence}
-                          open={(id) => {
-                            navigate("Documents");
-                            setDocId(id);
+                          </div>
+                        )}
+                      {state.runs
+                        .filter((r) => r.threadId === threadId)
+                        .slice(-4)
+                        .map((r) => (
+                          <div className="run-status" key={r.id}>
+                            {r.status === "queued" || r.status === "running" ? (
+                              <span>
+                                Foreman{" "}
+                                {r.status === "queued" ? "queued" : "working"}…
+                              </span>
+                            ) : r.status === "failed" ? (
+                              <>
+                                <span role="alert">{r.error}</span>
+                                <button
+                                  disabled={disabled}
+                                  onClick={() =>
+                                    void perform(async () => {
+                                      await act({
+                                        type: "RetryRun",
+                                        runId: r.id,
+                                      });
+                                    })
+                                  }
+                                >
+                                  Retry
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+                        ))}
+                    </div>
+                    {currentThread && (
+                      <form
+                        className="composer"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void send();
+                        }}
+                      >
+                        <textarea
+                          aria-label="Message Foreman"
+                          placeholder="Reply…"
+                          value={drafts[currentThread?.id || "new"] || ""}
+                          onChange={(e) =>
+                            setDrafts((d) => ({
+                              ...d,
+                              [currentThread?.id || "new"]: e.target.value,
+                            }))
+                          }
+                          maxLength={12000}
+                          rows={3}
+                          disabled={readOnly}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                              e.preventDefault();
+                              void send();
+                            }
                           }}
                         />
-                        <details>
-                          <summary>Proposed revision</summary>
-                          <Markdown>{p.content}</Markdown>
-                        </details>
-                        <div className="actions">
-                          {p.status === "pending" ? (
-                            <>
-                              <button
-                                className="primary"
-                                disabled={disabled}
-                                onClick={() =>
-                                  void perform(async () => {
-                                    await act({
-                                      type: "ResolveProposal",
-                                      threadId: currentThread.id,
-                                      proposalId: p.id,
-                                      action: "accept",
-                                    });
-                                  })
-                                }
-                              >
-                                Accept revision
-                              </button>
-                              <button
-                                disabled={disabled}
-                                onClick={() =>
-                                  void perform(async () => {
-                                    await act({
-                                      type: "ResolveProposal",
-                                      threadId: currentThread.id,
-                                      proposalId: p.id,
-                                      action: "dismiss",
-                                    });
-                                  })
-                                }
-                              >
-                                Dismiss
-                              </button>
-                            </>
-                          ) : (
-                            <span className="badge">{p.status}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {state.runs
-                      .filter((r) => r.threadId === threadId)
-                      .slice(-4)
-                      .map((r) => (
-                        <div className="run-status" key={r.id}>
-                          {r.status === "queued" || r.status === "running" ? (
-                            <span>
-                              Foreman{" "}
-                              {r.status === "queued" ? "queued" : "working"}…
-                            </span>
-                          ) : r.status === "failed" ? (
-                            <>
-                              <span role="alert">{r.error}</span>
-                              <button
-                                disabled={disabled}
-                                onClick={() =>
-                                  void perform(async () => {
-                                    await act({
-                                      type: "RetryRun",
-                                      runId: r.id,
-                                    });
-                                  })
-                                }
-                              >
-                                Retry
-                              </button>
-                            </>
-                          ) : null}
-                        </div>
-                      ))}
-                    {!currentThread && page === "Foreman" && (
-                      <Empty
-                        title="Foreman"
-                        text="Discuss the product, investigate a problem, or set direction."
-                      />
-                    )}
-                  </div>
-                  {(currentThread || page === "Foreman") && (
-                    <form
-                      className="composer"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void send();
-                      }}
-                    >
-                      {attachment && !currentThread && (
-                        <p className="attachment">
-                          Attached:{" "}
-                          {
-                            state.documents.find((d) => d.id === attachment.id)
-                              ?.title
-                          }{" "}
-                          · v{attachment.version}
+                        <div>
+                          <span />
                           <button
-                            type="button"
-                            onClick={() => setAttachment(undefined)}
+                            className="primary"
+                            aria-label="Send message"
+                            disabled={
+                              disabled ||
+                              !drafts[currentThread?.id || "new"]?.trim() ||
+                              state.runs.some(
+                                (r) =>
+                                  !!currentThread &&
+                                  r.threadId === currentThread.id &&
+                                  ["queued", "running"].includes(r.status),
+                              )
+                            }
                           >
-                            Remove
+                            Send
                           </button>
-                        </p>
-                      )}
-                      <textarea
-                        aria-label="Message Foreman"
-                        placeholder="Message Foreman…"
-                        value={drafts[currentThread?.id || "new"] || ""}
-                        onChange={(e) =>
-                          setDrafts((d) => ({
-                            ...d,
-                            [currentThread?.id || "new"]: e.target.value,
-                          }))
-                        }
-                        maxLength={12000}
-                        rows={3}
-                        disabled={readOnly}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                            e.preventDefault();
-                            void send();
-                          }
-                        }}
-                      />
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setContext(null);
-                            setPreviewOpen(true);
-                            setContextQuery(
-                              drafts[currentThread?.id || "new"] || "",
-                            );
-                          }}
-                        >
-                          Preview context
-                        </button>
-                        <button
-                          className="primary"
-                          aria-label="Send message"
-                          disabled={
-                            disabled ||
-                            !drafts[currentThread?.id || "new"]?.trim() ||
-                            state.runs.some(
-                              (r) =>
-                                !!currentThread &&
-                                r.threadId === currentThread.id &&
-                                ["queued", "running"].includes(r.status),
-                            )
-                          }
-                        >
-                          <ArrowUp size={18} />
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </section>
+                        </div>
+                      </form>
+                    )}
+                  </section>
+                )}
               </div>
             )}
             {page === "Inbox" &&
@@ -1508,10 +1409,6 @@ function App() {
             )}
             {page === "Knowledge" && (
               <>
-                <p className="page-description">
-                  What Foreman knows. Search the title and text by keyword, or
-                  find related passages by meaning.
-                </p>
                 <form
                   className="search-form"
                   onSubmit={(e) => {
@@ -1531,7 +1428,7 @@ function App() {
                 >
                   <input
                     aria-label="Search knowledge"
-                    placeholder="Search by meaning or keyword"
+                    placeholder="Search knowledge"
                     value={query}
                     onChange={(e) => {
                       setQuery(e.target.value);
@@ -1555,9 +1452,7 @@ function App() {
                         <div className="knowledge-card-heading">
                           <button
                             className="knowledge-title"
-                            onClick={() =>
-                              void api("/knowledge/" + d.id).then(setAudit)
-                            }
+                            onClick={() => setEditor(d)}
                           >
                             {d.title}
                           </button>
@@ -1577,46 +1472,6 @@ function App() {
                             ?.replace(/^#+ /gm, "")
                             .slice(0, searchIds ? 450 : 180)}
                         </p>
-                        {searchIds && (
-                          <small>
-                            Matched by{" "}
-                            {searchMatches[d.id]?.match === "hybrid"
-                              ? "keyword and meaning"
-                              : searchMatches[d.id]?.match === "semantic"
-                                ? "meaning"
-                                : "keyword"}
-                          </small>
-                        )}
-                        <details>
-                          <summary>How this is found</summary>
-                          <p>
-                            Keyword search uses this entry’s title and full
-                            text. Meaning search uses passages from the same
-                            title and text, not hidden keywords.
-                          </p>
-                          <p>
-                            {d.indexed_version === d.version
-                              ? `Meaning search is using revision ${d.version}.`
-                              : "The latest text is keyword-searchable now. Meaning search is waiting for indexing."}
-                          </p>
-                          <p>
-                            {d.policy.status !== "active"
-                              ? `This entry is ${d.policy.status} and excluded from automatic context.`
-                              : d.policy.inclusion === "always"
-                                ? "Included in every matching-scope run, within the context limit."
-                                : d.policy.inclusion === "reference"
-                                  ? "Only used when explicitly attached."
-                                  : "Retrieved when relevant to the current question."}{" "}
-                            Scope: {d.policy.scope}.
-                          </p>
-                          <button
-                            onClick={() =>
-                              void api("/knowledge/" + d.id).then(setAudit)
-                            }
-                          >
-                            View indexed passages and usage
-                          </button>
-                        </details>
                       </article>
                     ))}
                   {!state.documents.length && (
@@ -1629,15 +1484,6 @@ function App() {
                     <p className="muted">No matching entries.</p>
                   )}
                 </div>
-                <button
-                  onClick={() => {
-                    setContext(null);
-                    setPreviewOpen(true);
-                    setContextQuery(query);
-                  }}
-                >
-                  Test context retrieval
-                </button>
               </>
             )}
             {page === "Settings" && (
@@ -1684,14 +1530,118 @@ function App() {
           </main>
         )}
       </div>
+      {composeOpen && (
+        <Modal title="New message" close={() => setComposeOpen(false)}>
+          <form
+            className="editor mail-compose"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send(true);
+            }}
+          >
+            {error && (
+              <p role="alert" className="error-banner">
+                {error}
+              </p>
+            )}
+            <p className="mail-recipient">To: Foreman</p>
+            <label>
+              Subject
+              <input
+                autoFocus
+                required
+                maxLength={160}
+                value={draftSubject}
+                onChange={(e) => setDraftSubject(e.target.value)}
+              />
+            </label>
+            {attachment && (
+              <p className="attachment">
+                {state?.documents.find((d) => d.id === attachment.id)?.title}
+                <button type="button" onClick={() => setAttachment(undefined)}>
+                  Remove
+                </button>
+              </p>
+            )}
+            <label>
+              Message
+              <textarea
+                aria-label="New message content"
+                required
+                rows={10}
+                maxLength={12000}
+                value={drafts.new || ""}
+                onChange={(e) =>
+                  setDrafts((d) => ({ ...d, new: e.target.value }))
+                }
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={disabled || !draftSubject.trim() || !drafts.new?.trim()}
+            >
+              Send
+            </button>
+          </form>
+        </Modal>
+      )}
+      {proposalId &&
+        currentThread &&
+        (() => {
+          const proposal = currentThread.proposals.find(
+            (p) => p.id === proposalId,
+          );
+          if (!proposal) return null;
+          return (
+            <Modal
+              title={
+                state?.documents.find((d) => d.id === proposal.documentId)
+                  ?.title || "Proposed revision"
+              }
+              close={() => setProposalId(null)}
+            >
+              <Markdown>{proposal.reason}</Markdown>
+              <Markdown>{proposal.content}</Markdown>
+              {proposal.status === "pending" ? (
+                <div className="actions">
+                  {(["accept", "dismiss"] as const).map((action) => (
+                    <button
+                      key={action}
+                      disabled={disabled}
+                      onClick={() =>
+                        void perform(async () => {
+                          await act({
+                            type: "ResolveProposal",
+                            threadId: currentThread.id,
+                            proposalId: proposal.id,
+                            action,
+                          });
+                          setProposalId(null);
+                        })
+                      }
+                    >
+                      {action === "accept" ? "Accept revision" : "Dismiss"}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p>{proposal.status}</p>
+              )}
+            </Modal>
+          );
+        })()}
       {editor && (
         <Modal
           title={
-            editor.id
-              ? "Edit record"
-              : editor.level === "knowledge"
-                ? "New record"
-                : "New document"
+            page === "Knowledge"
+              ? editor.id
+                ? "Edit entry"
+                : "New entry"
+              : editor.id
+                ? "Edit document"
+                : editor.level === "knowledge"
+                  ? "New record"
+                  : "New document"
           }
           close={() => setEditor(null)}
         >
@@ -1725,8 +1675,13 @@ function App() {
               });
             }}
           >
+            {error && (
+              <p role="alert" className="error-banner">
+                {error}
+              </p>
+            )}
             <label>
-              Title
+              {page === "Knowledge" ? "Subject" : "Title"}
               <input
                 required
                 maxLength={160}
@@ -1736,7 +1691,7 @@ function App() {
                 }
               />
             </label>
-            {!editor.id && (
+            {!editor.id && page !== "Knowledge" && (
               <label>
                 Type
                 <select
@@ -1774,20 +1729,24 @@ function App() {
                 }
               />
             </label>
-            <details className="editor-context-policy">
-              <summary>Context settings</summary>
-              <PolicyFields
-                policy={editor.policy || freshPolicy}
-                protectedRecord={editor.level === "constitution"}
-                change={(policy) => setEditor({ ...editor, policy })}
-              />
-            </details>
-            <p className="muted">
-              Your edits update keyword search immediately and refresh meaning
-              search. Earlier revisions remain in history.
-            </p>
+            {page !== "Knowledge" && (
+              <>
+                <details className="editor-context-policy">
+                  <summary>Context settings</summary>
+                  <PolicyFields
+                    policy={editor.policy || freshPolicy}
+                    protectedRecord={editor.level === "constitution"}
+                    change={(policy) => setEditor({ ...editor, policy })}
+                  />
+                </details>
+                <p className="muted">
+                  Your edits update keyword search immediately and refresh
+                  meaning search. Earlier revisions remain in history.
+                </p>
+              </>
+            )}
             <button className="primary" disabled={disabled}>
-              Save revision
+              {page === "Knowledge" ? "Save" : "Save revision"}
             </button>
           </form>
         </Modal>
