@@ -31,9 +31,11 @@ export function taskCapacity(state: CompanyState, lens: Lens) {
 }
 export function taskDueAt(state: CompanyState, lens: Lens) {
   if (!lens.lastRunAt) return null;
-  const signalled = state.discovery.signals.some(
-    (s) => !s.consumedBy && s.lensIds.includes(lens.id),
-  );
+  const signalled =
+    lens.kind !== "knowledge" &&
+    state.discovery.signals.some(
+      (s) => !s.consumedBy && s.lensIds.includes(lens.id),
+    );
   return new Date(
     Date.parse(lens.lastRunAt) +
       (signalled
