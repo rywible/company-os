@@ -2,26 +2,38 @@
 .settings-page,
 .automation-page {
   width: 100%;
-  max-width: 900px;
+  max-width: none;
   padding-bottom: 32px;
 }
 .section-tabs {
   display: flex;
-  gap: 24px;
-  border-bottom: 1px solid var(--line);
+  gap: 8px;
+  align-items: center;
+  border: 0;
   margin-bottom: 32px;
 }
 .section-tabs button {
-  border-radius: 0;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 10px 0 14px;
-  color: var(--muted);
-}
-.section-tabs button[aria-pressed="true"] {
-  border-bottom-color: var(--accent);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 9px 13px;
   color: var(--ink);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+.section-tabs button:hover {
+  background: #fff;
+  border-color: var(--line-strong);
+  color: var(--ink);
+  transform: translateY(-0.5px);
+  box-shadow: var(--shadow-sm);
+}
+.section-tabs button[aria-pressed="true"],
+.section-tabs button[aria-selected="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
   font-weight: 700;
+  box-shadow: var(--shadow-sm);
 }
 .preference-section {
   padding: 26px 0;
@@ -202,11 +214,12 @@
 }
 @media (max-width: 760px) {
   .section-tabs {
-    gap: 22px;
+    gap: 8px;
     margin-bottom: 24px;
   }
   .section-tabs button {
     font-size: 13px;
+    padding: 9px 11px;
   }
   .preference-heading,
   .automation-status {

@@ -1,7 +1,7 @@
 .library-index,
 .library-reader {
   width: 100%;
-  max-width: 900px;
+  max-width: none;
   margin: 0;
 }
 .library-tools {
@@ -67,8 +67,9 @@
   color: var(--muted);
 }
 .library-reader {
-  max-width: 760px;
+  max-width: none;
 }
+.library-reader > .library-body { max-width: 76ch; }
 .library-title {
   display: flex;
   align-items: flex-start;

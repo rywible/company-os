@@ -336,7 +336,7 @@ kbd {
 .unread { width: 8px; height: 8px; background: var(--accent); border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 3px var(--accent-wash); }
 .thread-row.selected { background: var(--wash); }
 
-.inbox .conversation { max-width: 800px; margin: 0 auto; min-width: 0; }
+.inbox .conversation { width: 100%; max-width: none; margin: 0; min-width: 0; }
 .inbox .conversation-header { padding: 0 0 20px; border: 0; align-items: flex-start; display: flex; justify-content: space-between; gap: 12px; }
 .inbox .conversation-header h2 {
   display: block; overflow: visible;
@@ -485,7 +485,8 @@ kbd {
 .document-list .selected { background: var(--ink); border-color: var(--ink); box-shadow: var(--shadow-sm); }
 .document-list .selected strong { color: #fff; }
 .document-list .selected span, .document-list .selected small { color: #c9c2b2; }
-.document-reader { min-width: 0; max-width: 76ch; padding: 4px 0 36px; }
+.document-reader { width: 100%; min-width: 0; max-width: none; padding: 4px 0 36px; }
+.document-reader > .markdown { max-width: 76ch; }
 .document-reader .detail-title h2 { font-size: 30px; letter-spacing: -0.035em; line-height: 1.1; }
 .document-reader .detail-title button { flex-shrink: 0; }
 .context-contract { border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 18px; margin: 26px 0 30px; box-shadow: var(--shadow-sm); }
