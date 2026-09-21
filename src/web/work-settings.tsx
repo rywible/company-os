@@ -21,15 +21,6 @@ export function RolesSettings({
 }) {
   return (
     <section className="preference-section">
-      <div className="roles-heading">
-        <div>
-          <h2>Agent roles</h2>
-          <p className="muted">
-            Each role has one responsibility and its own execution profile.
-          </p>
-        </div>
-        <span>{settings.roles.filter((role) => role.enabled).length} active</span>
-      </div>
       <div className="role-list">
         {settings.roles.map((role) => (
           <RoleForm
@@ -64,7 +55,9 @@ function RoleForm({
           <strong>{role.name}</strong>
           <span>{role.purpose}</span>
         </span>
-        <span className="role-profile">{agentConfigurationSummary(role.agent)}</span>
+        <span className="role-profile">
+          {agentConfigurationSummary(role.agent)}
+        </span>
         <span className="role-state" data-enabled={role.enabled}>
           {role.enabled ? "Active" : "Paused"}
         </span>
@@ -142,14 +135,6 @@ export function AvailabilitySettings({
         }).then(setSaved);
       }}
     >
-      <div>
-        <h2>Triage availability</h2>
-        <p className="muted">
-          Foreman uses these hours when asking for decisions. Approved work
-          continues overnight and on weekends. An unanswered request blocks only
-          work that depends on it; silence never counts as approval.
-        </p>
-      </div>
       <label>
         Time zone
         <input
@@ -159,9 +144,6 @@ export function AvailabilitySettings({
           placeholder="America/Denver"
         />
       </label>
-      <p className="field-help">
-        America/Denver follows Mountain Time, including daylight saving time.
-      </p>
       <fieldset className="availability-days">
         <legend>Available days</legend>
         {[

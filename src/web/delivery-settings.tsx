@@ -30,13 +30,6 @@ export function DeliverySettings({
         }).then(setSaved);
       }}
     >
-      <div>
-        <h2>Review and delivery</h2>
-        <p className="muted">
-          Agents review, correct, and test approved work. Your Inbox is for
-          decisions about outcomes and authority.
-        </p>
-      </div>
       <label>
         Required independent reviews
         <input
@@ -61,11 +54,6 @@ export function DeliverySettings({
           }
         />
       </label>
-      <p className="field-help">
-        Unresolved findings go to the Adjudicator role, with at most one final
-        correction. Preferences never block a merge. Exhausted attempts stop
-        within the milestone’s total run allowance.
-      </p>
       <label className="check">
         <input
           type="checkbox"

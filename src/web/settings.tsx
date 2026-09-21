@@ -61,24 +61,12 @@ export function SettingsPage({
             }).then(setSaved);
           }}
         >
-          <div>
-            <h2>Foreman model</h2>
-            <p className="muted">
-              The model for new Inbox conversations. Every automation is also
-              Foreman, using its own execution profile and permissions. Runs
-              already queued keep their original selection.
-            </p>
-          </div>
           <AgentConfigurationFields
             value={foremanAgent}
             catalog={agentCatalog}
             availableProviders={availableAgentProviders}
             onChange={setForemanAgent}
           />
-          <p className="field-help">
-            Model IDs and supported reasoning levels come from the provider
-            harness. Provider default follows the harness recommendation.
-          </p>
           <div className="actions">
             <button className="primary" disabled={disabled}>
               Save Foreman

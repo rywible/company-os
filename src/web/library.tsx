@@ -95,10 +95,7 @@ export function KnowledgeLibrary({
     const parsed = parseDocumentRef(ref);
     if (!parsed) return;
     const current = state.documents.find((d) => d.id === parsed.id);
-    if (
-      current?.level === "knowledge" &&
-      !state.library.pages[current.id]
-    ) {
+    if (current?.level === "knowledge" && !state.library.pages[current.id]) {
       setSelected(current.id);
       setSource(null);
       return;
@@ -559,17 +556,23 @@ export function KnowledgeLibrary({
         <EvidenceDialog
           document={document}
           disabled={disabled}
-          policy={state.policies[document.id] || {
-            inclusion: "reference",
-            status: "active",
-          }}
+          policy={
+            state.policies[document.id] || {
+              inclusion: "reference",
+              status: "active",
+            }
+          }
           close={() => setSelected(null)}
           command={command}
           discuss={() => discuss(document)}
           markdown={markdown}
         />
       )}
-      <div className="section-tabs library-tools" role="tablist" aria-label="Knowledge sections">
+      <div
+        className="section-tabs library-tools"
+        role="tablist"
+        aria-label="Knowledge sections"
+      >
         <button
           role="tab"
           aria-selected={!evidence}
@@ -629,21 +632,6 @@ export function KnowledgeLibrary({
       </form>
       {error && <p role="alert">{error}</p>}
       {warning && <p role="status">{warning}</p>}
-      {evidence && (
-        <p className="muted">
-          Original findings and investigations. Foreman uses these to maintain
-          the library.
-        </p>
-      )}
-      {!shown.length && (
-        <p className="library-empty">
-          {matches
-            ? "No matching documents."
-            : evidence
-              ? "No evidence yet."
-              : "No documents yet. Create a document, or let Foreman build the library from findings."}
-        </p>
-      )}
       {matches || evidence
         ? rows(shown)
         : collections.map((collection) => (
@@ -656,15 +644,6 @@ export function KnowledgeLibrary({
               )}
             </section>
           ))}
-      {!!Object.keys(state.library.pending).length && (
-        <p className="library-queue">
-          {Object.keys(state.library.pending).length}{" "}
-          {Object.keys(state.library.pending).length === 1
-            ? "source waiting"
-            : "sources waiting"}{" "}
-          for maintenance.
-        </p>
-      )}
     </section>
   );
 }

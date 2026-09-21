@@ -6,16 +6,6 @@ import type { Milestone } from "../domain/planning";
 import { triageAvailable } from "../domain/planning";
 import "./work.css";
 type CommandHandler = (command: Command) => Promise<boolean>;
-export function AvailabilityNote({ state }: { state: CompanyState }) {
-  return (
-    <p className="availability-note">
-      {triageAvailable(state.settings.availability, new Date().toISOString())
-        ? "Within triage hours"
-        : "Outside triage hours"}
-      <span>Approved work continues independently.</span>
-    </p>
-  );
-}
 export function MilestoneActions({
   milestone: m,
   command,
@@ -293,24 +283,6 @@ export function MilestonesPage({
         </>
       ) : (
         <>
-          <div className="milestones-heading">
-            <div>
-              <h2>Milestones</h2>
-              <p>
-                Foreman proposes outcomes here for you to review and discuss.
-              </p>
-            </div>
-          </div>
-          {!state.planning.milestones.length && (
-            <div className="milestone-empty">
-              <h3>No milestones yet</h3>
-              <p>
-                Foreman will bring proposals here as scheduled work uncovers
-                useful next steps. You can also discuss your direction with
-                Foreman in Inbox.
-              </p>
-            </div>
-          )}
           {(
             [
               "proposed",

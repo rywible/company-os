@@ -4,11 +4,7 @@ import { KnowledgeLibrary, ContextUsed } from "./library";
 import { RevisionHistory } from "./revision-history";
 import { MarkdownEditor } from "./markdown-editor";
 import { SettingsPage } from "./settings";
-import {
-  MilestonesPage,
-  MilestoneActions,
-  AvailabilityNote,
-} from "./milestones";
+import { MilestonesPage, MilestoneActions } from "./milestones";
 import { AutomationPage } from "./automation";
 import { DiscoveryPage } from "./discovery";
 import { Modal } from "./modal";
@@ -784,7 +780,6 @@ function App() {
                 }}
               />
             )}
-            {page === "Inbox" && <AvailabilityNote state={state} />}
             {page === "Inbox" && inboxView === "requests" && (
               <div
                 className={
