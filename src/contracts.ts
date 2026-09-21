@@ -1,15 +1,17 @@
 import { z } from "zod";
+import { DOCUMENT_STORAGE_LIMIT, DOCUMENT_OUTPUT_LIMIT } from "./domain/document-edit";
 export const levels = [
   "constitution",
   "product",
   "architecture",
   "execution",
   "knowledge",
+  "intake",
 ] as const;
 export const documentInput = z.object({
   title: z.string().trim().min(1).max(160),
   level: z.enum(levels),
-  content: z.string().trim().min(1).max(24000),
+  content: z.string().trim().min(1).max(DOCUMENT_STORAGE_LIMIT),
   expectedVersion: z.number().int().positive().optional(),
 });
 export const proposalInput = z.object({
@@ -18,7 +20,7 @@ export const proposalInput = z.object({
   rationale: z.string().max(8000),
   recommendation: z.string().max(8000),
   documentId: z.string(),
-  content: z.string().max(24000),
+  content: z.string().max(DOCUMENT_OUTPUT_LIMIT),
   evidenceRefs: z.array(z.string()).max(20),
 });
 export const foremanOutput = z.object({

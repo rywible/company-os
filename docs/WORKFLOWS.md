@@ -44,7 +44,7 @@ The adapter rejects incomplete or oversized diffs instead of approving a partial
 
 `ConversationStarted` / `ReplyReceived` → `RunAgent` → `RunCompleted` / `InputRequested`.
 
-Each conversation has its own history. Contextual document discussions pin a document revision. Foreman requests open a subject-specific inbox thread with reason, recommendation and evidence. A reply resumes its linked assignment. Document proposals live in the corresponding inbox thread; acceptance emits `KnowledgeChanged` with the new version.
+Each conversation has its own history. Contextual document discussions pin a document revision. Foreman requests open a subject-specific inbox thread with reason, recommendation and evidence. A reply discusses its linked assignment without resuming it or consuming a work attempt. Document proposals live in the corresponding inbox thread; acceptance emits `KnowledgeChanged` with the new version.
 
 ## Continuous discovery
 
@@ -118,7 +118,7 @@ flowchart TD
   K --> N[Existing library page: no recursive maintenance]
 ```
 
-Maintenance is a separate task in Automation, with Pause/Resume, interval, runs per day and Run now. It only runs with pending source material and a constitution. A successful pass marks only the exact supplied source revisions as processed; newer edits remain queued. Failed passes retain evidence for retry, and incomplete briefings reach the inbox. Processing is bounded to three sources and four page changes per pass. Ordinary agents contribute observations; only the maintenance workflow can apply library updates. Governing-document proposals retain their existing human approval workflow.
+Maintenance is a separate task in Automation, with Pause/Resume, interval, runs per day and Run now. It only runs with pending source material and a constitution. Ready Intake triggers curation automatically. Each supplied entry has an explicit incorporation, discard or defer resolution; successful publication permanently deletes the processed intake and its document revisions. Pending approvals and newer edits retain the input. Large entries are processed in bounded slices. Failed passes retain evidence for retry, and incomplete briefings reach the inbox. Processing is bounded to three sources and four page changes per pass. Ordinary agents contribute observations; only the maintenance workflow can apply library updates. Governing-document proposals retain their existing human approval workflow.
 
 ## Conversation context
 
@@ -143,9 +143,9 @@ flowchart LR
   Complete --> Plan
 ```
 
-Approval creates durable Work assignments with dependency IDs and role IDs. Reconciliation prioritizes ready assignments with the most downstream dependents, observes the approved run allowance and concurrency limit, and queues independent reviewers. Review rejection returns the full assignment and findings to its role; three unsuccessful attempts produce an inbox blocker. Only reviewed results release dependencies. General implementation that the executor cannot perform returns an explicit blocker.
+Approval creates durable Work assignments with dependency IDs and role IDs. Reconciliation prioritizes ready assignments with the most downstream dependents, observes the approved run allowance and concurrency limit, and queues independent reviewers. Review rejection returns the full assignment and findings to its role; three unsuccessful attempts produce an inbox blocker. Reviewed research results finish curation before releasing dependencies. General implementation that the executor cannot perform returns an explicit blocker.
 
-Workers may create Knowledge artifacts within approved boundaries. Reviewers and downstream workers receive the actual produced documents, accepted dependency results and the approved shared documents. Context size limits and freshness warnings remain enforced; retired documents remain withheld.
+Workers produce temporary Intake within approved boundaries. Independent reviewers receive those exact intake revisions; approved results trigger Foreman curation. Downstream workers receive the published Knowledge subjects and accepted dependency results after curation. Context size limits and freshness warnings remain enforced; retired documents remain withheld.
 
 Pausing a milestone prevents further dispatch; already dispatched work may finish. Budget exhaustion pauses the milestone and opens a decision thread; a follow-up milestone needs new approval. Role/model changes apply to newly queued runs. Retrying a failed milestone run consumes a new run within its allowance while retaining the original role, model and briefing.
 
@@ -153,7 +153,7 @@ The planning automation defaults to two unfinished milestones, a four-hour caden
 
 ## Scheduled Foreman tasks
 
-Schedule work creates an automation with instructions, cadence, execution profile and explicit write permissions. New tasks default to adding Evidence; users may allow Knowledge updates or milestone proposals separately. A task with no write permissions records a read-only result. Every automation is Foreman; only the model used for new Inbox conversations comes from the global Foreman setting.
+Schedule work creates an automation with instructions, cadence, execution profile and explicit write permissions. New tasks default to adding Intake; users may allow Knowledge updates or milestone proposals separately. A task with no write permissions records a read-only result. Every automation is Foreman; only the model used for new Inbox conversations comes from the global Foreman setting.
 
 The scheduler queues a due task and snapshots its model and permissions. Before applying output, the application checks the snapshot against the current permissions. A later grant does not expand a queued run; a revocation prevents writes from a run already executing. Invalid output cannot partially write allowed evidence before failing an unauthorized mutation. Knowledge updates still obey human-edit approval, source validation and constitution protection. Milestone proposals still need an explicit human decision before any assignments are dispatched.
 

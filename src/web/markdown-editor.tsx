@@ -117,7 +117,7 @@ export function MarkdownEditor({
         value={value}
         onChange={(e) => change(e.target.value)}
         disabled={disabled}
-        maxLength={24000}
+        maxLength={500000}
         spellCheck
         rows={16}
         onKeyDown={(e) => {

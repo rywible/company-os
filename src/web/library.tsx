@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { RevisionHistory } from "./revision-history";
+import { DOCUMENT_STORAGE_LIMIT, markdownSections } from "../domain/document-edit";
 import "./library.css";
 type Props = {
   state: CompanyState & { documents: Document[] };
@@ -44,6 +45,7 @@ export function KnowledgeLibrary({
   const [history, setHistory] = useState<any[] | null>(null),
     [source, setSource] = useState<Document | null>(null),
     [location, setLocation] = useState<LibraryPage | null>(null);
+  const [newIntake, setNewIntake] = useState(false);
   const freshness = libraryFreshness(
     state,
     state.documents,
@@ -57,13 +59,13 @@ export function KnowledgeLibrary({
       setWarning("");
       const opened = state.documents.find((d) => d.id === openId);
       setEvidence(
-        opened?.level === "knowledge" && !state.library.pages[openId],
+        opened?.level === "intake",
       );
     }
   }, [openId]);
   const pages = state.documents.filter(
     (d) =>
-      d.level !== "constitution" &&
+      d.level !== "constitution" && d.level !== "intake" &&
       (d.level !== "knowledge" || !!state.library.pages[d.id]),
   );
   const collectionOf = (d: Document) =>
@@ -74,13 +76,14 @@ export function KnowledgeLibrary({
       execution: "Execution",
       knowledge: "Unfiled",
       constitution: "Constitution",
+      intake: "Intake",
     }[d.level] ??
       "Unfiled");
   const collections = [...new Set(pages.map(collectionOf))].sort();
   const document = state.documents.find((d) => d.id === selected),
     meta = document && state.library.pages[document.id];
   const isEvidence =
-    document?.level === "knowledge" && !state.library.pages[document.id];
+    document?.level === "intake";
   useEffect(() => {
     setHistory(null);
     setSource(null);
@@ -95,7 +98,7 @@ export function KnowledgeLibrary({
     const parsed = parseDocumentRef(ref);
     if (!parsed) return;
     const current = state.documents.find((d) => d.id === parsed.id);
-    if (current?.level === "knowledge" && !state.library.pages[current.id]) {
+    if (current?.level === "intake") {
       setSelected(current.id);
       setSource(null);
       return;
@@ -120,7 +123,7 @@ export function KnowledgeLibrary({
           </span>
           <span className="library-row-footer">
             <small>
-              {freshness[d.id]?.status === "needs_review"
+              {d.level === "intake" ? (state.library.intake[d.id]?.status || "collecting").replaceAll("_", " ") : freshness[d.id]?.status === "needs_review"
                 ? "Needs review"
                 : freshness[d.id]?.status === "withdrawn" ||
                     state.policies[d.id]?.status === "retired"
@@ -156,6 +159,17 @@ export function KnowledgeLibrary({
     >
       <article className="library-reader">
         {error && <p role="alert">{error}</p>}
+        {markdownSections(document.content).length > 0 && (
+          <details className="revision-entry">
+            <summary>Sections</summary>
+            {markdownSections(document.content).map((section, index) => (
+              <button key={index} style={{ display: "block", marginLeft: (section.level - 2) * 12 }} onClick={event => {
+                const heading = event.currentTarget.closest("article")?.querySelectorAll(".library-body h1, .library-body h2, .library-body h3, .library-body h4, .library-body h5, .library-body h6")[index];
+                heading?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}>{section.heading}</button>
+            ))}
+          </details>
+        )}
         <div className="evidence-heading">
           <div>
             {meta && (
@@ -540,7 +554,7 @@ export function KnowledgeLibrary({
   ) : null;
   const candidates = evidence
     ? state.documents.filter(
-        (d) => d.level === "knowledge" && !state.library.pages[d.id],
+        (d) => d.level === "intake",
       )
     : pages;
   const shown = matches
@@ -552,19 +566,20 @@ export function KnowledgeLibrary({
     <section className="library-index" aria-label="Knowledge library">
       {sourceDialog}
       {libraryDialog}
-      {document && isEvidence && (
+      {((document && isEvidence) || newIntake) && (
         <EvidenceDialog
-          document={document}
+          document={newIntake ? { id: "", title: "", content: "", level: "intake", version: 0, updated_at: new Date().toISOString(), indexed_version: null, source: "human" } : document!}
+          intake={document ? state.library.intake[document.id] : undefined}
           disabled={disabled}
           policy={
-            state.policies[document.id] || {
+            state.policies[document?.id || ""] || {
               inclusion: "reference",
               status: "active",
             }
           }
-          close={() => setSelected(null)}
+          close={() => { setSelected(null); setNewIntake(false); }}
           command={command}
-          discuss={() => discuss(document)}
+          discuss={() => document && discuss(document)}
           markdown={markdown}
         />
       )}
@@ -593,9 +608,10 @@ export function KnowledgeLibrary({
             setQuery("");
           }}
         >
-          Evidence
+          Intake
         </button>
       </div>
+      {evidence && <><p className="library-meta">Temporary material for Foreman to curate. Processed entries are deleted after Knowledge is saved.</p><button disabled={disabled} onClick={() => { setSelected(null); setNewIntake(true); }}>New intake</button></>}
       <form
         className="search-form"
         onSubmit={(e) => {
@@ -606,7 +622,7 @@ export function KnowledgeLibrary({
             "/search?q=" +
               encodeURIComponent(query) +
               "&view=" +
-              (evidence ? "evidence" : "library"),
+              (evidence ? "intake" : "library"),
           )
             .then((result) => {
               setMatches(result.results.map((d: Document) => d.id));
@@ -618,7 +634,7 @@ export function KnowledgeLibrary({
       >
         <input
           aria-label="Search knowledge"
-          placeholder={evidence ? "Search evidence" : "Search documents"}
+          placeholder={evidence ? "Search intake" : "Search documents"}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -650,6 +666,7 @@ export function KnowledgeLibrary({
 
 function EvidenceDialog({
   document,
+  intake,
   policy,
   disabled,
   close,
@@ -658,6 +675,7 @@ function EvidenceDialog({
   markdown,
 }: {
   document: Document;
+  intake?: CompanyState["library"]["intake"][string];
   policy: CompanyState["policies"][string];
   disabled: boolean;
   close(): void;
@@ -665,7 +683,7 @@ function EvidenceDialog({
   discuss(): void;
   markdown(content: string): React.ReactNode;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!document.id);
   const [title, setTitle] = useState(document.title);
   const [content, setContent] = useState(document.content);
   useEffect(() => {
@@ -673,22 +691,21 @@ function EvidenceDialog({
     setContent(document.content);
   }, [document.id, document.version]);
   return (
-    <Modal className="knowledge-entry-dialog" title="Evidence" close={close}>
+    <Modal className="knowledge-entry-dialog" title="Intake" close={close}>
       {editing ? (
         <form
           className="editor evidence-editor"
           onSubmit={(event) => {
             event.preventDefault();
             void command({
-              type: "SaveKnowledge",
-              id: document.id,
-              expectedVersion: document.version,
+              type: "SaveIntake",
+              id: document.id || undefined,
+              expectedVersion: document.version || undefined,
               title,
               content,
-              level: "knowledge",
-              policy,
+              ready: false,
             }).then((saved) => {
-              if (saved) setEditing(false);
+              if (saved) { if (!document.id) close(); else setEditing(false); }
             });
           }}
         >
@@ -702,11 +719,11 @@ function EvidenceDialog({
             />
           </label>
           <label>
-            Evidence
+            Content
             <textarea
               required
               rows={14}
-              maxLength={24000}
+              maxLength={DOCUMENT_STORAGE_LIMIT}
               value={content}
               onChange={(event) => setContent(event.target.value)}
             />
@@ -731,29 +748,31 @@ function EvidenceDialog({
               <p className="library-meta">
                 Added {new Date(document.updated_at).toLocaleDateString()} · v
                 {document.version}
+                {" · "}{(intake?.status || "collecting").replaceAll("_", " ")}
               </p>
             </div>
-            <button onClick={() => setEditing(true)} disabled={disabled}>
+            <button onClick={() => setEditing(true)} disabled={disabled || !!intake?.batchId}>
               <Pencil size={15} /> Edit
             </button>
           </div>
           <div className="library-body">{markdown(document.content)}</div>
           <footer className="evidence-modal-actions">
+            {intake?.status !== "ready" && !intake?.batchId && <button disabled={disabled} onClick={() => void command({ type: "ReadyIntake", documentId: document.id, expectedVersion: document.version })}>Ready for curation</button>}
             <button onClick={discuss}>
               <MessageCircle size={15} /> Discuss with Foreman
             </button>
             <button
               className="danger-button"
-              disabled={disabled}
+              disabled={disabled || !!intake?.batchId}
               onClick={() => {
                 if (
                   !window.confirm(
-                    "Delete this evidence entry? It will be removed from search and Library maintenance.",
+                    "Permanently delete this intake entry and its document revisions?",
                   )
                 )
                   return;
                 void command({
-                  type: "DeleteEvidence",
+                  type: "DeleteIntake",
                   documentId: document.id,
                   expectedVersion: document.version,
                 }).then((deleted) => {
@@ -831,7 +850,7 @@ export function ContextUsed({
         ))}
         {!!c.maintenance?.sources.length && (
           <details>
-            <summary>Evidence supplied for maintenance</summary>
+            <summary>Sources supplied for curation</summary>
             {c.maintenance.sources.map((d) => (
               <details key={d.id}>
                 <summary>

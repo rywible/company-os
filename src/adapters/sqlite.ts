@@ -9,7 +9,7 @@ import {
 } from "../domain/planning";
 import { taskForRun } from "../domain/automation";
 import { automationPermissions } from "../domain/permissions";
-import { importLibrary, libraryTask } from "../domain/library";
+import { importLibrary, libraryTask, intakeReferences } from "../domain/library";
 import type { Document } from "../contracts";
 import { initialDiscovery } from "../domain/discovery";
 import { Store } from "../server/store";
@@ -38,7 +38,7 @@ export class SQLiteRepository implements Repository {
     this.runStorage = new RunStorage(store.db);
     this.transaction(() => {
       const latest = store.db.query("SELECT max(version) AS version FROM schema_migrations").get() as {version:number};
-      if (latest.version > 2) throw Error("Database schema is newer than this application. Restore the matching release.");
+      if (latest.version > 3) throw Error("Database schema is newer than this application. Restore the matching release.");
       if (!store.db.query("SELECT 1 FROM schema_migrations WHERE version=2").get()) {
         store.db.exec("CREATE TABLE IF NOT EXISTS operational_checks(name TEXT PRIMARY KEY,json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS operational_alerts(id TEXT PRIMARY KEY,message TEXT NOT NULL,first_seen TEXT NOT NULL,last_seen TEXT NOT NULL,resolved_at TEXT);");
         store.db.query("INSERT INTO schema_migrations VALUES(2,?,?)").run("Operating checks and alert history", now);
@@ -151,6 +151,34 @@ export class SQLiteRepository implements Repository {
     if (!s.discovery.lenses.some((l: any) => l.id === "knowledge-library")) {
       s.discovery.lenses.push(libraryTask());
       this.save(s);
+    }
+    if (!s.library.intakeVersion) {
+      this.transaction(() => {
+        s.library.intake ||= {};
+        s.library.batches ||= {};
+        s.library.receipts ||= [];
+        for (const d of this.documents()) {
+          if (d.level !== "intake" && (d.level !== "knowledge" || s.library.pages[d.id])) continue;
+          const runId = d.content.match(/\nRun: ([^\s]+)\s*$/)?.[1];
+          const run = s.runs.find((r: any) => r.id === runId);
+          const work = s.work.find((w: any) => w.id === run?.workId);
+          const sources = d.content.match(/\nSources: ([^\n]*)/)?.[1]?.split(", ").filter(Boolean) || [];
+          this.store.db.query("UPDATE documents SET level='intake' WHERE id=?").run(d.id);
+          s.library.intake[d.id] = {
+            status: work && work.status !== "done" ? "collecting" : "ready",
+            sources: [...new Set([...sources, ...intakeReferences(d.content)])], ...(runId ? { runId } : {}), ...(work ? { workId: work.id } : {}),
+          };
+          if (work) work.intakeIds = [...new Set([...(work.intakeIds || []), d.id])];
+          if (s.library.intake[d.id].status === "ready") s.library.pending[d.id] = d.version;
+          else delete s.library.pending[d.id];
+          delete s.library.processed[d.id];
+        }
+        for (const id of Object.keys(s.library.pending))
+          if (!s.library.intake[id]) delete s.library.pending[id];
+        s.library.intakeVersion = 1;
+        this.store.db.query("INSERT OR IGNORE INTO schema_migrations VALUES(3,?,?)").run("Separate disposable Intake from maintained Knowledge", new Date().toISOString());
+        this.save(s);
+      });
     }
     s.reviewRounds ||= [];
     s.discovery ||= initialDiscovery();
@@ -423,7 +451,7 @@ export class SQLiteRepository implements Repository {
             )
             .get(id) as Document | undefined)
         : undefined);
-    if (!current || !version || current.version === version) return current;
+    if (!current || !version || current.version === version) return current || undefined;
     const r = this.store.db
       .query("SELECT * FROM revisions WHERE document_id=? AND version=?")
       .get(id, version) as any;
@@ -444,8 +472,21 @@ export class SQLiteRepository implements Repository {
   archiveDocument(id: string, expectedVersion: number) {
     this.store.archiveDocument(id, expectedVersion);
   }
-  search(query: string, vector?: number[], model?: string, limit = 6) {
-    return this.store.search(query, vector, model, limit);
+  deleteIntake(id: string, expectedVersion: number) {
+    this.transaction(() => {
+      const d = this.document(id);
+      if (!d || d.level !== "intake" || d.version !== expectedVersion)
+        throw Error("Intake changed or is no longer available. Reload before deleting.");
+      this.store.removeVectors(id);
+      this.store.db.query("DELETE FROM document_fts WHERE document_id=?").run(id);
+      this.store.db.query("DELETE FROM revisions WHERE document_id=?").run(id);
+      this.store.db.query("DELETE FROM proposals WHERE document_id=?").run(id);
+      this.store.db.query("DELETE FROM jobs WHERE entity_id=?").run(id);
+      this.store.db.query("DELETE FROM documents WHERE id=?").run(id);
+    });
+  }
+  search(query: string, vector?: number[], model?: string, limit = 6, view: "all" | "library" | "intake" = "all") {
+    return this.store.search(query, vector, model, limit, view);
   }
   index(...args: Parameters<Store["indexDocument"]>) {
     return this.store.indexDocument(...args);

@@ -64,7 +64,8 @@ beforeEach(() => {
   store = seedFixture(new Store(":memory:"));
   repo = new SQLiteRepository(store, now.toISOString());
   // These suites exercise their own automation clocks; milestone planning is covered separately.
-  const planningState = repo.state();
+ const planningState = repo.state();
+  planningState.discovery.lenses.find(t => t.kind === "knowledge")!.enabled = false;
   planningState.discovery.lenses.find(t => t.kind === "planning")!.enabled = false;
   repo.save(planningState);
   outputs = [];
@@ -163,7 +164,8 @@ test("scout → investigation → inbox decision → delivery → outcome → in
   expect(contexts[0]!.browser?.url).toBe("https://test.example");
   expect(contexts[0]!.evidenceRefs).toContain(`browser:${idea.runId}`);
   expect(contexts[1]!.discovery?.phase).toBe("investigation");
-  expect(repo.document(idea.knowledgeId!)!.indexed_version).toBe(1);
+  expect(repo.document(idea.knowledgeId!)!.level).toBe("intake");
+  expect(repo.document(idea.knowledgeId!)!.indexed_version).toBeNull();
   outputs.push(
     answer(),
     answer({
@@ -189,7 +191,7 @@ test("scout → investigation → inbox decision → delivery → outcome → in
     "resolved",
   );
   expect(repo.document(final.knowledgeId!)!.version).toBe(3);
-  expect(repo.document(final.knowledgeId!)!.indexed_version).toBe(3);
+  expect(repo.document(final.knowledgeId!)!.indexed_version).toBeNull();
   expect(repo.document(final.knowledgeId!)!.content).toContain("Hypothesis:");
   const names: string[] = repo.events().map((e) => e.type);
   for (const n of [

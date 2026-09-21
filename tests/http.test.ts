@@ -107,7 +107,8 @@ test("Markdown rendering is private, uncached, and bounded", async () => {
       body: JSON.stringify({ source }),
     });
   expect((await render("# Private", "")).status).toBe(401);
-  expect((await render("a".repeat(24001))).status).toBe(400);
+  expect((await render("a".repeat(24001))).status).toBe(200);
+  expect((await render("a".repeat(500001))).status).toBe(400);
   expect((await render({ invalid: true })).status).toBe(400);
   const response = await render("# Private");
   expect(response.status).toBe(200);

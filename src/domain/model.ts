@@ -23,6 +23,7 @@ import {
   type LibraryProposal,
 } from "./library";
 import { z } from "zod";
+import { DOCUMENT_STORAGE_LIMIT, DOCUMENT_OUTPUT_LIMIT, documentEditSchema } from "./document-edit";
 import {
   discoveryCommands,
   initialDiscovery,
@@ -100,6 +101,8 @@ export type Work = {
   dependsOn?: string[];
   expectedOutputs?: string[];
   outputDocumentIds?: string[];
+  intakeIds?: string[];
+  awaitingCuration?: boolean;
   reviews?: {
     runId: string;
     verdict: "approve" | "changes_requested";
@@ -202,10 +205,13 @@ export type Context = {
   conversationSummary?: string;
   assignment?: string;
   gaps?: string[];
-  additionalRequests?: { subject: string; reason: string }[];
+  additionalRequests?: { subject: string; reason: string; headingPath?: string[] }[];
   libraryPages?: Record<string, import("./library").LibraryPage>;
+  documentSections?: Record<string, { partial: boolean; outline: string[][] }>;
   freshness?: Record<string, import("./freshness").Freshness>;
   maintenance?: {
+    intake?: import("./library").LibraryState["intake"];
+    intakeSlices?: Record<string, { from: number; through: number; total: number }>;
     reviewTargets?: {
       documentId: string;
       signature: string;
@@ -374,6 +380,14 @@ export const commandSchema = z.discriminatedUnion("type", [
   ...discoveryCommands,
   ...planningCommands,
   z.object({
+    type: z.literal("SaveIntake"), id: text.optional(),
+    expectedVersion: z.number().int().positive().optional(),
+    title: text.max(160), content: text.max(DOCUMENT_STORAGE_LIMIT),
+    ready: z.boolean(),
+  }),
+  z.object({ type: z.literal("ReadyIntake"), documentId: text, expectedVersion: z.number().int().positive() }),
+  z.object({ type: z.literal("DeleteIntake"), documentId: text, expectedVersion: z.number().int().positive() }),
+  z.object({
     type: z.literal("ConfigureDelivery"),
     policy: deliveryPolicySchema,
     requiredReviews: z.number().int().min(1).max(5).optional(),
@@ -470,8 +484,9 @@ export const commandSchema = z.discriminatedUnion("type", [
       "architecture",
       "execution",
       "knowledge",
+      "intake",
     ]),
-    content: text.max(24000),
+    content: text.max(DOCUMENT_STORAGE_LIMIT),
     expectedVersion: z.number().int().positive().optional(),
     policy: policySchema,
   }),
@@ -510,6 +525,14 @@ export const commandSchema = z.discriminatedUnion("type", [
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export const agentResultSchema = z.object({
+  documentEdits: z.array(documentEditSchema).max(4).optional(),
+  intakeResolutions: z.array(z.object({
+    documentId: text,
+    version: z.number().int().positive(),
+    action: z.enum(["incorporate", "discard", "defer"]),
+    reason: text.max(2000),
+    updateIndexes: z.array(z.number().int().min(0).max(3)).max(4),
+  })).max(10).optional(),
   // Executor receipt, never a model-authored claim. Older saved results omit it.
   engineering: z.object({
     runId: text,
@@ -533,7 +556,7 @@ export const agentResultSchema = z.object({
   conversationSummary: z.string().max(6000).optional(),
   libraryUpdates: z.array(libraryUpdateSchema).max(4).optional(),
   contextRequests: z
-    .array(z.object({ subject: text.max(400), reason: text.max(800) }))
+    .array(z.object({ subject: text.max(400), reason: text.max(800), headingPath: z.array(text.max(200)).max(6).optional() }))
     .max(3)
     .optional(),
   discoveries: z.array(candidateSchema).max(2).default([]),
@@ -564,7 +587,7 @@ export const agentResultSchema = z.object({
     .array(
       z.object({
         documentId: text,
-        content: text.max(24000),
+        content: text.max(DOCUMENT_OUTPUT_LIMIT),
         reason: text.max(4000),
         evidence: z.array(text).max(20),
       }),

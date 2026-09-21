@@ -309,12 +309,14 @@
 .evidence-heading .library-path { margin: 0 0 6px; }
 .evidence-modal-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 26px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
 }
+.evidence-modal-actions > button { flex: 0 0 auto; white-space: nowrap; }
 .evidence-modal-actions .danger-button {
   color: var(--danger);
   margin-left: auto;

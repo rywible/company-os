@@ -3,6 +3,10 @@ import type { DomainEvent, Effect } from "./events";
 // stored with its triggering event in the same database transaction.
 export function workflows(event: DomainEvent): Effect[] {
   switch (event.type) {
+    case "IntakeReady":
+    case "LibraryMaintained":
+    case "LibraryProposalResolved":
+      return [{ type: "CurateIntake" }, { type: "ReconcileMilestones" }];
     case "IntegrationRequested":
       return [
         { type: "IntegrateMilestone", milestoneId: event.payload.milestoneId },
@@ -88,9 +92,11 @@ export const workflowDefinitions = [
   {
     name: "Knowledge library",
     steps: [
-      "KnowledgeChanged → QueueLibrarySource + IndexKnowledge",
-      "Due maintenance task → LibraryMaintenanceRequested → RunAgent",
-      "Routine synthesis → LibraryMaintained → KnowledgeChanged",
+      "Completed intake → independent assignment review when required → IntakeReady",
+      "IntakeReady → coalesced Foreman curation within the library allowance",
+      "Structured subjects or targeted edits → KnowledgeChanged → section indexing",
+      "Saved Knowledge + explicit intake resolutions → permanent intake deletion",
+      "Scheduled maintenance → freshness review and pending-intake recovery",
       "Changed decision or human-edited subject → inbox → LibraryProposalResolved",
     ],
   },

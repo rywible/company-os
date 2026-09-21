@@ -1,6 +1,7 @@
 import { libraryFreshness } from "../domain/freshness";
 import { evidenceReferences } from "../domain/evidence";
 import { documentRef } from "../domain/library";
+import { selectDocumentSections } from "../domain/document-edit";
 import {
   defaultPolicy,
   type CompanyState,
@@ -53,13 +54,13 @@ export async function assembleContext(
   _legacyScope: string,
   now: string,
   run?: Run,
-  requested: { subject: string; reason: string }[] = [],
+  requested: { subject: string; reason: string; headingPath?: string[] }[] = [],
 ): Promise<Context> {
   const input = conversationInput(state, run, task);
-  const queries = [...requested.map((r) => r.subject), input.query].filter(
+  const queries = [...requested.map((r) => [r.subject, ...(r.headingPath || [])].join(" ")), input.query].filter(
     Boolean,
   );
-  const hits = new Map<string, { rank: number; match: string }>();
+  const hits = new Map<string, { rank: number; match: string; excerpt: string }>();
   let searchMode = "hybrid";
   for (const query of queries) {
     let vector: number[] | undefined;
@@ -68,9 +69,9 @@ export async function assembleContext(
     } catch {
       searchMode = "keyword fallback";
     }
-    repo.search(query, vector, embedding.model, 30).forEach((h, i) => {
+    repo.search(query, vector, embedding.model, 30, "library").forEach((h, i) => {
       const old = hits.get(h.id);
-      if (!old || i < old.rank) hits.set(h.id, { rank: i, match: h.match });
+      if (!old || i < old.rank) hits.set(h.id, { rank: i, match: h.match, excerpt: h.excerpt });
     });
   }
   const thread = state.threads.find((t) => t.id === run?.threadId),
@@ -83,7 +84,7 @@ export async function assembleContext(
     ...(work?.dependsOn || []).flatMap(
       (id) => state.work.find((w) => w.id === id)?.outputDocumentIds || [],
     ),
-    ...(run?.trigger === "assessment" ? work?.outputDocumentIds || [] : []),
+    ...(run?.trigger === "assessment" ? [...(work?.outputDocumentIds || []), ...(work?.intakeIds || [])].filter(id => !!repo.document(id)) : []),
   ]);
   const documents = repo.documents(),
     attachment = thread?.attachment;
@@ -91,6 +92,7 @@ export async function assembleContext(
   const eligible = (d: (typeof documents)[number]) => {
     const p = state.policies[d.id] || defaultPolicy(d);
     return (
+      d.level !== "intake" &&
       (run?.trigger === "maintenance" ||
         !freshness[d.id] ||
         freshness[d.id]!.status === "current") &&
@@ -122,6 +124,9 @@ export async function assembleContext(
         `${hits.get(d.id)!.match} match to this conversation and assignment`,
       );
   }
+  for (const d of documents.filter(eligible))
+    if (state.library.pages[d.id]?.aliases?.some(alias => input.query.toLowerCase().includes(alias.toLowerCase())))
+      reasons.set(d.id, "Subject alias match");
   // Expand a bounded neighborhood: ancestors for guidance and one hop of explicit related subjects.
   for (const id of [...reasons.keys()]) {
     let parent = state.library.pages[id]?.parentId;
@@ -188,7 +193,7 @@ export async function assembleContext(
     (a, b) => priority(a) - priority(b),
   )) {
     // The constitution is always current; attachments may pin other documents to earlier revisions.
-    const d =
+    let d =
       current.id === attachment?.id && current.level !== "constitution"
         ? repo.document(current.id, attachment.version)
         : current;
@@ -197,6 +202,11 @@ export async function assembleContext(
         `The attached revision of ${current.title} is unavailable.`,
       );
       continue;
+    }
+    if (d.level !== "constitution") {
+      const selection = selectDocumentSections(d.content, queries.join("\n") + "\n" + (hits.get(d.id)?.excerpt || ""));
+      (context.documentSections ||= {})[d.id] = { partial: selection.partial, outline: selection.outline };
+      d = { ...d, content: selection.content };
     }
     const policy = state.policies[d.id] || defaultPolicy(d),
       pinned = d.id === attachment?.id;
@@ -208,7 +218,7 @@ export async function assembleContext(
     } else if (pinned) {
       included = true;
       const sourceEvidence =
-        d.level === "knowledge" && !state.library.pages[d.id];
+        d.level === "intake" || (d.level === "knowledge" && !state.library.pages[d.id]);
       reason = sourceEvidence
         ? `Raw evidence explicitly attached to this conversation at v${d.version}`
         : `Explicit attachment at v${d.version}`;
@@ -228,6 +238,12 @@ export async function assembleContext(
           `${d.title} is pinned to v${d.version}; the current revision is v${current.version}. Use the attachment as historical context.`,
         );
       }
+    } else if (d.level === "intake" && sharedDocuments.has(d.id) && run?.trigger === "assessment") {
+      included = true;
+      reason = "Raw evidence: assignment intake supplied for independent review";
+      context.evidenceRefs.push(...(state.library.intake[d.id]?.sources || []));
+    } else if (d.level === "intake") {
+      reason = "Intake is only supplied explicitly or to its curator and reviewer";
     } else if (
       d.level === "knowledge" &&
       !state.library.pages[d.id] &&

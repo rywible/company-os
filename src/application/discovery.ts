@@ -398,19 +398,21 @@ export class Discovery {
         id: previous?.id,
         expectedVersion: previous?.version,
         title: `Discovery: ${idea.title}`,
-        level: "knowledge",
+        level: "intake",
         content: `Hypothesis: ${idea.hypothesis}\n\nExpected benefit: ${idea.impact}\n\nStatus: ${idea.status}\n\nInvestigation: ${idea.assessment?.finding || "Not yet assessed"}\n\nLatest finding: ${finding}\n\nUncertainty: ${idea.uncertainty}\n\nHuman decision: ${idea.decisionReason || "None"}\n\nSources: ${evidence.join(", ")}\n\nDiscovery: ${idea.id}`,
       },
       "foreman",
     );
     idea.knowledgeId = d.id;
+    state.library.intake[d.id] = { status: "ready", sources: evidence };
+    state.library.pending[d.id] = d.version;
     state.policies[d.id] = {
       inclusion: "relevant",
       status: "active",
     };
     this.h.emit(
       {
-        type: "KnowledgeChanged",
+        type: "IntakeReady",
         payload: { documentId: d.id, version: d.version },
       },
       "foreman",

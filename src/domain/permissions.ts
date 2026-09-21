@@ -10,7 +10,7 @@ export const permissionSchema = z.enum([
 ]);
 export type AutomationPermission = z.infer<typeof permissionSchema>;
 export const permissionLabels: Record<AutomationPermission, string> = {
-  evidence: "Add evidence",
+  evidence: "Add intake",
   knowledge: "Create and update knowledge",
   milestones: "Propose milestones",
   investigate: "Investigate and develop recommendations",
@@ -50,7 +50,7 @@ export function assertAutomationOutput(
       );
   };
   require("evidence", !!output.observations.length);
-  require("knowledge", !!output.libraryUpdates?.length);
+  require("knowledge", !!output.libraryUpdates?.length || !!output.documentEdits?.length || !!output.intakeResolutions?.length);
   require("milestones", !!output.milestones?.length);
   if (
     output.milestones?.length &&

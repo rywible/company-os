@@ -359,7 +359,8 @@ export class Planning {
       );
       if (
         runs.length >= m.maxRuns &&
-        !runs.some((r) => ["queued", "running"].includes(r.status))
+        !runs.some((r) => ["queued", "running"].includes(r.status)) &&
+        !work.some(w => w.awaitingCuration)
       ) {
         m.status = "paused";
         m.version++;
@@ -379,7 +380,7 @@ export class Planning {
         continue;
       }
       for (const w of work.filter(
-        (w) => w.status === "review" && !w.pullRequest,
+        (w) => w.status === "review" && !w.pullRequest && !w.awaitingCuration,
       )) {
         if (
           w.pullRequest &&

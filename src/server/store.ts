@@ -232,6 +232,7 @@ export class Store {
     vector?: number[],
     model?: string,
     limit = 6,
+    view: "all" | "library" | "intake" = "all",
   ): SearchHit[] {
     const terms = query.match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 20) || [];
     const fts = terms
@@ -240,16 +241,16 @@ export class Store {
     const lexical = fts
       ? (this.db
           .query(
-            "SELECT document_id FROM document_fts WHERE document_fts MATCH ? ORDER BY bm25(document_fts) LIMIT 15",
+            "SELECT document_id FROM document_fts WHERE document_fts MATCH ? AND document_id IN (SELECT id FROM documents WHERE archived_at IS NULL AND (?='all' OR (?='intake' AND level='intake') OR (?='library' AND level!='intake'))) ORDER BY bm25(document_fts) LIMIT 60",
           )
-          .all(fts) as { document_id: string }[])
+          .all(fts, view, view, view) as { document_id: string }[])
       : [];
     const semantic = vector
       ? (this.db
           .query(
-            `SELECT c.document_id,c.text,vec_distance_cosine(v.embedding,?) distance FROM chunk_vectors v JOIN chunks c ON c.id=v.rowid JOIN documents d ON d.id=c.document_id AND d.version=c.version WHERE c.model=? ORDER BY distance LIMIT 24`,
+            `SELECT c.document_id,c.text,vec_distance_cosine(v.embedding,?) distance FROM chunk_vectors v JOIN chunks c ON c.id=v.rowid JOIN documents d ON d.id=c.document_id AND d.version=c.version WHERE c.model=? AND d.archived_at IS NULL AND (?='all' OR (?='intake' AND d.level='intake') OR (?='library' AND d.level!='intake')) ORDER BY distance LIMIT 60`,
           )
-          .all(new Float32Array(vector), model!) as {
+          .all(new Float32Array(vector), model!, view, view, view) as {
           document_id: string;
           text: string;
           distance: number;

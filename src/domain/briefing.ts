@@ -12,8 +12,10 @@ export function renderBriefing(context: Context): string {
         return {
           subject: d.title,
           reference: documentRef(d),
+          sections: context.documentSections?.[d.id],
+          organization: context.libraryPages?.[d.id],
           freshness: context.freshness?.[d.id],
-          authority: selectedBecause?.startsWith("Raw evidence")
+          authority: d.level === "intake" || selectedBecause?.startsWith("Raw evidence")
             ? "Raw evidence supplied for this conversation. Assess it directly; do not treat it as maintained guidance."
             : (context.freshness?.[d.id] &&
                   context.freshness[d.id]!.status !== "current") ||

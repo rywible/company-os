@@ -1,7 +1,8 @@
 import { OperatingStatus } from "./operations";
 import type { OperatingSummary } from "../application/operations";
 import { KnowledgeLibrary, ContextUsed } from "./library";
-import { RevisionHistory } from "./revision-history";
+import { RevisionHistory, lineChanges } from "./revision-history";
+import { knowledgeTemplate } from "../domain/document-edit";
 import { MarkdownEditor } from "./markdown-editor";
 import { SettingsPage } from "./settings";
 import { MilestonesPage, MilestoneActions } from "./milestones";
@@ -375,7 +376,7 @@ function App() {
   const isSourceEvidence = (id: string) =>
     Boolean(
       state?.documents.find((document) => document.id === id)?.level ===
-        "knowledge" && !state.library.pages[id],
+        "intake",
     );
   const refresh = async () => {
     setState(await api<Workspace>("/company?" + new URLSearchParams({...(threadId ? {thread:threadId} : {}), ...(selectedWork ? {work:selectedWork} : {})})));
@@ -604,7 +605,7 @@ function App() {
             setEditor({
               level: "knowledge",
               policy: { ...freshPolicy },
-              content: "",
+              content: knowledgeTemplate,
               title: "",
             })
           }
@@ -965,7 +966,7 @@ function App() {
                             </strong>
                             <small>
                               {isSourceEvidence(currentThread.attachment.id)
-                                ? "Raw evidence · Included in this conversation only"
+                                ? "Intake · Included in this conversation only"
                                 : "Attached to this conversation"}
                             </small>
                           </span>
@@ -1206,7 +1207,7 @@ function App() {
                       )}
                       <span className="badge" data-status={work.status}>
                         <span className="dot" aria-hidden="true" />
-                        {work.track} · {work.status}
+                        {work.track} · {work.awaitingCuration ? "Updating Knowledge" : work.status}
                       </span>
                     </div>
                     <p className="muted">
@@ -1668,13 +1669,13 @@ function App() {
                 }}
                 discuss={(d) => {
                   const sourceEvidence =
-                    d.level === "knowledge" && !state.library.pages[d.id];
+                    d.level === "intake";
                   setAttachment({ id: d.id, version: d.version });
                   setDraftSubject(`Discuss ${d.title}`);
                   if (sourceEvidence)
                     setDrafts((drafts) => ({
                       ...drafts,
-                      new: "What should we learn from this evidence? ",
+                      new: "What should we learn from this intake? ",
                     }));
                   setComposeOpen(true);
                 }}
@@ -1747,7 +1748,7 @@ function App() {
                   </strong>
                   <small>
                     {isSourceEvidence(attachment.id)
-                      ? "Raw evidence · Included in this conversation only"
+                      ? "Intake · Included in this conversation only"
                       : "Attached to this conversation"}
                   </small>
                 </span>
@@ -1812,6 +1813,7 @@ function App() {
                 </p>
               )}
               <Markdown>{proposal.content}</Markdown>
+              {proposal.documentId && <details className="revision-entry"><summary>Changes</summary><div className="revision-delta">{lineChanges(state?.documents.find(d => d.id === proposal.documentId)?.content || "", proposal.content).map((change, i) => <div key={i} className={change.kind}>{change.lines.map((line, j) => <div key={j}>{change.kind === "added" ? "+ " : "− "}{line}</div>)}</div>)}</div></details>}
               {proposal.status === "pending" ? (
                 <div className="actions">
                   {(["accept", "dismiss"] as const).map((action) => (

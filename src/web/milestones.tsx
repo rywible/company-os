@@ -61,6 +61,7 @@ export function MilestoneActions({
   );
 }
 export function assignmentStatus(work: Work, all: Work[]) {
+  if (work.awaitingCuration) return "Updating Knowledge";
   if (
     work.status === "queued" &&
     work.dependsOn?.some(

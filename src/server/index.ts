@@ -110,7 +110,7 @@ function inspecting(req: Request) {
 const attempts = new Map<string, { count: number; since: number }>();
 async function body(req: Request) {
   const text = await req.text();
-  if (text.length > 100000) throw new Error("Request too large");
+  if (text.length > 2_000_000) throw new Error("Request too large");
   return JSON.parse(text);
 }
 
@@ -119,7 +119,7 @@ export const server = Bun.serve({
   development: development ? { hmr: true, console: true } : false,
   routes: devPage ? { "/": devPage } : undefined,
   hostname: production ? "0.0.0.0" : "127.0.0.1",
-  maxRequestBodySize: 100000,
+  maxRequestBodySize: 2_000_000,
   idleTimeout: 60,
   async fetch(req) {
     const url = new URL(req.url),
@@ -280,7 +280,7 @@ export const server = Bun.serve({
           });
         if (path === "/api/markdown" && req.method === "POST") {
           const { source } = z
-            .object({ source: z.string().max(24000) })
+            .object({ source: z.string().max(500_000) })
             .parse(await body(req));
           return json({ nodes: renderMarkdown(source) });
         }
@@ -327,16 +327,17 @@ export const server = Bun.serve({
                 vector,
                 model,
                 url.searchParams.has("view") ? 60 : 6,
+                ["intake", "evidence"].includes(url.searchParams.get("view") || "") ? "intake" : "library",
               )
               .filter((d) => {
                 const view = url.searchParams.get("view"),
                   library = repository.state().library;
                 return view === "library"
-                  ? d.level !== "constitution" &&
+                  ? d.level !== "constitution" && d.level !== "intake" &&
                       (d.level !== "knowledge" || !!library.pages[d.id])
-                  : view === "evidence"
-                    ? d.level === "knowledge" && !library.pages[d.id]
-                    : true;
+                  : view === "evidence" || view === "intake"
+                    ? d.level === "intake"
+                    : d.level !== "intake";
               }),
             mode: vector ? "hybrid" : "keyword",
             warning,

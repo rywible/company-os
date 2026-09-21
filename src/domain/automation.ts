@@ -100,7 +100,7 @@ export function taskBlocker(
       (f) => f.status === "needs_review",
     )
       ? "Waiting for a decision or review of a source subject."
-      : "The library is up to date. New evidence or a scheduled review will queue a pass.";
+      : "The library is up to date. Ready intake or a scheduled review will queue a pass.";
   if (!taskCapacity(state, lens))
     return lens.kind === "planning"
       ? "There are enough upcoming milestones. Planning resumes when capacity opens."

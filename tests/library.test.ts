@@ -14,6 +14,7 @@ import {
 } from "../src/domain/model";
 import { documentRef, type LibraryUpdate } from "../src/domain/library";
 import { renderBriefing } from "../src/domain/briefing";
+import { structuredKnowledge } from "./fixtures/curation";
 let store: Store,
   repo: SQLiteRepository,
   company: Company,
@@ -40,6 +41,7 @@ beforeEach(() => {
   // These suites exercise their own automation clocks; milestone planning is covered separately.
   const planningState = repo.state();
   planningState.discovery.lenses.find(t => t.kind === "planning")!.enabled = false;
+  planningState.discovery.lenses.find(t => t.kind === "knowledge")!.enabled = false;
   repo.save(planningState);
   contexts = [];
   outputs = [];
@@ -105,8 +107,10 @@ function update(
   return {
     documentId,
     expectedVersion: version,
+    replaceWholeDocument: !!documentId,
     title,
-    content,
+    content: structuredKnowledge(content),
+    formatVersion: 1,
     collection: "Engineering",
     parentId: null,
     relatedIds: [],
@@ -392,7 +396,7 @@ test("human edits and changes of direction are inbox proposals; stale approval c
     id: page.id,
     expectedVersion: 2,
     title: "Mobile editor",
-    content: "More recent human correction",
+    content: structuredKnowledge("More recent human correction"),
     level: "knowledge",
     policy: defaultPolicy(repo.document(page.id)!),
   });
@@ -404,7 +408,7 @@ test("human edits and changes of direction are inbox proposals; stale approval c
       action: "accept",
     }),
   ).toThrow("changed since");
-  expect(repo.document(page.id)?.content).toBe("More recent human correction");
+  expect(repo.document(page.id)?.content).toBe(structuredKnowledge("More recent human correction"));
 });
 
 test("maintenance validates citations and cannot edit a governing document", async () => {
@@ -981,11 +985,8 @@ test("raw evidence is excluded by default and included when explicitly attached"
   );
 });
 
-test("deleting evidence removes it from search and maintenance while retaining revision history", () => {
-  const raw = repo.saveDocument(
-    { title: "Disposable observation", content: "Temporary notes", level: "knowledge" },
-    "foreman",
-  );
+test("deleting intake removes its content, revisions, search results and maintenance entry", () => {
+  const raw = company.execute({ type: "SaveIntake", title: "Disposable observation", content: "Temporary notes", ready: false }) as { id: string; version: number };
   const state = repo.state();
   state.library.pending[raw.id] = raw.version;
   repo.save(state);
@@ -995,7 +996,7 @@ test("deleting evidence removes it from search and maintenance while retaining r
     expectedVersion: raw.version,
   });
   expect(repo.document(raw.id)).toBeUndefined();
-  expect(repo.document(raw.id, raw.version)?.content).toBe("Temporary notes");
+  expect(repo.document(raw.id, raw.version)).toBeUndefined();
   expect(repo.state().library.pending[raw.id]).toBeUndefined();
   expect(repo.search("Temporary notes").map((result) => result.id)).not.toContain(
     raw.id,
@@ -1175,7 +1176,7 @@ test("Foreman creates an indexed architecture document with Mermaid directly fro
   const doc = repo
     .documents()
     .find((d) => d.title === "Rehearsal planner architecture")!;
-  expect(doc.content).toBe(content);
+  expect(doc.content).toBe(structuredKnowledge(content));
   expect(doc.level).toBe("knowledge");
   expect(doc.indexed_version).toBe(doc.version);
   expect(repo.state().library.pages[doc.id]!.managed).toBe(true);

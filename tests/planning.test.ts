@@ -16,6 +16,7 @@ import {
   type MilestonePlan,
 } from "../src/domain/planning";
 import { renderBriefing } from "../src/domain/briefing";
+import { curateFixture } from "./fixtures/curation";
 
 let store: Store, repo: SQLiteRepository, company: Company;
 let contexts: Context[], handler: (c: Context) => AgentResult, now: string;
@@ -103,6 +104,7 @@ beforeEach(() => {
     {
       repository: async () => ({ ref: "github:test@123", head: "123" }),
       execute: async (_id, c) => {
+        if (c.maintenance) return curateFixture(c);
         contexts.push(structuredClone(c));
         return handler(c);
       },
@@ -177,7 +179,7 @@ test("proposals require approval; contracts and review precede parallel vertical
   ]);
   expect(contexts[0]!.coordination?.availableNow).toBe(false);
   expect(contexts[2]!.dependencies?.[0]?.result).toBe("Verified output");
-  expect(s.runs.every((r) => r.role?.id)).toBe(true);
+  expect(s.runs.filter(r => r.trigger !== "maintenance").every((r) => r.role?.id)).toBe(true);
   expect(
     s.runs
       .filter((r) => r.trigger === "assessment")
@@ -381,7 +383,7 @@ test("research captures durable web evidence and capability failures pause witho
   expect(state.work[0]!.status).toBe("done");
   expect(state.work[0]!.attempts).toBe(1);
   expect(state.work[0]!.evidence).toContain("web:https://example.test/spec");
-  expect(state.work[0]!.outputDocumentIds).toHaveLength(1);
+  expect(state.work[0]!.outputDocumentIds!.length).toBeGreaterThanOrEqual(1);
   expect(
     state.runs.find((run) => run.workId === workId && run.result?.researchSources)
       ?.result?.researchSources?.[0]?.evidence,
@@ -448,7 +450,8 @@ test("accepted document outputs reach dependent workers and independent reviewer
   await drain();
   const docId = repo.state().work[0]!.outputDocumentIds![0]!;
   expect(docId).toBeTruthy();
-  for (const c of [contexts[1]!, contexts[2]!, contexts[3]!])
+  expect(contexts[1]!.documents.some(d => d.level === "intake")).toBe(true);
+  for (const c of contexts.filter(c => c.work?.dependsOn?.length))
     expect(c.documents.some((d) => d.id === docId)).toBe(true);
 });
 test("planning is bounded, deduplicated, paused independently, and replenishes after completion", async () => {
@@ -544,7 +547,7 @@ test("a failed assignment retry charges the allowance and retains the queued rol
   };
   expect(res.runId).not.toBe(failed.id);
   await drain();
-  expect(repo.state().runs).toHaveLength(3);
+  expect(repo.state().runs.filter(r => r.trigger !== "maintenance")).toHaveLength(3);
   expect(repo.state().runs[1]!.agent).toEqual(failed.agent);
   expect(repo.state().work[0]!.status).toBe("done");
   expect(repo.state().work[0]!.attempts).toBe(2);
@@ -580,7 +583,7 @@ test("planning has its own pause and a manual run can bypass only that pause", a
   now = "2026-09-20T12:00:00.000Z";
   company.heartbeat();
   await drain();
-  expect(repo.state().runs).toHaveLength(2);
+  expect(repo.state().runs.filter(r => r.trigger !== "maintenance")).toHaveLength(2);
 });
 test("legacy state receives empty milestones and role/availability defaults without rewriting run history", () => {
   const s = repo.state() as any;
@@ -647,7 +650,7 @@ test("a pause can resume its final already-allocated review at the run limit", a
   expect(repo.state().planning.milestones[0]!.decisionReason).toContain(
     "before acceptance",
   );
-  expect(repo.state().runs).toHaveLength(2);
+  expect(repo.state().runs.filter(r => r.trigger !== "maintenance")).toHaveLength(2);
 });
 
 function scheduleTask(
@@ -655,6 +658,9 @@ function scheduleTask(
     "evidence",
   ],
 ) {
+  const state = repo.state();
+  state.discovery.lenses.find(t => t.kind === "knowledge")!.enabled = false;
+  repo.save(state);
   const task: import("../src/domain/discovery").Lens = {
     id: "daily-research",
     name: "Daily research",
@@ -795,7 +801,7 @@ test("queued automation permissions cannot expand and in-flight revocations prev
       ],
     });
   };
-  await expect(drain()).rejects.toThrow("not allowed to add evidence");
+  await expect(drain()).rejects.toThrow("not allowed to add intake");
   expect(repo.documents().some((d) => d.title === "Revoked result")).toBe(
     false,
   );

@@ -6,7 +6,8 @@ import {
 } from "../domain/permissions";
 import { Planning } from "./planning";
 import { Library } from "./library";
-import { documentRef } from "../domain/library";
+import { documentRef, intakeReferences } from "../domain/library";
+import { validateMarkdown } from "../domain/document-edit";
 import {
   taskForRun,
   taskUsage,
@@ -507,8 +508,43 @@ export class Company {
           );
           break;
         }
+        case "SaveIntake": {
+          if (cmd.id) {
+            const intake = state.library.intake[cmd.id];
+            if (!intake) throw new DomainError("Intake not found.");
+            if (intake.batchId) throw new DomainError("Resolve the pending Knowledge changes before editing this intake.");
+            const d = this.repo.saveDocument({ ...cmd, level: "intake" });
+            intake.sources = [...new Set([...intake.sources, ...intakeReferences(d.content)])];
+            intake.status = "collecting";
+            intake.processedCharacters = 0;
+            delete intake.reviewedVersion;
+            delete state.library.pending[d.id];
+            if (cmd.ready) this.library.readyIntake(state, d.id, d.version);
+            result = d;
+          } else {
+            result = this.library.addIntake(state, { title: cmd.title, content: cmd.content, sources: [], ready: cmd.ready });
+          }
+          break;
+        }
+        case "ReadyIntake": {
+          const intake = state.library.intake[cmd.documentId], d = this.repo.document(cmd.documentId);
+          if (!intake || !d || d.version !== cmd.expectedVersion) throw new DomainError("Intake changed. Reload before submitting.");
+          const work = state.work.find(w => w.id === intake.workId);
+          if (work?.milestoneId && intake.reviewedVersion !== d.version) {
+            if (state.planning.milestones.find(m => m.id === work.milestoneId)?.status !== "active") throw new DomainError("Resume the milestone before requesting review.");
+            if (state.runs.some(r => r.workId === work.id && ["queued", "running"].includes(r.status))) throw new DomainError("This assignment already has work or review in progress.");
+            work.awaitingCuration = false; work.status = "review";
+            const run = this.run(state, { trigger: "assessment", workId: work.id });
+            this.emit({ type: "RunRequested", payload: { runId: run.id } }, "human", work.id);
+            break;
+          }
+          this.library.readyIntake(state, cmd.documentId, cmd.expectedVersion);
+          break;
+        }
         case "SaveKnowledge": {
+          if (cmd.level === "intake") throw new DomainError("Use SaveIntake to edit the loading dock.");
           const existing = cmd.id ? this.repo.document(cmd.id) : undefined;
+          validateMarkdown(cmd.content, state.library.pages[cmd.id || ""]?.formatVersion === 1);
           if (existing && cmd.expectedVersion !== existing.version)
             throw new DomainError("This record changed. Reload before saving.");
           if (
@@ -688,14 +724,13 @@ export class Company {
           );
           break;
         }
+        case "DeleteIntake":
         case "DeleteEvidence": {
           const d = this.repo.document(cmd.documentId);
-          if (!d || d.level !== "knowledge" || state.library.pages[d.id])
-            throw new DomainError("Choose a source evidence record.");
-          this.repo.archiveDocument(d.id, cmd.expectedVersion);
-          delete state.library.pending[d.id];
-          delete state.library.processed[d.id];
-          delete state.policies[d.id];
+          if (!d || !state.library.intake[d.id]) throw new DomainError("Choose an intake entry.");
+          if (state.library.intake[d.id]!.batchId) throw new DomainError("Resolve the pending Knowledge changes before deleting this intake.");
+          this.library.deleteIntake(state, d.id, cmd.expectedVersion, "human", "deleted");
+          this.library.finishBatches(state);
           break;
         }
         case "DeleteKnowledge": {
@@ -801,9 +836,14 @@ export class Company {
           );
           if (!proposal || proposal.status !== "pending")
             throw new DomainError("Proposal is already resolved or missing.");
-          if (cmd.action === "accept")
-            this.library.apply(state, proposal, true);
+          if (cmd.action === "accept") {
+            const id = this.library.apply(state, proposal, true);
+            proposal.appliedDocumentId = id;
+            for (const batch of Object.values(state.library.batches))
+              if (batch.proposalIds.includes(proposal.id)) batch.documentIds = [...new Set([...batch.documentIds, id])];
+          }
           proposal.status = cmd.action === "accept" ? "accepted" : "dismissed";
+          this.library.finishBatches(state);
           thread.updatedAt = this.now();
           if (
             !thread.libraryProposals!.some((p) => p.status === "pending") &&
@@ -1008,7 +1048,7 @@ export class Company {
       (requested?.id === maintenance.id ||
         (!requested &&
           maintenance.enabled &&
-          (!maintenance.lastRunAt ||
+          (Object.keys(state.library.pending).length > 0 || !maintenance.lastRunAt ||
             Date.parse(taskDueAt(state, maintenance) || "") <=
               Date.parse(this.now())) &&
           !taskBlocker(
@@ -1206,9 +1246,19 @@ export class Company {
       });
       return;
     }
+    if (effect.type === "CurateIntake") {
+      this.repo.transaction(() => {
+        const state = this.repo.state();
+        const task = state.discovery.lenses.find(t => t.kind === "knowledge");
+        if (task?.enabled && Object.keys(state.library.pending).some(id => state.library.intake[id]?.status === "ready"))
+          this.heartbeatIn(state, false, task.id);
+        this.repo.save(state);
+      });
+      return;
+    }
     if (effect.type === "IndexKnowledge") {
       const d = this.repo.document(effect.documentId);
-      if (!d || d.version !== effect.version) return;
+      if (!d || d.version !== effect.version || d.level === "intake") return;
       const chunks: { text: string; vector: number[] }[] = [];
       for (const text of chunkDocument(d.title, d.content))
         chunks.push({
@@ -1582,12 +1632,16 @@ export class Company {
           60000 - combined.documents.reduce((n, d) => n + d.content.length, 0),
         );
         for (const d of extra.documents) {
-          if (
-            combined.documents.some((old) => old.id === d.id) ||
-            d.content.length > remaining
-          )
-            continue;
+          const old = combined.documents.find(doc => doc.id === d.id);
+          if (old) {
+            if (old.version !== d.version || !requests.some(r => r.subject === d.title || r.subject === d.id)) continue;
+            // Replace the explicitly requested excerpt, retaining the same revision.
+            remaining += old.content.length;
+            combined.documents = combined.documents.filter(doc => doc.id !== d.id);
+          }
+          if (d.content.length > remaining) { if (old) { combined.documents.push(old); remaining -= old.content.length; } continue; }
           combined.documents.push(d);
+          if (extra.documentSections?.[d.id]) (combined.documentSections ||= {})[d.id] = extra.documentSections[d.id]!;
           remaining -= d.content.length;
           combined.entries = combined.entries.filter((e) => e.id !== d.id);
           combined.entries.push(extra.entries.find((e) => e.id === d.id)!);
@@ -1625,6 +1679,8 @@ export class Company {
         output.changes = [];
         output.proposals = [];
         output.libraryUpdates = [];
+        output.documentEdits = [];
+        output.intakeResolutions = [];
         output.milestones = [];
         output.milestoneRevisions = [];
         output.discoveries = [];
@@ -1649,6 +1705,13 @@ export class Company {
       });
     }
     assertAutomationOutput(this.repo.state(), run!, output);
+    if (output.intakeResolutions?.length && run!.trigger !== "maintenance")
+      throw new DomainError("Only curation may resolve intake.");
+    if (output.documentEdits?.length) {
+      if (!["maintenance", "message", "automation"].includes(run!.trigger) || work)
+        throw new DomainError("Only Foreman conversations and curation may edit Knowledge.");
+      output = this.library.expandEdits(this.repo.state(), context, output);
+    }
     if (run!.trigger === "maintenance") {
       this.repo.transaction(() => {
         const s = this.repo.state(),
@@ -1982,7 +2045,14 @@ export class Company {
           context.review
         )
           throw new DomainError("This run cannot write knowledge documents.");
-        const ids = this.library.applyUpdates(state, run, output);
+        const ids = work?.milestoneId ? [] : this.library.applyUpdates(state, run, output);
+        if (work?.milestoneId) {
+          for (const update of output.libraryUpdates)
+            this.library.addIntake(state, {
+              title: update.title, content: update.content, sources: update.sources,
+              workId: work.id, runId, ready: false, suggestedSubjectId: update.documentId || undefined,
+            });
+        }
         if (work)
           work.outputDocumentIds = [
             ...new Set([...(work.outputDocumentIds || []), ...ids]),
@@ -2007,12 +2077,23 @@ export class Company {
           );
         work.reviews ||= [];
         work.reviews.push({ ...output.review, runId, at: this.now() });
+        work.awaitingCuration = output.review.verdict === "approve" && !!work.intakeIds?.some(id => state.library.intake[id]);
         work.status =
           output.review.verdict === "approve"
-            ? "done"
+            ? work.awaitingCuration ? "review" : "done"
             : work.attempts < 3
               ? "queued"
               : "blocked";
+        if (output.review.verdict === "approve")
+          for (const id of work.intakeIds || []) {
+            const d = this.repo.document(id);
+            if (d && state.library.intake[id]?.status === "collecting") {
+              if (!context.documents.some(supplied => supplied.id === id && supplied.version === d.version))
+                throw new DomainError("The research intake changed during review. Review its current revision before curation.");
+              state.library.intake[id]!.reviewedVersion = d.version;
+              this.library.readyIntake(state, id, d.version);
+            }
+          }
         if (work.status === "blocked") {
           const t = this.inbox(
             state,
@@ -2168,40 +2249,35 @@ export class Company {
           work.threadId = inbox.id;
         }
       }
+      if (work && output.outcome === "completed" && !work.pullRequest && ["work", "revision"].includes(run.trigger)) {
+        // Each successful attempt produces a complete intake report even when the
+        // model omits observations. Rejected prior attempts never reach curation.
+        for (const id of [...(work.intakeIds || [])]) {
+          const intake = state.library.intake[id], d = this.repo.document(id);
+          if (d && intake?.runId !== runId && intake?.status === "collecting")
+            this.library.deleteIntake(state, id, d.version, runId, "discard");
+        }
+        const citations = (output.researchSources || []).map(s => `- [${s.title}](${s.url})`).join("\n");
+        this.library.addIntake(state, {
+          title: work.title, content: output.message + (citations ? "\n\n## Sources\n" + citations : ""),
+          sources: [...context.evidenceRefs], workId: work.id, runId, ready: !work.milestoneId,
+        });
+      }
       for (const observation of context.discovery ? [] : output.observations) {
         const duplicate = this.repo
           .documents()
           .some(
             (d) =>
-              d.level === "knowledge" &&
-              !state.library.pages[d.id] &&
+              d.level === "intake" &&
               workKey(d.title) === workKey(observation.title) &&
               d.content.startsWith(observation.content + "\n\nSources:"),
           );
         if (duplicate) continue;
-        const d = this.repo.saveDocument(
-          {
-            title: observation.title,
-            level: "knowledge",
-            content:
-              observation.content +
-              `\n\nSources: ${observation.evidence.join(", ")}\n\nRun: ${runId}`,
-          },
-          "foreman",
-        );
-        state.policies[d.id] = {
-          inclusion: "relevant",
-          status: "active",
-        };
-        this.emit(
-          {
-            type: "KnowledgeChanged",
-            payload: { documentId: d.id, version: d.version },
-          },
-          "foreman",
-          d.id,
-          runId,
-        );
+        this.library.addIntake(state, {
+          title: observation.title, content: observation.content,
+          sources: observation.evidence, workId: work?.id, runId,
+          ready: !work?.milestoneId && output.outcome === "completed",
+        });
       }
       if (work?.pullRequest && output.outcome === "completed") {
         const approved = state.reviewRounds.some(

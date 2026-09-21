@@ -66,12 +66,11 @@ async function setup(
               .filter((d) => {
                 const type = url.searchParams.get("view");
                 return type === "library"
-                  ? d.level !== "constitution" &&
+                  ? d.level !== "constitution" && d.level !== "intake" &&
                       (d.level !== "knowledge" ||
                         !!f.repo.state().library.pages[d.id])
-                  : type === "evidence"
-                    ? d.level === "knowledge" &&
-                      !f.repo.state().library.pages[d.id]
+                  : type === "intake"
+                    ? d.level === "intake"
                     : true;
               }),
             mode: "keyword",
@@ -1517,21 +1516,34 @@ for (const size of [widths[1]!, widths[4]!])
     expect(errors).toEqual([]);
   }, 30000);
 
-test("evidence opens in a view/edit modal and can be deleted", async () => {
+test("intake drafts can be created and explicitly marked ready", async () => {
   const { view, repo, errors } = await setup("chrome", widths[1]!);
-  const evidence = repo.saveDocument(
+  const state = repo.state(); state.discovery.lenses.find(t=>t.kind==="knowledge")!.enabled=false; repo.save(state);
+  await nav(view,"Knowledge");await button(view,"Intake",".library-tools");await button(view,"New intake",".library-index");
+  await fill(view,"dialog input","Renderer measurements");await fill(view,"dialog textarea","Measured frame time on the initial scene.");
+  await button(view,"Save changes","dialog");await wait(view,`!document.querySelector('dialog')`);
+  const entry=repo.documents().find(d=>d.title==="Renderer measurements")!;
+  expect(repo.state().library.intake[entry.id]?.status).toBe("collecting");
+  await button(view,"Renderer measurements",".library-index",false);await button(view,"Ready for curation","dialog");
+  await wait(view,`document.querySelector('dialog')?.textContent.includes('ready')===true`);
+  expect(repo.state().library.intake[entry.id]?.status).toBe("ready");await fits(view);expect(errors).toEqual([]);
+},30000);
+
+test("intake opens in a view/edit modal and can be permanently deleted", async () => {
+  const { view, repo, company, errors } = await setup("chrome", widths[1]!);
+  const evidence = company.execute(
     {
+      type: "SaveIntake",
       title:
         "Interview observation with enough detail to compete for horizontal space",
       content: "Three operators lost their place during handoff.",
-      level: "knowledge",
+      ready: false,
     },
-    "foreman",
-  );
+  ) as { id: string };
   await view.reload();
   await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
   await nav(view, "Knowledge");
-  await button(view, "Evidence", ".library-tools");
+  await button(view, "Intake", ".library-tools");
   await button(
     view,
     "Interview observation with enough detail to compete for horizontal space",
@@ -1558,10 +1570,10 @@ test("evidence opens in a view/edit modal and can be deleted", async () => {
     await view.evaluate<string>(
       `document.querySelector('[aria-label="New message content"]')?.value`,
     ),
-  ).toBe("What should we learn from this evidence? ");
+  ).toBe("What should we learn from this intake? ");
   expect(
     await view.evaluate<boolean>(
-      `document.querySelector('.mail-compose .attachment')?.textContent.includes('Raw evidence · Included in this conversation only') === true`,
+      `document.querySelector('.mail-compose .attachment')?.textContent.includes('Intake · Included in this conversation only') === true`,
     ),
   ).toBe(true);
   await view.evaluate(

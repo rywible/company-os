@@ -5,6 +5,7 @@ import { Company } from "../src/application/company";
 import { defaultPolicy, type AgentResult } from "../src/domain/model";
 import { workflowDefinitions } from "../src/domain/workflows";
 import { seededAgentCatalog } from "../src/domain/agents";
+import { structuredKnowledge } from "../tests/fixtures/curation";
 export function fixture(empty = false) {
   const store = empty
       ? new Store(":memory:")
@@ -31,13 +32,15 @@ export function fixture(empty = false) {
         ...answer,
         ...(c.maintenance
           ? {
-              libraryUpdates: [
+              intakeResolutions: Object.keys(c.maintenance.intake || {}).map(id => ({ documentId: id, version: c.maintenance!.sources.find(d=>d.id===id)!.version, action: "discard" as const, reason: "Fixture result adds no new knowledge", updateIndexes: [] })),
+              libraryUpdates: Object.keys(c.maintenance.intake || {}).length ? [] : [
                 {
                   documentId: null,
                   expectedVersion: null,
                   title: "Working principles",
+                  formatVersion: 1 as const,
                   content:
-                    "The company prioritizes a complete, auditable workflow. Implementation details remain open questions.",
+                    structuredKnowledge("The company prioritizes a complete, auditable workflow. Implementation details remain open questions."),
                   collection: "Company",
                   parentId: null,
                   relatedIds: [],
@@ -192,7 +195,7 @@ export function fixture(empty = false) {
     });
   repo.save(s);
   async function drain() {
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 200; i++) {
       const d = repo.claim();
       if (!d) return;
       await company.deliver(d);

@@ -28,7 +28,7 @@ test("versioned migration preserves historical payloads, lightweight saves, nest
  upgraded.save(loaded);
  expect(upgraded.state().runs[0]!.context!.query).toBe("rollback");
  expect(new SQLiteRepository(store).state().runs).toHaveLength(100);
- expect(store.db.query("SELECT * FROM schema_migrations").all()).toHaveLength(2);
+ expect(store.db.query("SELECT * FROM schema_migrations").all()).toHaveLength(3);
 });
 test("workspace excludes archived contexts and run pages remain stable as new work arrives", () => {
  const {repo} = fixture(), state = repo.state();

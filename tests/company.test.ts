@@ -36,7 +36,8 @@ beforeEach(() => {
   store = seedFixture(new Store(":memory:"));
   repo = new SQLiteRepository(store, now.toISOString());
   // These suites exercise their own automation clocks; milestone planning is covered separately.
-  const planningState = repo.state();
+ const planningState = repo.state();
+  planningState.discovery.lenses.find(t => t.kind === "knowledge")!.enabled = false;
   planningState.discovery.lenses.find((t) => t.kind === "planning")!.enabled =
     false;
   repo.save(planningState);
@@ -480,9 +481,9 @@ test("browser work records real port evidence and observations remain attributed
   expect(contexts[0]!.evidenceRefs.some((r) => r.startsWith("browser:"))).toBe(
     true,
   );
-  const observation = repo.documents().find((d) => d.level === "knowledge")!;
+  const observation = repo.documents().find((d) => d.level === "intake")!;
   expect(repo.state().policies[observation.id]).toEqual({
-    inclusion: "relevant",
+    inclusion: "reference",
     status: "active",
   });
   expect(observation.source).toBe("foreman");

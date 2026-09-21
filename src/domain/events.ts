@@ -2,6 +2,7 @@ import { z } from "zod";
 const id = z.string().min(1),
   version = z.number().int().positive();
 export const eventPayloads = {
+  IntakeReady: z.object({ documentId: id, version }),
   DeliveryConfigured: z.object({}),
   IntegrationRequested: z.object({ milestoneId: id }),
   MilestoneChanged: z.object({ milestoneId: id }),
@@ -96,6 +97,7 @@ export type EventInput = {
   [K in EventType]: { type: K; payload: z.infer<(typeof eventPayloads)[K]> };
 }[EventType];
 export type Effect =
+  | { type: "CurateIntake" }
   | { type: "IntegrateMilestone"; milestoneId: string }
   | { type: "ReconcileMilestones" }
   | { type: "QueueLibrarySource"; documentId: string; version: number }

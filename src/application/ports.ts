@@ -40,11 +40,13 @@ export interface Repository {
     actor?: string,
   ): Document;
   archiveDocument(id: string, expectedVersion: number): void;
+  deleteIntake(id: string, expectedVersion: number): void;
   search(
     query: string,
     vector?: number[],
     model?: string,
     limit?: number,
+    view?: "all" | "library" | "intake",
   ): SearchHit[];
   index(
     id: string,
