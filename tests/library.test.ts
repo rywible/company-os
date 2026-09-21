@@ -1220,6 +1220,37 @@ test("conversation page creation ignores evidence IDs used as related subjects",
   );
 });
 
+test("conversation revisions retain provenance instead of citing themselves", async () => {
+  const source = save("Constitution", "Human direction", "constitution");
+  const page = linked("Engine architecture", [documentRef(source)]);
+  await drain();
+  execute = (context) => {
+    const revision = update(
+      "Engine architecture",
+      "Revised architecture",
+      `message:${context.messages.at(-1)!.id}`,
+      page.id,
+      1,
+    );
+    revision.sources.unshift(documentRef(page));
+    return answer({ libraryUpdates: [revision] });
+  };
+  company.execute({
+    type: "StartConversation",
+    subject: "Engine architecture",
+    content: "Revise the existing architecture.",
+  });
+
+  await drain();
+
+  expect(repo.document(page.id)?.version).toBe(2);
+  expect(repo.state().library.pages[page.id]!.sources).toEqual([
+    documentRef(source),
+    expect.stringMatching(/^message:/),
+  ]);
+  expect(freshness()[page.id]?.status).toBe("current");
+});
+
 test("conversation document changes still require approval for human-edited pages", async () => {
   const doc = save("Architecture", "Original human architecture");
   await drain();

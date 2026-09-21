@@ -268,7 +268,6 @@ export class Library {
           (ref) =>
             !context.evidenceRefs.includes(ref) &&
             !(
-              update.disposition === "withdrawn" &&
               old &&
               state.library.pages[old.id]!.sources.includes(ref)
             ),
@@ -353,6 +352,9 @@ export class Library {
     const context = run.context!;
     const ids: string[] = [];
     for (const proposed of output.libraryUpdates || []) {
+      const existingSources = proposed.documentId
+        ? state.library.pages[proposed.documentId]?.sources || []
+        : [];
       // Relationships are optional organization hints. Agent briefings also contain
       // IDs for governing documents and raw evidence, which are valid sources but
       // cannot be library relationships. Do not discard a substantive page update
@@ -363,6 +365,18 @@ export class Library {
           ...new Set(
             proposed.relatedIds.filter(
               (ref) => ref !== proposed.documentId && !!state.library.pages[ref],
+            ),
+          ),
+        ],
+        // The current page is supplied so the agent can revise it, but it is not
+        // evidence for itself. Treat a self-reference as shorthand for retaining
+        // the page's existing provenance instead of creating a freshness cycle.
+        sources: [
+          ...new Set(
+            proposed.sources.flatMap((ref) =>
+              parseDocumentRef(ref)?.id === proposed.documentId
+                ? existingSources
+                : [ref],
             ),
           ),
         ],
