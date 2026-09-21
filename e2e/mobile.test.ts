@@ -433,24 +433,11 @@ for (const backend of backends) {
         );
         expect(repo.document("architecture")!.version).toBe(2);
         expect(repo.document("architecture")!.indexed_version).toBe(2);
-        await click(view, ".context-contract > summary");
-        await button(view, "Preview selection");
-        await button(view, "Preview", "dialog");
-        await wait(view, `!!document.querySelector('.context-view')`);
         expect(
-          await view.evaluate<any>(
-            `document.querySelector('.context-view').textContent.includes('Included')`,
+          await view.evaluate<number>(
+            `document.querySelectorAll('.library-reader > .context-contract').length`,
           ),
-        ).toBe(true);
-        await button(
-          view,
-          "Close dialog",
-          'dialog[aria-label="Context preview"]',
-        );
-        await wait(
-          view,
-          `document.querySelectorAll('dialog[open]').length === 1 && !!document.querySelector('dialog[aria-label="Library"]')`,
-        );
+        ).toBe(0);
         await button(
           view,
           "Close dialog",
@@ -508,17 +495,20 @@ for (const backend of backends) {
         ).toBe(true);
         await click(view, ".editor-context-policy > summary");
         await view.evaluate<any>(`(() => {
-          const selects = document.querySelectorAll('.editor-context-policy select');
-          ['reference', 'draft'].forEach((value, i) => {
-            selects[i].value = value;
-            selects[i].dispatchEvent(new Event('change', { bubbles: true }));
-          });
+          const select = document.querySelector('.editor-context-policy select');
+          select.value = 'always';
+          select.dispatchEvent(new Event('change', { bubbles: true }));
         })()`);
         expect(
           await view.evaluate<any>(
             `[...document.querySelectorAll('.editor-context-policy label')].map(el => el.childNodes[0].textContent.trim())`,
           ),
-        ).toEqual(["Inclusion", "Status"]);
+        ).toEqual(["Agent context"]);
+        expect(
+          await view.evaluate<any>(
+            `[...document.querySelectorAll('.editor-context-policy option')].map(el => el.textContent)`,
+          ),
+        ).toEqual(["Retrieve when relevant", "Always include"]);
         await fits(view);
         await Bun.write(
           `.artifacts/context-settings-${size.name}.png`,
@@ -537,8 +527,8 @@ for (const backend of backends) {
         );
         expect(repo.document(subject.id)?.version).toBe(2);
         expect(repo.state().policies[subject.id]).toEqual({
-          inclusion: "reference",
-          status: "draft",
+          inclusion: "always",
+          status: "active",
         });
         expect(repo.document(subject.id)?.indexed_version).toBe(2);
         await wait(
@@ -550,8 +540,14 @@ for (const backend of backends) {
         );
         await wait(
           view,
-          "document.querySelector('.library-reader')?.textContent.includes('Revision 1')",
+          "document.querySelector('.library-reader')?.textContent.includes('Revision 2')",
         );
+        await click(view, ".revision-entry > summary");
+        expect(
+          await view.evaluate<number>(
+            `document.querySelectorAll('.revision-delta .added, .revision-delta .removed').length`,
+          ),
+        ).toBeGreaterThan(0);
         await fits(view);
         await Bun.write(
           `.artifacts/library-reader-${size.name}.png`,
@@ -677,6 +673,7 @@ for (const backend of backends) {
           '[aria-label="Message Foreman"]',
           "Keep this reply separate",
         );
+        await button(view, "← Inbox");
         await button(view, "New message");
         await fill(view, "dialog input", "Product direction");
         await fill(
@@ -686,6 +683,13 @@ for (const backend of backends) {
         );
         await fits(view);
         await button(view, "Close dialog");
+        await button(view, "Read", ".filters");
+        await button(
+          view,
+          "Prove the handoff before expanding",
+          ".thread-list",
+          false,
+        );
         expect(
           await view.evaluate<any>(
             `document.querySelector('[aria-label="Message Foreman"]').value`,
@@ -1585,5 +1589,31 @@ test("evidence opens in a view/edit modal and can be deleted", async () => {
   await button(view, "Delete", "dialog");
   await wait(view, `!document.querySelector('dialog')`);
   expect(repo.document(evidence.id)).toBeUndefined();
+  expect(errors).toEqual([]);
+}, 30000);
+
+test("library documents can be deleted from their reading modal", async () => {
+  const { view, repo, company, errors } = await setup("chrome", widths[1]!);
+  const document = company.execute({
+    type: "SaveKnowledge",
+    title: "Disposable library guidance",
+    content: "This guidance can be removed by its owner.",
+    level: "knowledge",
+    policy: { inclusion: "relevant", status: "active" },
+  }) as { id: string };
+  await view.reload();
+  await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
+  await nav(view, "Knowledge");
+  await button(view, "Disposable library guidance", ".library-index", false);
+  await wait(view, `!!document.querySelector('dialog .library-reader')`);
+  expect(
+    await view.evaluate<number>(
+      `document.querySelectorAll('.library-reader > .context-contract').length`,
+    ),
+  ).toBe(0);
+  await view.evaluate(`window.confirm = () => true`);
+  await button(view, "Delete", ".library-footer");
+  await wait(view, `!document.querySelector('dialog')`);
+  expect(repo.document(document.id)).toBeUndefined();
   expect(errors).toEqual([]);
 }, 30000);

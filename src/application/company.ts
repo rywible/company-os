@@ -622,6 +622,21 @@ export class Company {
           delete state.policies[d.id];
           break;
         }
+        case "DeleteKnowledge": {
+          const d = this.repo.document(cmd.documentId);
+          if (!d || d.level !== "knowledge" || !state.library.pages[d.id])
+            throw new DomainError("Choose a library document.");
+          this.repo.archiveDocument(d.id, cmd.expectedVersion);
+          delete state.library.pages[d.id];
+          delete state.library.pending[d.id];
+          delete state.library.processed[d.id];
+          delete state.policies[d.id];
+          for (const page of Object.values(state.library.pages)) {
+            if (page.parentId === d.id) page.parentId = null;
+            page.relatedIds = page.relatedIds.filter((id) => id !== d.id);
+          }
+          break;
+        }
         case "WithdrawEvidenceReference": {
           if (
             !Object.values(state.library.pages).some((p) =>

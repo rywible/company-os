@@ -1,4 +1,5 @@
 import { KnowledgeLibrary, ContextUsed } from "./library";
+import { RevisionHistory } from "./revision-history";
 import { MarkdownEditor } from "./markdown-editor";
 import { SettingsPage } from "./settings";
 import {
@@ -847,12 +848,7 @@ function App() {
                       {currentThread && (
                         <div className="actions">
                           <button
-                            disabled={disabled}
-                            onClick={() => setComposeOpen(true)}
-                          >
-                            <Plus size={14} /> New message
-                          </button>
-                          <button
+                            className="primary"
                             disabled={disabled}
                             onClick={() =>
                               void perform(async () => {
@@ -1533,14 +1529,12 @@ function App() {
                       }}
                     >
                       <summary>Revision history</summary>
-                      {constitutionHistory?.map((r) => (
-                        <details key={r.version}>
-                          <summary>
-                            Revision {r.version} · {date(r.created_at)}
-                          </summary>
-                          <Markdown>{r.content}</Markdown>
-                        </details>
-                      ))}
+                      {constitutionHistory && (
+                        <RevisionHistory
+                          revisions={constitutionHistory}
+                          formatDate={date}
+                        />
+                      )}
                     </details>
                     <button onClick={() => discuss(currentDoc)}>
                       Discuss with Foreman
@@ -1594,23 +1588,23 @@ function App() {
               <KnowledgeLibrary
                 state={state}
                 openId={docId}
-                inspect={(d) => {
-                  void api("/knowledge/" + d.id)
-                    .then(setAudit)
-                    .catch((e) => setError(e.message));
-                }}
-                preview={(d) => {
-                  setContext(null);
-                  setPreviewOpen(true);
-                  setContextQuery(d.title);
-                }}
                 disabled={disabled}
                 command={command}
-                edit={(d) =>
-                  setEditor(
-                    state.documents.find((current) => current.id === d.id)!,
-                  )
-                }
+                edit={(d) => {
+                  const current = state.documents.find(
+                    (document) => document.id === d.id,
+                  )!;
+                  setEditor({
+                    ...current,
+                    policy: {
+                      inclusion:
+                        current.policy.inclusion === "always"
+                          ? "always"
+                          : "relevant",
+                      status: "active",
+                    },
+                  });
+                }}
                 discuss={(d) => {
                   const sourceEvidence =
                     d.level === "knowledge" && !state.library.pages[d.id];
@@ -1835,11 +1829,8 @@ function App() {
                     Context settings
                     <span className="context-summary">
                       {(editor.policy || freshPolicy).inclusion === "always"
-                        ? "Always included"
-                        : (editor.policy || freshPolicy).inclusion ===
-                            "reference"
-                          ? "Reference only"
-                          : "When relevant"}
+                        ? "Always include"
+                        : "Retrieve when relevant"}
                     </span>
                   </summary>
                   <PolicyFields
@@ -1941,14 +1932,11 @@ function App() {
             <p>Not included in a run yet.</p>
           )}
           <h3>Revision history</h3>
-          {audit.history.map((r: any) => (
-            <details key={r.version}>
-              <summary>
-                v{r.version} · {r.actor} · {date(r.created_at)}
-              </summary>
-              <Markdown>{r.content}</Markdown>
-            </details>
-          ))}
+          <RevisionHistory
+            revisions={audit.history}
+            formatDate={date}
+            showActor
+          />
         </Modal>
       )}
       {previewOpen && (
@@ -2275,45 +2263,27 @@ function ContextView({ context }: { context: Context }) {
 function PolicyFields({
   policy,
   change,
-  protectedRecord = false,
 }: {
   policy: Policy;
   change: (p: Policy) => void;
-  protectedRecord?: boolean;
 }) {
   return (
     <fieldset>
       <legend>Context policy</legend>
       <div className="form-grid">
         <label>
-          Inclusion
+          Agent context
           <select
-            disabled={protectedRecord}
-            value={policy.inclusion}
+            value={policy.inclusion === "always" ? "always" : "relevant"}
             onChange={(e) =>
               change({
-                ...policy,
                 inclusion: e.target.value as Policy["inclusion"],
+                status: "active",
               })
             }
           >
             <option value="relevant">Retrieve when relevant</option>
             <option value="always">Always include</option>
-            <option value="reference">Reference only</option>
-          </select>
-        </label>
-        <label>
-          Status
-          <select
-            disabled={protectedRecord}
-            value={policy.status}
-            onChange={(e) =>
-              change({ ...policy, status: e.target.value as Policy["status"] })
-            }
-          >
-            {["active", "draft", "retired"].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
           </select>
         </label>
       </div>
