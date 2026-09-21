@@ -37,7 +37,7 @@ export const assignmentSchema = z.object({
   key: text.regex(/^[a-z][a-z0-9-]*$/).max(60),
   title: text.max(160),
   roleId: text.max(60),
-  mode: z.enum(["analysis", "ui-inspection", "implementation"]),
+  mode: z.enum(["analysis", "research", "ui-inspection", "implementation"]),
   instruction: text.max(24000),
   criteria: text.max(8000),
   outputs: z.array(text.max(400)).min(1).max(12),
@@ -193,6 +193,11 @@ export function validatePlan(plan: MilestonePlan, roles: AgentRole[], requiredRe
       );
     if (!roles.some((r) => r.id === node.roleId && r.enabled))
       throw Error("Every assignment needs an enabled role.");
+    const role = roles.find((r) => r.id === node.roleId && r.enabled);
+    if (node.mode === "research" && role?.agent.provider !== "openai")
+      throw Error(
+        `Research assignment “${node.title}” requires an OpenAI-backed role with hosted web search.`,
+      );
     if (new Set(node.dependsOn).size !== node.dependsOn.length)
       throw Error("Dependencies must be unique.");
     visiting.add(key);
@@ -203,6 +208,14 @@ export function validatePlan(plan: MilestonePlan, roles: AgentRole[], requiredRe
   plan.assignments.forEach((a) => visit(a.key));
   if (!roles.some((r) => r.id === "reviewer" && r.enabled))
     throw Error("Enable the Reviewer role before planning work.");
+  if (
+    plan.assignments.some((assignment) => assignment.mode === "research") &&
+    roles.find((role) => role.id === "reviewer" && role.enabled)?.agent
+      .provider !== "openai"
+  )
+    throw Error(
+      "Research assignments require an OpenAI-backed Reviewer for independent source verification.",
+    );
   if (!roles.some((r) => r.id === "acceptance" && r.enabled))
     throw Error("Enable the Acceptance tester role before planning work.");
   const minimum = minimumPlanRuns(plan, requiredReviews);

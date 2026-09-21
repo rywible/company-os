@@ -169,7 +169,12 @@ export class DeliveryWorkflow {
       if (m.delivery.attempts >= m.delivery.policy.acceptanceAttempts)
         return this.stop(state, m, "Acceptance attempt allowance exhausted.");
       if (
-        state.runs.filter((r) => r.workId && m.workIds.includes(r.workId))
+        state.runs.filter(
+          (r) =>
+            r.trigger !== "discussion" &&
+            r.workId &&
+            m.workIds.includes(r.workId),
+        )
           .length >= m.maxRuns
       )
         return this.stop(

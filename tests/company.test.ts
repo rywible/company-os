@@ -188,7 +188,7 @@ test("the runner overlaps deliveries up to the configured pool capacity", async 
     "completed",
   );
 });
-test("work escalates into one inbox thread and a reply resumes it with its own context", async () => {
+test("work discussion is deduplicated and does not resume or charge the assignment", async () => {
   const { workId } = company.execute({
     type: "CreateWork",
     track: "bug",
@@ -224,10 +224,23 @@ test("work escalates into one inbox thread and a reply resumes it with its own c
   await drain();
   state = repo.state();
   expect(state.threads).toHaveLength(1);
+  expect(state.work[0]!.status).toBe("blocked");
+  expect(state.work[0]!.attempts).toBe(1);
+  expect(state.threads[0]!.messages.map((message) => message.content)).toEqual([
+    "Grounded result",
+    "Keep drafts on navigation",
+    "The expected behavior is now explicit",
+  ]);
+  expect(state.runs.at(-1)!.trigger).toBe("discussion");
+  company.execute({ type: "WorkStatus", workId, status: "queued" });
+  outputs.push(answer({ message: "The expected behavior is now implemented" }));
+  await drain();
+  state = repo.state();
   expect(state.work[0]!.status).toBe("done");
+  expect(state.work[0]!.attempts).toBe(2);
   expect(state.threads[0]!.status).toBe("resolved");
   expect(contexts.at(-1)!.work!.id).toBe(workId);
-  expect(contexts.at(-1)!.messages.at(-1)!.content).toBe(
+  expect(contexts.find((context) => context.discussion)!.messages.at(-1)!.content).toBe(
     "Keep drafts on navigation",
   );
 });

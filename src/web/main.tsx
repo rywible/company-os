@@ -1212,7 +1212,11 @@ function App() {
                     <p className="muted">
                       {work.mode === "ui-inspection"
                         ? "Browser inspection"
-                        : "Investigation"}{" "}
+                        : work.mode === "research"
+                          ? "Source research"
+                          : work.mode === "implementation"
+                            ? "Implementation"
+                            : "Supplied-evidence analysis"}{" "}
                       · {work.origin} · attempt {work.attempts}
                     </p>
                     {work.milestoneId && (
@@ -1305,6 +1309,11 @@ function App() {
                         <Markdown>{work.result}</Markdown>
                       </>
                     )}
+                    {work.blocker?.kind === "capability" && (
+                      <p className="error">
+                        System capability blocked: {work.blocker.message}
+                      </p>
+                    )}
                     <Evidence
                       refs={work.evidence}
                       open={(id) => {
@@ -1333,6 +1342,24 @@ function App() {
                       }
                     />
                     <div className="actions">
+                      {work.milestoneId &&
+                        work.status === "blocked" &&
+                        work.mode !== "implementation" &&
+                        work.mode !== "ui-inspection" && (
+                          <button
+                            disabled={disabled}
+                            onClick={() =>
+                              void perform(async () => {
+                                await act({
+                                  type: "RetryAsResearch",
+                                  workId: work.id,
+                                });
+                              })
+                            }
+                          >
+                            Retry with web research
+                          </button>
+                        )}
                       {work.status === "blocked" &&
                         state.reviewRounds.some(
                           (r) =>

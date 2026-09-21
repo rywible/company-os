@@ -105,6 +105,46 @@ test("the selected provider, model and reasoning effort reach the compatible poo
   expect(runner).toContain(
     "p.prompt+'\\n\\nReturn only one JSON object that satisfies this JSON Schema exactly:\\n'",
   );
+  expect(runner).toContain("...(p.research?['--search']:[]),'exec'");
+});
+test("research mode enables hosted search and requires an OpenAI-backed worker", async () => {
+  let payload: any;
+  const instance = new SpriteAgent({
+    executePayload: async (_script: string, input: unknown) => {
+      payload = input;
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          ...result,
+          researchSources: [
+            {
+              url: "https://example.test/spec",
+              title: "Primary specification",
+              evidence: "The specification defines the required behavior.",
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    },
+  } as unknown as Integrations);
+  await instance.execute(
+    "research-run",
+    { ...context, research: { web: true } },
+    false,
+    { provider: "openai", model: "", reasoningEffort: "high" },
+  );
+  expect(payload.research).toBe(true);
+  expect(payload.prompt).toContain("hosted web search is enabled");
+  expect(payload.prompt).toContain("researchSources");
+  await expect(
+    instance.execute(
+      "unsupported-research",
+      { ...context, research: { web: true } },
+      false,
+      { provider: "anthropic", model: "", reasoningEffort: "high" },
+    ),
+  ).rejects.toThrow("CAPABILITY:web-research");
 });
 test("model selection uses exact dispatch ids and model-specific reasoning", () => {
   const catalog = seededAgentCatalog();

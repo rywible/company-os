@@ -136,7 +136,13 @@ export class Company {
     );
     if (
       milestone &&
-      state.runs.filter((r) => r.workId && milestone.workIds.includes(r.workId))
+      input.trigger !== "discussion" &&
+      state.runs.filter(
+        (r) =>
+          r.trigger !== "discussion" &&
+          r.workId &&
+          milestone.workIds.includes(r.workId),
+      )
         .length >= milestone.maxRuns
     )
       throw new DomainError(
@@ -163,7 +169,7 @@ export class Company {
     const automation = taskForRun(state, input);
     const run: Run = {
       id: this.ids.next(),
-      automatic: input.trigger !== "message",
+      automatic: !["message", "discussion"].includes(input.trigger),
       ...input,
       ...(automation
         ? {
@@ -338,7 +344,7 @@ export class Company {
         case "Reply": {
           const thread = this.thread(state, cmd.threadId);
           const run = this.run(state, {
-            trigger: "message",
+            trigger: thread.workId ? "discussion" : "message",
             threadId: thread.id,
             workId: thread.workId,
           });
@@ -364,6 +370,68 @@ export class Company {
             thread.id,
           );
           result = { threadId: thread.id, runId: run.id };
+          break;
+        }
+        case "RetryAsResearch": {
+          const work = state.work.find((w) => w.id === cmd.workId);
+          if (!work || !work.milestoneId || !work.assignmentKey)
+            throw new DomainError(
+              "Only a blocked milestone assignment can be retried as research.",
+            );
+          if (!["blocked", "review"].includes(work.status))
+            throw new DomainError("This assignment is not waiting for a retry.");
+          const role = state.settings.roles.find(
+            (role) => role.id === work.roleId && role.enabled,
+          );
+          if (role?.agent.provider !== "openai")
+            throw new DomainError(
+              "Web research requires an enabled OpenAI-backed role.",
+            );
+          const milestone = state.planning.milestones.find(
+            (m) => m.id === work.milestoneId,
+          );
+          const assignment = milestone?.assignments.find(
+            (a) => a.key === work.assignmentKey,
+          );
+          if (!milestone || !assignment)
+            throw new DomainError("The approved assignment is unavailable.");
+          if (["completed", "declined"].includes(milestone.status))
+            throw new DomainError("This milestone can no longer be retried.");
+          if (
+            state.runs.some(
+              (run) =>
+                run.workId === work.id &&
+                ["queued", "running"].includes(run.status),
+            )
+          )
+            throw new DomainError("This assignment already has an active run.");
+          if (!this.planning.canQueue(state, work))
+            throw new DomainError(
+              "This milestone has reached its approved run allowance.",
+            );
+          assignment.mode = "research";
+          work.mode = "research";
+          work.blocker = undefined;
+          work.status = "queued";
+          work.updatedAt = this.now();
+          if (milestone.status === "paused") milestone.status = "active";
+          milestone.version++;
+          milestone.updatedAt = this.now();
+          for (const thread of state.threads.filter(
+            (thread) => thread.workId === work.id,
+          ))
+            thread.status = "resolved";
+          this.emit(
+            { type: "WorkQueued", payload: { workId: work.id } },
+            "human",
+            work.id,
+          );
+          this.emit(
+            { type: "MilestoneChanged", payload: { milestoneId: milestone.id } },
+            "human",
+            milestone.id,
+          );
+          result = { workId: work.id };
           break;
         }
         case "RetryDelivery":
@@ -1169,12 +1237,17 @@ export class Company {
       this.repo.save(state);
     }
     const work = state.work.find((w) => w.id === run!.workId);
-    if (work?.milestoneId && !this.planning.ready(state, work))
+    if (
+      work?.milestoneId &&
+      run.trigger !== "discussion" &&
+      !this.planning.ready(state, work)
+    )
       throw new Deferred(
         "Waiting for milestone approval or accepted dependencies.",
       );
     if (
       work &&
+      run.trigger !== "discussion" &&
       (["done", "cancelled"].includes(work.status) ||
         work.reviewProgress?.stopped)
     ) {
@@ -1221,6 +1294,12 @@ export class Company {
       if (run.trigger === "maintenance") this.library.prepare(state, context);
       else this.discovery.context(state, run, context);
       this.planning.context(state, run, context);
+      if (run.trigger === "discussion") context.discussion = true;
+      if (
+        work?.mode === "research" &&
+        ["work", "assessment"].includes(run.trigger)
+      )
+        context.research = { web: true };
       if (owner && run.automationPermissions) {
         context.automation = {
           id: owner.id,
@@ -1367,9 +1446,11 @@ export class Company {
       );
       if (
         activeMilestone &&
+        run!.trigger !== "discussion" &&
         state.runs.filter(
           (r) =>
             r.id !== run!.id &&
+            r.trigger !== "discussion" &&
             r.status === "running" &&
             activeMilestone.workIds.includes(r.workId || ""),
         ).length >= activeMilestone.maxParallel
@@ -1384,6 +1465,7 @@ export class Company {
       const w = state.work.find((w) => w.id === run!.workId);
       if (
         w &&
+        run!.trigger !== "discussion" &&
         !["review", "assessment", "adjudication", "acceptance"].includes(
           run!.trigger,
         ) &&
@@ -1546,6 +1628,17 @@ export class Company {
           output.contextRequests.map((r) => r.subject).join(", ") +
           ".";
       }
+    }
+    if (context.research) {
+      const refs = (output.researchSources || []).map(
+        (source) => `web:${source.url}`,
+      );
+      context.evidenceRefs.push(...refs.filter((ref) => !context.evidenceRefs.includes(ref)));
+      this.repo.transaction(() => {
+        const s = this.repo.state();
+        s.runs.find((r) => r.id === run!.id)!.context = context;
+        this.repo.save(s);
+      });
     }
     assertAutomationOutput(this.repo.state(), run!, output);
     if (run!.trigger === "maintenance") {
@@ -1736,6 +1829,96 @@ export class Company {
         this.repo.save(state);
         return;
       }
+      if (run.trigger === "discussion") {
+        if (
+          output.requests.length ||
+          output.proposals.length ||
+          output.work.length ||
+          output.changes.length ||
+          output.observations.length ||
+          output.libraryUpdates?.length ||
+          output.milestones?.length ||
+          output.milestoneRevisions?.length
+        )
+          throw new DomainError(
+            "A discussion reply cannot resume or mutate its linked assignment.",
+          );
+        const thread = state.threads.find((t) => t.id === run.threadId);
+        if (!thread) throw new DomainError("Discussion thread not found.");
+        thread.messages.push({
+          id: this.ids.next(),
+          role: "foreman",
+          content: output.message,
+          at: this.now(),
+          runId,
+        });
+        thread.unread = true;
+        thread.updatedAt = this.now();
+        thread.status = "open";
+        run.status = "completed";
+        run.finishedAt = this.now();
+        run.error = null;
+        this.emit(
+          { type: "RunCompleted", payload: { runId, threadId: thread.id, workId: work?.id } },
+          "foreman",
+          thread.id,
+          cause,
+        );
+        this.repo.save(state);
+        return;
+      }
+      if (output.outcome === "capability_blocked") {
+        if (
+          !work ||
+          work.mode !== "research" ||
+          output.requests.length ||
+          output.proposals.length ||
+          output.work.length ||
+          output.changes.length ||
+          output.observations.length ||
+          output.libraryUpdates?.length ||
+          output.milestones?.length ||
+          output.milestoneRevisions?.length
+        )
+          throw new DomainError(
+            "Only research work can report a system capability blocker.",
+          );
+        work.result = output.message;
+        work.evidence = context.evidenceRefs;
+        work.blocker = {
+          kind: "capability",
+          capability: "web-research",
+          message: output.message,
+        };
+        work.status = "blocked";
+        work.updatedAt = this.now();
+        const milestone = state.planning.milestones.find(
+          (m) => m.id === work.milestoneId,
+        );
+        if (milestone && ["active", "acceptance"].includes(milestone.status)) {
+          milestone.status = "paused";
+          milestone.version++;
+          milestone.updatedAt = this.now();
+          milestone.decisionReason = `System capability blocked: ${output.message}`;
+        }
+        run.status = "completed";
+        run.finishedAt = this.now();
+        run.error = null;
+        this.emit(
+          { type: "WorkStatusChanged", payload: { workId: work.id, status: work.status } },
+          "system",
+          work.id,
+          run.id,
+        );
+        this.emit(
+          { type: "RunCompleted", payload: { runId, workId: work.id } },
+          "system",
+          work.id,
+          cause,
+        );
+        this.repo.save(state);
+        return;
+      }
       if (
         output.work.length &&
         (run.trigger === "planning" ||
@@ -1896,13 +2079,14 @@ export class Company {
           { ...request, workId: work?.id },
           runId,
         );
-        inbox.messages.push({
-          id: this.ids.next(),
-          role: "foreman",
-          content: output.message,
-          at: this.now(),
-          runId,
-        });
+        if (inbox.id !== thread?.id)
+          inbox.messages.push({
+            id: this.ids.next(),
+            role: "foreman",
+            content: output.message,
+            at: this.now(),
+            runId,
+          });
         if (work) work.threadId = inbox.id;
       }
       if (output.proposals.length && context.discovery?.phase !== "scout") {
@@ -1941,6 +2125,7 @@ export class Company {
       if (work) {
         work.result = output.message;
         work.evidence = context.evidenceRefs;
+        work.blocker = undefined;
         work.updatedAt = this.now();
         work.status =
           output.outcome === "needs_input"
@@ -2216,7 +2401,12 @@ export class Company {
         : m?.delivery?.requiredReviews || state.settings.requiredReviews;
       if (
         m &&
-        state.runs.filter((r) => r.workId && m.workIds.includes(r.workId))
+        state.runs.filter(
+          (r) =>
+            r.trigger !== "discussion" &&
+            r.workId &&
+            m.workIds.includes(r.workId),
+        )
           .length +
           needed >
           m.maxRuns
@@ -2474,7 +2664,12 @@ export class Company {
       );
       const exhausted =
         m &&
-        state.runs.filter((r) => r.workId && m.workIds.includes(r.workId))
+        state.runs.filter(
+          (r) =>
+            r.trigger !== "discussion" &&
+            r.workId &&
+            m.workIds.includes(r.workId),
+        )
           .length >= m.maxRuns;
       if (
         exhausted ||
@@ -2823,7 +3018,12 @@ export class Company {
       const m = s.planning.milestones.find((m) => m.id === w.milestoneId);
       if (
         m &&
-        s.runs.filter((r) => r.workId && m.workIds.includes(r.workId)).length >=
+        s.runs.filter(
+          (r) =>
+            r.trigger !== "discussion" &&
+            r.workId &&
+            m.workIds.includes(r.workId),
+        ).length >=
           m.maxRuns
       ) {
         this.deliveryWorkflow.stop(
@@ -2966,6 +3166,22 @@ export class Company {
       if (work && !["done", "cancelled"].includes(work.status)) {
         work.status = "blocked";
         work.updatedAt = this.now();
+        if (error.startsWith("CAPABILITY:web-research:")) {
+          work.blocker = {
+            kind: "capability",
+            capability: "web-research",
+            message: error.slice("CAPABILITY:web-research:".length).trim(),
+          };
+          const milestone = state.planning.milestones.find(
+            (m) => m.id === work.milestoneId,
+          );
+          if (milestone && ["active", "acceptance"].includes(milestone.status)) {
+            milestone.status = "paused";
+            milestone.version++;
+            milestone.updatedAt = this.now();
+            milestone.decisionReason = `System capability blocked: ${work.blocker.message}`;
+          }
+        }
       }
       this.emit(
         { type: "RunFailed", payload: { runId, error } },

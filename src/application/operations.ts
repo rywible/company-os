@@ -32,7 +32,7 @@ export function operatingSummary(state: CompanyState, deliveries: {id:string;sta
     queuedRuns: state.runs.filter(r => r.status === "queued").length,
     automationAllowances: state.discovery.lenses.filter(task => task.enabled).map(task => ({id:task.id,title:task.name,remaining:Math.max(0,task.dailyRunLimit-taskUsage(state,task,new Date(now).toISOString())),total:task.dailyRunLimit})),
     allowances: milestones.filter(m => !["completed","declined"].includes(m.status)).map(m => {
-      const used = state.runs.filter(r => r.workId && m.workIds.includes(r.workId)).length;
+      const used = state.runs.filter(r => r.trigger !== "discussion" && r.workId && m.workIds.includes(r.workId)).length;
       return {id:m.id,title:m.title,used,remaining:Math.max(0,m.maxRuns-used),total:m.maxRuns};
     }),
   };

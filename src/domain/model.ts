@@ -111,7 +111,12 @@ export type Work = {
   discoveryPhase?: "investigation" | "delivery" | "outcome";
   id: string;
   track: z.infer<typeof track>;
-  mode: "analysis" | "ui-inspection" | "implementation";
+  mode: "analysis" | "research" | "ui-inspection" | "implementation";
+  blocker?: {
+    kind: "capability";
+    capability: "web-research";
+    message: string;
+  };
   title: string;
   instruction: string;
   criteria: string;
@@ -137,6 +142,8 @@ export type ContextEntry = {
   indexedVersion: number | null;
 };
 export type Context = {
+  research?: { web: true };
+  discussion?: true;
   checkout?: { repository: string; branch: string; head: string; base?: string; worker?: string };
   automation?: {
     milestoneSlots?: number;
@@ -288,6 +295,7 @@ export type Run = {
   automatic: boolean;
   trigger:
     | "message"
+    | "discussion"
     | "heartbeat"
     | "work"
     | "review"
@@ -440,7 +448,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("CreateWork"),
     track,
-    mode: z.enum(["analysis", "ui-inspection"]),
+    mode: z.enum(["analysis", "research", "ui-inspection"]),
     title: text.max(160),
     instruction: text.max(12000),
     criteria: text.max(4000),
@@ -450,6 +458,7 @@ export const commandSchema = z.discriminatedUnion("type", [
     workId: text,
     status: z.enum(["queued", "done", "cancelled"]),
   }),
+  z.object({ type: z.literal("RetryAsResearch"), workId: text }),
   z.object({
     type: z.literal("SaveKnowledge"),
     library: libraryLocationSchema.optional(),
@@ -528,6 +537,16 @@ export const agentResultSchema = z.object({
     .max(3)
     .optional(),
   discoveries: z.array(candidateSchema).max(2).default([]),
+  researchSources: z
+    .array(
+      z.object({
+        url: z.string().url().max(2000),
+        title: text.max(300),
+        evidence: text.max(4000),
+      }),
+    )
+    .max(30)
+    .optional(),
   discoveryAssessment: assessmentSchema.nullable().default(null),
   discoveryOutcome: outcomeSchema.nullable().default(null),
   message: z.string().min(1).max(16000),
@@ -555,14 +574,19 @@ export const agentResultSchema = z.object({
     .array(
       z.object({
         track,
-        mode: z.enum(["analysis", "ui-inspection"]),
+        mode: z.enum(["analysis", "research", "ui-inspection"]),
         title: text.max(160),
         instruction: text.max(8000),
         criteria: text.max(4000),
       }),
     )
     .max(2),
-  outcome: z.enum(["completed", "needs_input", "needs_execution"]),
+  outcome: z.enum([
+    "completed",
+    "needs_input",
+    "needs_execution",
+    "capability_blocked",
+  ]),
   review: z
     .object({
       verdict: z.enum(["approve", "changes_requested"]),

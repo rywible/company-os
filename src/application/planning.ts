@@ -256,7 +256,10 @@ export class Planning {
       // plans that predate minimum-budget validation. Resume may finish a run
       // already allocated at the limit; it does not grant more runs.
       const allocated = state.runs.filter(
-        (r) => r.workId && m.workIds.includes(r.workId),
+        (r) =>
+          r.trigger !== "discussion" &&
+          r.workId &&
+          m.workIds.includes(r.workId),
       );
       if (
         allocated.length >= m.maxRuns &&
@@ -305,7 +308,10 @@ export class Planning {
     const m = state.planning.milestones.find((m) => m.id === work.milestoneId);
     if (!m) return true;
     const runs = state.runs.filter(
-      (r) => r.workId && m.workIds.includes(r.workId),
+      (r) =>
+        r.trigger !== "discussion" &&
+        r.workId &&
+        m.workIds.includes(r.workId),
     );
     return (
       runs.length < m.maxRuns &&
@@ -346,7 +352,10 @@ export class Planning {
         continue;
       }
       const runs = state.runs.filter(
-        (r) => r.workId && m.workIds.includes(r.workId),
+        (r) =>
+          r.trigger !== "discussion" &&
+          r.workId &&
+          m.workIds.includes(r.workId),
       );
       if (
         runs.length >= m.maxRuns &&

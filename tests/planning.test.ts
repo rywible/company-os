@@ -81,7 +81,15 @@ beforeEach(() => {
   repo = new SQLiteRepository(store, now);
   contexts = [];
   handler = (c) =>
-    c.assignmentReview
+    c.acceptance
+      ? result({
+          review: {
+            verdict: "approve",
+            summary: "The milestone meets its criteria.",
+            findings: [],
+          },
+        })
+      : c.assignmentReview
       ? result({
           review: {
             verdict: "approve",
@@ -279,6 +287,104 @@ test("DAG validation rejects cycles, missing dependencies, duplicate keys, unava
     }),
   ).toThrow("changed");
   expect(repo.state().work).toHaveLength(0);
+});
+test("plans distinguish supplied-evidence analysis from provider-backed research", () => {
+  const p = plan();
+  p.assignments = [
+    {
+      ...p.assignments[0]!,
+      roleId: "investigator",
+      mode: "research",
+    },
+  ];
+  p.maxRuns = 3;
+  expect(() => validatePlan(p, initialRoles())).not.toThrow();
+  const roles = initialRoles();
+  roles.find((role) => role.id === "investigator")!.agent.provider =
+    "anthropic";
+  expect(() => validatePlan(p, roles)).toThrow("hosted web search");
+});
+test("research captures durable web evidence and capability failures pause without asking Ryan", async () => {
+  const p = plan();
+  p.assignments = [
+    {
+      ...p.assignments[0]!,
+      key: "sources",
+      title: "Inspect the primary specification",
+      roleId: "investigator",
+      mode: "research",
+      outputs: ["Source-backed research note"],
+    },
+  ];
+  p.maxRuns = 4;
+  handler = () =>
+    result({
+      outcome: "capability_blocked",
+      message: "Hosted web search is unavailable on this worker.",
+    });
+  const m = propose(p);
+  decide(m.id, "approve");
+  await drain();
+  let state = repo.state();
+  const workId = state.work[0]!.id;
+  expect(state.work[0]!.blocker).toEqual({
+    kind: "capability",
+    capability: "web-research",
+    message: "Hosted web search is unavailable on this worker.",
+  });
+  expect(state.planning.milestones[0]!.status).toBe("paused");
+  expect(state.threads.some((thread) => thread.workId === workId)).toBe(false);
+
+  handler = (c) =>
+    c.assignmentReview
+      ? result({
+          researchSources: [
+            {
+              url: "https://example.test/spec",
+              title: "Primary specification",
+              evidence: "The specification defines the required behavior.",
+            },
+          ],
+          review: {
+            verdict: "approve",
+            summary: "The research note is source-backed.",
+            findings: [],
+          },
+        })
+      : result({
+          researchSources: [
+            {
+              url: "https://example.test/spec",
+              title: "Primary specification",
+              evidence: "The specification defines the required behavior.",
+            },
+          ],
+          libraryUpdates: [
+            {
+              documentId: null,
+              expectedVersion: null,
+              title: "Primary specification research",
+              content: "The primary specification defines the required behavior.",
+              collection: "Architecture",
+              parentId: null,
+              relatedIds: [],
+              sources: ["web:https://example.test/spec"],
+              needsApproval: false,
+              reason: "Required milestone artifact",
+            },
+          ],
+        });
+  company.execute({ type: "RetryAsResearch", workId });
+  await drain();
+  state = repo.state();
+  expect(state.work[0]!.status).toBe("done");
+  expect(state.work[0]!.evidence).toContain("web:https://example.test/spec");
+  expect(state.work[0]!.outputDocumentIds).toHaveLength(1);
+  expect(
+    state.runs.find((run) => run.workId === workId && run.result?.researchSources)
+      ?.result?.researchSources?.[0]?.evidence,
+  ).toContain("defines the required behavior");
+  expect(contexts.some((context) => context.research?.web)).toBe(true);
 });
 test("roles are snapshotted for queued runs and model selections stay out of the briefing", async () => {
   const p = plan();
