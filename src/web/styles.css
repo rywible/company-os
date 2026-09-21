@@ -777,7 +777,7 @@ details[open] > summary { margin-bottom: 10px; }
     backdrop-filter: blur(16px);
   }
   .navigation > .brand, .nav-hint { display: none; }
-  .navigation nav { overflow: visible; flex: 0 0 auto; display: grid; grid-template-columns: minmax(44px, .8fr) minmax(72px, 1.2fr) minmax(64px, 1.1fr) minmax(66px, 1.1fr) minmax(50px, .9fr); gap: 3px; }
+  .navigation nav { overflow: visible; flex: 0 0 auto; display: grid; grid-template-columns: 44px minmax(60px, 1.3fr) minmax(54px, 1.15fr) repeat(3, minmax(44px, 1fr)); gap: 3px; }
   .navigation nav button { flex-direction: column; gap: 5px; min-height: 56px; padding: 8px 2px; font-size: 10px; position: relative; min-width: 0; border-radius: 12px; }
   .navigation nav button span { max-width: 100%; white-space: nowrap; font-size: 10px; }
   .navigation nav .settings-link { margin-top: 0; }
@@ -832,7 +832,9 @@ details[open] > summary { margin-bottom: 10px; }
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 
-.operating-status { margin: 12px 0 24px; padding: 12px 0; border-block: 1px solid var(--border, #ddd); overflow-wrap: anywhere; }
-.operating-status summary { cursor: pointer; min-height: 44px; align-content: center; }
-.operating-status time { display: block; font-size: .85em; opacity: .7; }
-.operations-notice { margin: 8px 16px; text-align: left; }
+
+@media (max-width: 380px) {
+  .navigation nav button { padding-inline: 0; }
+  .navigation nav button span { font-size: 9px; }
+  .navigation nav { gap: 1px; }
+}

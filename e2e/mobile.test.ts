@@ -276,6 +276,7 @@ for (const backend of backends) {
           "Open Constitution",
           "Open Knowledge",
           "Open Work",
+          "Open Status",
           "Open Settings",
         ]);
         await button(view, "Run Users & workflows now");
@@ -1626,8 +1627,7 @@ test("operating status and paginated history load saved contexts on demand", asy
   for(let i=0;i<60;i++)state.runs.push({...sample,id:`history-${i}`,context:{...sample.context!,query:`Historical briefing ${i}`}});
   repo.save(state);
   await view.reload();await wait(view,`!!document.querySelector('[data-workspace-ready="true"]')`);
-  await nav(view,"Work");
-  await view.evaluate(`document.querySelector('.operating-status').open=true`);
+  await nav(view,"Status");
   await button(view,"Run history");
   await wait(view,`document.querySelector('dialog')?.textContent.includes('Older runs')`);
   expect(await view.evaluate<number>(`document.querySelectorAll('dialog .run-row').length`)).toBe(50);
@@ -1637,3 +1637,67 @@ test("operating status and paginated history load saved contexts on demand", asy
   await wait(view,`document.querySelector('.context-view')?.textContent.includes('Historical briefing')`);
   expect(errors).toEqual([]);
 },30000);
+
+for (const size of [widths[0]!, widths[4]!]) {
+  test(`operating status has its own responsive page and work links on ${size.name}`, async () => {
+    const { view, repo, errors } = await setup("chrome", size);
+    const checkedAt = new Date().toISOString();
+    for (const [name, detail] of Object.entries({
+      backup: "Restored 7 documents, 8 revisions, and 13 runs. Replica is current.",
+      repository: "wrela/wrela is accessible.",
+      "worker:company-os-studio-01": "Authenticated and available for delegated work.",
+      "worker:company-os-studio-02": "Authenticated and available for delegated work.",
+    })) repo.recordCheck(name, { status: "ok", checkedAt, detail });
+    const state = repo.state();
+    const milestone = {
+      id: "playable-build", version: 1, title: "First playable build", objective: "Deliver a playable game loop.",
+      criteria: "Ryan can finish a complete round.", boundaries: "One level.", maxRuns: 12, maxParallel: 2,
+      documentIds: [], assignments: [], workIds: [], threadId: "", createdAt: checkedAt, updatedAt: checkedAt, decisionReason: "Approved",
+    };
+    state.planning.milestones.push({ ...milestone, status: "active" }, { ...milestone, id: "movement", title: "Movement prototype", status: "completed" });
+    repo.save(state);
+    await view.reload();
+    await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
+    await nav(view, "Work");
+    expect(await view.evaluate<boolean>(`!!document.querySelector('.operations-page')`)).toBe(false);
+    await nav(view, "Status");
+    await wait(view, `document.querySelector('.operations-condition')?.textContent.includes('Checks passing')`);
+    expect(await view.evaluate<string>(`location.hash`)).toBe("#Status");
+    expect(await view.evaluate<number>(`document.querySelectorAll('.operations-check-state.is-verified').length`)).toBe(4);
+    expect(await view.evaluate<string>(`document.querySelector('.operations-page')?.textContent`)).toContain("12 of 12 runs remaining");
+    await fits(view);
+    expect(await view.evaluate<boolean>(`[...document.querySelectorAll('nav button')].every(el => el.getBoundingClientRect().width >= 44 && el.getBoundingClientRect().height >= 44)`)).toBe(true);
+    await Bun.sleep(250); // Capture the settled navigation state.
+    await Bun.write(`.artifacts/operating-status-${size.name}.png`, await view.screenshot());
+    await button(view, "First playable build", ".operations-page", false);
+    await wait(view, `document.querySelector('.milestone-heading')?.textContent.includes('First playable build')`);
+    await nav(view, "Status");
+    await button(view, "Open inbox,", ".operations-activity", false);
+    await wait(view, `location.hash === '#Inbox'`);
+    await nav(view, "Status");
+    await view.reload();
+    await wait(view, `!!document.querySelector('.operations-page')`);
+    expect(errors).toEqual([]);
+  }, 30000);
+}
+
+test("status notice opens outstanding checks and distinguishes overdue verification", async () => {
+  const { view, repo, errors } = await setup("chrome", widths[1]!);
+  repo.recordCheck("worker:company-os-studio-01", { status: "ok", checkedAt: new Date(Date.now() - 20 * 60000).toISOString(), detail: "Authentication passed." });
+  repo.recordCheck("repository", { status: "error", checkedAt: new Date().toISOString(), detail: "GitHub authentication failed." });
+  await view.reload();
+  await wait(view, `!!document.querySelector('.operations-notice')`);
+  await click(view, ".operations-notice");
+  await wait(view, `!!document.querySelector('.operations-page')`);
+  expect(await view.evaluate<boolean>(`!!document.querySelector('.operations-notice')`)).toBe(false);
+  const labels = await view.evaluate<string[]>(`[...document.querySelectorAll('.operations-check-state')].map(el => el.textContent)`);
+  expect(labels).toContain("Unverified");
+  expect(labels).toContain("Overdue");
+  expect(labels).toContain("Failed");
+  expect(labels).not.toContain("Verified");
+  expect(await view.evaluate<string>(`document.querySelector('.operations-alerts')?.textContent`)).toContain("GitHub authentication failed.");
+  await fits(view);
+  await Bun.sleep(250);
+  await Bun.write(".artifacts/operating-status-attention-phone.png", await view.screenshot());
+  expect(errors).toEqual([]);
+}, 30000);

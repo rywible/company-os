@@ -261,6 +261,7 @@ const pages = [
   { name: "Constitution", icon: BookOpen },
   { name: "Knowledge", icon: Brain },
   { name: "Work", icon: Briefcase },
+  { name: "Status", icon: Activity },
   { name: "Settings", icon: Settings2, bottom: true },
 ];
 const freshPolicy: Policy = {
@@ -686,6 +687,7 @@ function App() {
             >
               <p.icon size={19} />
               <span>{p.name}</span>
+              {p.name === "Status" && !!state?.operations?.alerts.length && <b className="count">{state.operations.alerts.length}</b>}
               {p.name === "Inbox" &&
                 !!state?.threads.filter(
                   (t) => t.unread && t.status !== "resolved",
@@ -715,7 +717,7 @@ function App() {
             </button>
           </div>
         )}
-        {!!state?.operations?.alerts.length && page !== "Work" && <button className="operations-notice" onClick={() => navigate("Work")}>Operating status: {state.operations.alerts.length} need attention</button>}
+        {!!state?.operations?.alerts.length && page !== "Status" && <button className="operations-notice" onClick={() => navigate("Status")}>Operating status: {state.operations.alerts.length} need attention</button>}
         {readOnly && <p className="inspection-notice">Read-only inspection</p>}
         {!state ? (
           <p className="loading">Loading workspace…</p>
@@ -744,7 +746,14 @@ function App() {
                 ))}
               </div>
             )}
-            {page === "Work" && state.operations && <OperatingStatus summary={state.operations} history={() => void loadRuns()} />}
+            {page === "Status" && <OperatingStatus
+              summary={state.operations}
+              history={() => void loadRuns()}
+              inbox={() => { navigate("Inbox"); setInboxFilter("unread"); }}
+              work={(id) => { navigate("Assignments"); setSelectedWork(id); }}
+              milestone={(id) => { navigate("Work"); setSelectedMilestone(id || null); }}
+              automations={() => navigate("Automation")}
+            />}
             {page === "Work" && inboxView === "milestones" && (
               <MilestonesPage
                 state={state}
