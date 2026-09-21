@@ -177,6 +177,25 @@ test("proposals require approval; contracts and review precede parallel vertical
   ).toBe(true);
   expect(() => decide(m.id, "approve")).toThrow("Only a proposal");
 });
+test("milestone document links normalize supplied versioned evidence references", () => {
+  const document = repo.documents()[0]!;
+  const m = propose({
+    ...plan(),
+    documentIds: [
+      `document:${document.id}@${document.version}`,
+      document.id,
+    ],
+  });
+
+  expect(m.documentIds).toEqual([document.id]);
+  expect(() =>
+    propose({
+      ...plan(),
+      title: "Missing document",
+      documentIds: ["document:missing@1"],
+    }),
+  ).toThrow("unavailable");
+});
 test("a blocked branch holds its descendants while independent approved work finishes", async () => {
   const p = plan();
   p.assignments[2]!.dependsOn = [];

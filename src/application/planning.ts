@@ -16,6 +16,7 @@ import type {
 } from "../domain/model";
 import { taskBlocker, taskDueAt } from "../domain/automation";
 import { automationPermissions } from "../domain/permissions";
+import { parseDocumentRef } from "../domain/library";
 import { DomainError } from "../domain/model";
 import type { Repository } from "./ports";
 import type { DomainEvent, EventInput } from "../domain/events";
@@ -47,6 +48,16 @@ type Hooks = {
 };
 export class Planning {
   constructor(private h: Hooks) {}
+  private normalizeDocumentIds(plan: MilestonePlan): MilestonePlan {
+    return {
+      ...plan,
+      documentIds: [
+        ...new Set(
+          plan.documentIds.map((value) => parseDocumentRef(value)?.id || value),
+        ),
+      ],
+    };
+  }
   private validate(state: CompanyState, plan: MilestonePlan) {
     try {
       validatePlan(plan, state.settings.roles, (plan as Milestone).delivery?.requiredReviews ?? state.settings.requiredReviews);
@@ -64,7 +75,7 @@ export class Planning {
     cause: string,
     actor: DomainEvent["actor"] = "foreman",
   ) {
-    const plan = milestonePlanSchema.parse(raw);
+    const plan = this.normalizeDocumentIds(milestonePlanSchema.parse(raw));
     this.validate(state, plan);
     if (plan.documentIds.some((id) => !this.h.repo.document(id)))
       throw new DomainError("A linked knowledge document is unavailable.");
@@ -163,6 +174,7 @@ export class Planning {
       throw new DomainError(
         "Only proposed milestones can be revised. Pause active work and propose a follow-up milestone for changed boundaries.",
       );
+    plan = this.normalizeDocumentIds(plan);
     this.validate(state, plan);
     if (plan.documentIds.some((id) => !this.h.repo.document(id)))
       throw new DomainError("A linked knowledge document is unavailable.");
