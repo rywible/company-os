@@ -25,7 +25,9 @@ export const documentEditSchema = z.object({
   needsApproval: z.boolean(),
   operations: z
     .array(
-      z.discriminatedUnion("type", [
+      // Each literal type is disjoint. A plain union emits provider-supported
+      // anyOf rather than the oneOf emitted for Zod discriminated unions.
+      z.union([
         z.object({
           type: z.literal("replace_section"),
           headingPath: path,

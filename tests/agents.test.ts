@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { agentOutputSchema, SpriteAgent } from "../src/adapters/agents";
+import { agentExecutionError, agentOutputSchema, SpriteAgent } from "../src/adapters/agents";
+import { documentEditSchema } from "../src/domain/document-edit";
 import type { Integrations } from "../src/server/integrations";
 import type { Context, AgentResult } from "../src/domain/model";
 import {
@@ -31,6 +32,37 @@ const result: AgentResult = {
   review: { verdict: "approve", summary: "Looks correct.", findings: [] },
   outcome: "completed",
 };
+test("the complete provider schema stays within the supported structured-output subset", () => {
+  const schema = agentOutputSchema();
+  function check(node: any) {
+    if (!node || typeof node !== "object") return;
+    for (const keyword of ["oneOf", "allOf", "not", "if", "then", "else", "dependentRequired", "dependentSchemas"])
+      expect(node[keyword]).toBeUndefined();
+    if (node.type === "object") {
+      expect(node.additionalProperties).toBe(false);
+      expect(node.required).toEqual(Object.keys(node.properties));
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach(check);
+      else check(value);
+    }
+  }
+  check(schema);
+  const operations = (schema as any).properties.documentEdits.items.properties.operations.items;
+  expect(operations.anyOf.map((variant: any) => variant.properties.type.const)).toEqual([
+    "replace_section", "insert_after_section", "append_section", "delete_section", "move_section", "replace_text",
+  ]);
+  expect(documentEditSchema.shape.operations.safeParse([{ type: "replace_text", oldText: "old", newText: "new", expectedOccurrences: 1 }]).success).toBe(true);
+  expect(documentEditSchema.shape.operations.safeParse([{ type: "replace_text", headingPath: ["Overview"] }]).success).toBe(false);
+});
+test("provider JSON failures remain useful when stderr is empty", () => {
+  const message = JSON.stringify({ error: { code: "invalid_json_schema", message: "Invalid schema: oneOf is not permitted." } });
+  const events = [JSON.stringify({ type: "error", message }), JSON.stringify({ type: "turn.failed", error: { message } })].join("\n");
+  expect(agentExecutionError(events, "", 1, false, false)).toBe("Agent could not complete the request: Invalid schema: oneOf is not permitted.");
+  expect(agentExecutionError("", "", 9, false, false)).toContain("exit 9");
+  expect(agentExecutionError(events, "", 143, true, true)).toContain("ten-minute execution limit");
+  expect(agentExecutionError("", "Connection unavailable", 1, false, false)).toContain("Connection unavailable");
+});
 function agent(events: string, output: unknown) {
   return new SpriteAgent({
     executePayload: async () => ({

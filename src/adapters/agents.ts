@@ -228,6 +228,20 @@ export function agentOutputSchema() {
   requiredFields(schema);
   return schema;
 }
+
+// Providers commonly report failures on JSON stdout, leaving stderr empty.
+// Keep this self-contained: the remote runner embeds the same implementation.
+export function agentExecutionError(events: string, stderr: string, code: number, timedOut: boolean, research: boolean): string {
+  if (timedOut) return `Foreman reached its ${research ? "ten" : "four"}-minute execution limit. No response was applied. You can retry this request.`;
+  const records = events.trim().split("\n").flatMap(line => {
+    try { return [JSON.parse(line)]; } catch { return []; }
+  });
+  const failure = records.findLast(record => record.type === "turn.failed" || record.type === "error" || record.is_error);
+  let message = failure?.error?.message || failure?.message || failure?.result || stderr.trim();
+  try { const parsed = JSON.parse(message); message = parsed.error?.message || parsed.message || message; } catch {}
+  if (typeof message !== "string" || !message.trim()) return `The agent stopped before returning a response (exit ${code}). No response was applied. You can retry this request.`;
+  return `Agent could not complete the request: ${message.slice(-1600)}`;
+}
 export class SpriteAgent implements AgentPort, EmbeddingPort {
   model = model;
   constructor(public integrations: Integrations) {}
@@ -334,6 +348,7 @@ Inbox: requests are ONLY matters needing Ryan's decision or input. Include why i
 ${foremanWritingInstructions}
 ${renderBriefing(context)}`;
     const script = `const fs=await import('node:fs/promises');
+const executionError=${agentExecutionError.toString()};
 const p=await Bun.file(process.argv[1]).json();
 const dir='/home/sprite/company-os/v2-runs/'+p.id;
 await fs.mkdir(dir,{recursive:true});
@@ -355,8 +370,8 @@ try{
  }else{
   command=['muse','exec','--json','--provider','meta','--preset','native-basic','--reasoning-effort',c.reasoningEffort,...(c.model?['--model',c.model]:[]),...(p.images||[]).flatMap(path=>['--image',path]),...(p.metaBaseUrl?['--base-url',p.metaBaseUrl,'--api-key-stdin']:[]),'--prompt-file',dir+'/prompt.txt','--no-foreign-personal-context','--disable-web-tools','--disable-write','--disable-shell','--approval-mode','never','--user-input-auto-resolve','--no-session-log'];if(p.metaBaseUrl)stdin=new Blob(['sprite-connector']);
  }
- const env={...process.env,...(p.anthropicBaseUrl?{ANTHROPIC_BASE_URL:p.anthropicBaseUrl,ANTHROPIC_API_KEY:'sprite-connector'}:{})};const child=Bun.spawn(command,{cwd:dir,env,stdin,stdout:events.fd,stderr:errors.fd});const timer=setTimeout(()=>child.kill(),p.research?600000:240000);const code=await child.exited;clearTimeout(timer);await events.close();await errors.close();
- if(code!==0)throw Error((await fs.readFile(dir+'/stderr.log','utf8')).slice(-1600)||'Agent execution failed');
+ const env={...process.env,...(p.anthropicBaseUrl?{ANTHROPIC_BASE_URL:p.anthropicBaseUrl,ANTHROPIC_API_KEY:'sprite-connector'}:{})};const child=Bun.spawn(command,{cwd:dir,env,stdin,stdout:events.fd,stderr:errors.fd});let timedOut=false;const timer=setTimeout(()=>{timedOut=true;child.kill()},p.research?600000:240000);const code=await child.exited;clearTimeout(timer);await events.close();await errors.close();
+ if(code!==0)throw Error(executionError(await fs.readFile(dir+'/events.jsonl','utf8'),await fs.readFile(dir+'/stderr.log','utf8'),code,timedOut,p.research));
  if(c.provider==='anthropic'){
   const envelope=JSON.parse(await fs.readFile(dir+'/events.jsonl','utf8'));const result=envelope.structured_output||structured(envelope.result||'');await fs.writeFile(dir+'/result.json',JSON.stringify(result));
  }else if(c.provider==='meta'){
@@ -364,7 +379,7 @@ try{
  }
  await fs.appendFile(dir+'/events.jsonl','\\n'+JSON.stringify({type:'turn.completed'})+'\\n');
  console.log(await validated());
-}finally{await events.close().catch(()=>{});await errors.close().catch(()=>{});await lock.close();await fs.unlink(dir+'/running').catch(()=>{})}`;
+}catch(error){console.error(error instanceof Error?error.message:'Agent execution failed');process.exitCode=1}finally{await events.close().catch(()=>{});await errors.close().catch(()=>{});await lock.close();await fs.unlink(dir+'/running').catch(()=>{})}`;
     const payload = {
       id: runId,
       prompt,
