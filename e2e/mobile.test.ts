@@ -1639,65 +1639,104 @@ test("operating status and paginated history load saved contexts on demand", asy
 },30000);
 
 for (const size of [widths[0]!, widths[4]!]) {
-  test(`operating status has its own responsive page and work links on ${size.name}`, async () => {
+  test(`status provides a focused review queue and exact destinations on ${size.name}`, async () => {
     const { view, repo, errors } = await setup("chrome", size);
     const checkedAt = new Date().toISOString();
-    for (const [name, detail] of Object.entries({
-      backup: "Restored 7 documents, 8 revisions, and 13 runs. Replica is current.",
-      repository: "wrela/wrela is accessible.",
-      "worker:company-os-studio-01": "Authenticated and available for delegated work.",
-      "worker:company-os-studio-02": "Authenticated and available for delegated work.",
-    })) repo.recordCheck(name, { status: "ok", checkedAt, detail });
+    for (const name of ["backup", "repository", "worker:studio-01", "worker:studio-02"])
+      repo.recordCheck(name, { status: "ok", checkedAt, detail: "Verification passed." });
     const state = repo.state();
-    const milestone = {
-      id: "playable-build", version: 1, title: "First playable build", objective: "Deliver a playable game loop.",
+    state.threads = [{
+      id: "playtest-decision", kind: "inbox", subject: "Choose the next playtest", status: "open", unread: false,
+      reason: "The first round is playable. The next iteration needs your direction.",
+      recommendation: "Play one round and decide whether to improve movement or enemy behavior next.",
+      evidence: [], messages: [], proposals: [], createdAt: checkedAt, updatedAt: checkedAt,
+    }];
+    const m = { id: "playable-build", version: 1, title: "First playable build", objective: "Deliver a playable game loop.",
       criteria: "Ryan can finish a complete round.", boundaries: "One level.", maxRuns: 12, maxParallel: 2,
-      documentIds: [], assignments: [], workIds: [], threadId: "", createdAt: checkedAt, updatedAt: checkedAt, decisionReason: "Approved",
+      documentIds: [], assignments: [], workIds: [], threadId: "proposal", createdAt: checkedAt, updatedAt: checkedAt, decisionReason: "",
     };
-    state.planning.milestones.push({ ...milestone, status: "active" }, { ...milestone, id: "movement", title: "Movement prototype", status: "completed" });
+    state.planning.milestones.push({ ...m, status: "proposed" });
     repo.save(state);
-    await view.reload();
-    await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
+    await view.reload(); await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
     await nav(view, "Work");
-    expect(await view.evaluate<boolean>(`!!document.querySelector('.operations-page')`)).toBe(false);
+    expect(await view.evaluate<boolean>(`document.querySelector('main')?.textContent.includes('Operating status')`)).toBe(false);
+    expect(await view.evaluate<boolean>(`!!document.querySelector('.operations-notice')`)).toBe(false);
     await nav(view, "Status");
-    await wait(view, `document.querySelector('.operations-condition')?.textContent.includes('Checks passing')`);
-    expect(await view.evaluate<string>(`location.hash`)).toBe("#Status");
-    expect(await view.evaluate<number>(`document.querySelectorAll('.operations-check-state.is-verified').length`)).toBe(4);
-    expect(await view.evaluate<string>(`document.querySelector('.operations-page')?.textContent`)).toContain("12 of 12 runs remaining");
+    await wait(view, `document.querySelector('.operations-focus h2')?.textContent === 'First playable build'`);
+    expect(await view.evaluate<number>(`document.querySelectorAll('.operations-focus').length`)).toBe(1);
+    expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("Review the outcome, acceptance criteria, and run allowance.");
     await fits(view);
-    expect(await view.evaluate<boolean>(`[...document.querySelectorAll('nav button')].every(el => el.getBoundingClientRect().width >= 44 && el.getBoundingClientRect().height >= 44)`)).toBe(true);
-    await Bun.sleep(250); // Capture the settled navigation state.
-    await Bun.write(`.artifacts/operating-status-${size.name}.png`, await view.screenshot());
-    await button(view, "First playable build", ".operations-page", false);
+    await Bun.sleep(250);
+    await Bun.write(`.artifacts/status-review-${size.name}.png`, await view.screenshot());
+    await button(view, "Review milestone");
     await wait(view, `document.querySelector('.milestone-heading')?.textContent.includes('First playable build')`);
     await nav(view, "Status");
-    await button(view, "Open inbox,", ".operations-activity", false);
-    await wait(view, `location.hash === '#Inbox'`);
+    if (size.width < 761) await choose(view, ".operations-picker select", "thread:playtest-decision");
+    else await button(view, "Choose the next playtest", ".operations-queue");
+    await wait(view, `document.querySelector('.operations-focus h2')?.textContent === 'Choose the next playtest'`);
+    // Refreshing workspace data must keep the selected review anchored.
+    await Bun.sleep(3700);
+    expect(await view.evaluate<string>(`document.querySelector('.operations-focus h2')?.textContent`)).toBe("Choose the next playtest");
+    await button(view, "Review conversation");
+    await wait(view, `document.querySelector('.conversation-header')?.textContent.includes('Choose the next playtest')`);
     await nav(view, "Status");
-    await view.reload();
-    await wait(view, `!!document.querySelector('.operations-page')`);
+    expect(await view.evaluate<string>(`document.querySelector('.operations-focus h2')?.textContent`)).toBe("Choose the next playtest");
+    await button(view, "In progress", ".operations-tabs");
+    expect(await view.evaluate<string>(`document.querySelector('.operations-progress')?.textContent`)).toContain("12 of 12 runs remaining");
+    await button(view, "First playable build", ".operations-progress", false);
+    await wait(view, `document.querySelector('.milestone-heading')?.textContent.includes('First playable build')`);
     expect(errors).toEqual([]);
   }, 30000);
 }
 
-test("status notice opens outstanding checks and distinguishes overdue verification", async () => {
+test("status groups repairs, provides instructions, and keeps Work free of status messages", async () => {
   const { view, repo, errors } = await setup("chrome", widths[1]!);
-  repo.recordCheck("worker:company-os-studio-01", { status: "ok", checkedAt: new Date(Date.now() - 20 * 60000).toISOString(), detail: "Authentication passed." });
+  for (const name of ["worker:studio-01", "worker:studio-02", "worker:studio-03"])
+    repo.recordCheck(name, { status: "ok", checkedAt: new Date(Date.now() - 20 * 60000).toISOString(), detail: "Authentication previously passed." });
   repo.recordCheck("repository", { status: "error", checkedAt: new Date().toISOString(), detail: "GitHub authentication failed." });
-  await view.reload();
-  await wait(view, `!!document.querySelector('.operations-notice')`);
-  await click(view, ".operations-notice");
-  await wait(view, `!!document.querySelector('.operations-page')`);
+  await view.reload(); await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
+  await nav(view, "Work");
   expect(await view.evaluate<boolean>(`!!document.querySelector('.operations-notice')`)).toBe(false);
-  const labels = await view.evaluate<string[]>(`[...document.querySelectorAll('.operations-check-state')].map(el => el.textContent)`);
-  expect(labels).toContain("Unverified");
-  expect(labels).toContain("Overdue");
-  expect(labels).toContain("Failed");
-  expect(labels).not.toContain("Verified");
-  expect(await view.evaluate<string>(`document.querySelector('.operations-alerts')?.textContent`)).toContain("GitHub authentication failed.");
-  await fits(view);
-  await Bun.sleep(250);
-  await Bun.write(".artifacts/operating-status-attention-phone.png", await view.screenshot());
+  await nav(view, "Status");
+  await button(view, "System checks", ".operations-tabs", false);
+  expect(await view.evaluate<number>(`document.querySelectorAll('.operations-queue button').length`)).toBe(4);
+  expect(await view.evaluate<number>(`document.querySelectorAll('.operations-focus').length`)).toBe(1);
+  expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("renew its provider sign-in");
+  expect(await view.evaluate<boolean>(`document.querySelector('.operations-diagnostics').open`)).toBe(false);
+  await fits(view); await Bun.sleep(250);
+  await Bun.write(".artifacts/status-repair-phone.png", await view.screenshot());
+  await choose(view, ".operations-picker select", "repository");
+  await wait(view, `document.querySelector('.operations-focus h2')?.textContent === 'GitHub connection'`);
+  expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("organization app approval");
+  await click(view, ".operations-diagnostics summary");
+  expect(await view.evaluate<string>(`document.querySelector('[aria-label="Repair brief"]').value`)).toContain("GitHub authentication failed.");
+  const selected = repo.state();
+  selected.threads = [];
+  repo.save(selected);
+  await view.reload(); await wait(view, `!!document.querySelector('.operations-page')`);
+  await button(view, "Your review", ".operations-tabs");
+  await wait(view, `!!document.querySelector('.operations-empty')`);
+  expect(await view.evaluate<string>(`document.querySelector('.operations-empty')?.textContent`)).toContain("You’re caught up");
+  await button(view, "Review system checks");
+  await wait(view, `document.querySelector('.operations-focus h2')?.textContent === 'GitHub connection'`);
+  expect(errors).toEqual([]);
+}, 30000);
+
+test("status retries a failed delivery and clears its repair item", async () => {
+  const { view, repo, store, errors } = await setup("chrome", widths[1]!);
+  const at = new Date().toISOString();
+  store.db.query("INSERT INTO deliveries(id,event_json,effect_json,status,error) VALUES(?,?,?,?,?)").run(
+    "retry-from-status", JSON.stringify({ id: "fixture-event", at, type: "KnowledgeChanged", payload: {} }),
+    JSON.stringify({ type: "IndexKnowledge", documentId: "withdrawn-fixture", version: 1 }), "failed", "Temporary index connection failure",
+  );
+  await view.reload(); await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
+  await nav(view, "Status");
+  await button(view, "System checks", ".operations-tabs", false);
+  await choose(view, ".operations-picker select", "jobs");
+  await wait(view, `document.querySelector('.operations-job')?.textContent.includes('Temporary index connection failure')`);
+  await button(view, "Retry delivery", ".operations-job");
+  await wait(view, `!document.querySelector('.operations-job')`);
+  expect(repo.deliveryErrors().some(d => d.id === "retry-from-status")).toBe(false);
+  expect((store.db.query("SELECT status FROM deliveries WHERE id=?").get("retry-from-status") as {status:string}).status).toBe("completed");
   expect(errors).toEqual([]);
 }, 30000);
