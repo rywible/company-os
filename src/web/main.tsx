@@ -1,4 +1,4 @@
-import { OperatingStatus } from "./operations";
+import { InboxReview, OperatingStatus, systemGroups, type OperationsProps } from "./operations";
 import type { OperatingSummary } from "../application/operations";
 import { KnowledgeLibrary, ContextUsed } from "./library";
 import { RevisionHistory } from "./revision-history";
@@ -334,7 +334,7 @@ function App() {
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null);
   const [selectedWork, setSelectedWork] = useState<string | null>(null),
     [trackFilter, setTrackFilter] = useState("all"),
-    [inboxFilter, setInboxFilter] = useState("unread"),
+    [inboxFilter, setInboxFilter] = useState("open"),
     [constitutionHistory, setConstitutionHistory] = useState<any[] | null>(
       null,
     ),
@@ -567,6 +567,21 @@ function App() {
         }}
       />
     ) : null;
+  const operationsProps: OperationsProps | null = state ? {
+    summary: state.operations, state, deliveryErrors: state.deliveryErrors, disabled, command,
+    retryDelivery: (id) => command({ type: "RetryDelivery", deliveryId: id }),
+    thread: (id) => { const t = state.threads.find(t => t.id === id); if (t) openThread(t); },
+    history: () => void loadRuns(),
+    work: (id) => { navigate("Assignments"); setSelectedWork(id); },
+    milestone: (id) => { navigate("Work"); setSelectedMilestone(id || null); },
+    automations: () => navigate("Automation"),
+    inbox: (itemId) => {
+      if (itemId) try { sessionStorage.setItem("inbox:review", itemId); } catch { /* Fall back to the first item. */ }
+      navigate("Inbox"); setInboxFilter("open");
+    },
+  } : null;
+  const inboxNotifications = (state?.threads.filter(t => t.unread && t.status !== "resolved").length || 0)
+    + (state?.operations ? systemGroups(state.operations).filter(group => group.alerts.length).length : 0);
   const pageActions =
     page === "Inbox" && inboxView === "requests" && !currentThread ? (
       <div className="page-actions">
@@ -683,18 +698,7 @@ function App() {
             >
               <p.icon size={19} />
               <span>{p.name}</span>
-              {p.name === "Inbox" &&
-                !!state?.threads.filter(
-                  (t) => t.unread && t.status !== "resolved",
-                ).length && (
-                  <b className="count">
-                    {
-                      state.threads.filter(
-                        (t) => t.unread && t.status !== "resolved",
-                      ).length
-                    }
-                  </b>
-                )}
+              {p.name === "Inbox" && inboxNotifications > 0 && <b className="count">{inboxNotifications}</b>}
             </button>
           ))}
         </nav>
@@ -740,18 +744,7 @@ function App() {
                 ))}
               </div>
             )}
-            {page === "Status" && <OperatingStatus
-              summary={state.operations}
-              state={state}
-              deliveryErrors={state.deliveryErrors}
-              disabled={disabled}
-              retryDelivery={(id) => command({ type: "RetryDelivery", deliveryId: id })}
-              thread={(id) => { const t = state.threads.find(t => t.id === id); if (t) openThread(t); }}
-              history={() => void loadRuns()}
-              work={(id) => { navigate("Assignments"); setSelectedWork(id); }}
-              milestone={(id) => { navigate("Work"); setSelectedMilestone(id || null); }}
-              automations={() => navigate("Automation")}
-            />}
+            {page === "Status" && operationsProps && <OperatingStatus {...operationsProps} />}
             {page === "Work" && inboxView === "milestones" && (
               <MilestonesPage
                 state={state}
@@ -793,13 +786,13 @@ function App() {
                   <section className="thread-list" aria-label="Inbox threads">
                     {page === "Inbox" && (
                       <div className="filters">
-                        {["unread", "read", "resolved"].map((f) => (
+                        {["open", "unread", "read", "resolved"].map((f) => (
                           <button
                             key={f}
                             className={inboxFilter === f ? "active" : ""}
                             onClick={() => setInboxFilter(f)}
                           >
-                            {f === "resolved"
+                            {f === "open" ? "Open" : f === "resolved"
                               ? "Archived"
                               : f === "unread"
                                 ? "Unread"
@@ -808,7 +801,7 @@ function App() {
                         ))}
                       </div>
                     )}
-                    <div className="thread-card-grid">
+                    {inboxFilter === "open" && operationsProps ? <InboxReview {...operationsProps} /> : <div className="thread-card-grid">
                       {state.threads
                         .filter((t) =>
                           inboxFilter === "resolved"
@@ -862,7 +855,7 @@ function App() {
                           text=""
                         />
                       )}
-                    </div>
+                    </div>}
                   </section>
                 )}
                 {currentThread && (
