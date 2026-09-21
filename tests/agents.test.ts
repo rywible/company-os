@@ -108,10 +108,11 @@ test("the selected provider, model and reasoning effort reach the compatible poo
   expect(runner).toContain("...(p.research?['--search']:[]),'exec'");
 });
 test("research mode enables hosted search and requires an OpenAI-backed worker", async () => {
-  let payload: any;
+  let payload: any, options: any;
   const instance = new SpriteAgent({
-    executePayload: async (_script: string, input: unknown) => {
+    executePayload: async (_script: string, input: unknown, execution: unknown) => {
       payload = input;
+      options = execution;
       return {
         exitCode: 0,
         stdout: JSON.stringify({
@@ -137,6 +138,8 @@ test("research mode enables hosted search and requires an OpenAI-backed worker",
   expect(payload.research).toBe(true);
   expect(payload.prompt).toContain("hosted web search is enabled");
   expect(payload.prompt).toContain("researchSources");
+  expect(options.timeout).toBe(630000);
+  expect(options.maxRunAfterDisconnect).toBe("10m");
   expect(
     JSON.stringify(agentOutputSchema()).includes('"format":"uri"'),
   ).toBe(false);

@@ -45,6 +45,14 @@ import { assembleContext } from "./context";
 import { reviewOutcome } from "../domain/reviews";
 import { chunkDocument } from "../domain/knowledge";
 import { defaultAgentConfiguration } from "../domain/agents";
+const assignmentAttempts = (state: CompanyState, workId: string) =>
+  state.runs.filter(
+    (run) =>
+      run.workId === workId &&
+      ["work", "revision"].includes(run.trigger) &&
+      run.status !== "failed" &&
+      run.result?.outcome !== "capability_blocked",
+  ).length;
 export class Company {
   private discovery: Discovery;
   private library: Library;
@@ -1823,6 +1831,7 @@ export class Company {
       assertAutomationOutput(state, run, output);
       run.result = output;
       const work = state.work.find((w) => w.id === run!.workId);
+      if (work) work.attempts = assignmentAttempts(state, work.id);
       if (work?.status === "cancelled") {
         run.status = "completed";
         run.finishedAt = this.now();
@@ -3164,6 +3173,7 @@ export class Company {
       run.error = error;
       const work = state.work.find((w) => w.id === run.workId);
       if (work && !["done", "cancelled"].includes(work.status)) {
+        work.attempts = assignmentAttempts(state, work.id);
         work.status = "blocked";
         work.updatedAt = this.now();
         if (error.startsWith("CAPABILITY:web-research:")) {

@@ -333,6 +333,7 @@ test("research captures durable web evidence and capability failures pause witho
     message: "Hosted web search is unavailable on this worker.",
   });
   expect(state.planning.milestones[0]!.status).toBe("paused");
+  expect(state.work[0]!.attempts).toBe(0);
   expect(state.threads.some((thread) => thread.workId === workId)).toBe(false);
 
   handler = (c) =>
@@ -378,6 +379,7 @@ test("research captures durable web evidence and capability failures pause witho
   await drain();
   state = repo.state();
   expect(state.work[0]!.status).toBe("done");
+  expect(state.work[0]!.attempts).toBe(1);
   expect(state.work[0]!.evidence).toContain("web:https://example.test/spec");
   expect(state.work[0]!.outputDocumentIds).toHaveLength(1);
   expect(
@@ -545,6 +547,7 @@ test("a failed assignment retry charges the allowance and retains the queued rol
   expect(repo.state().runs).toHaveLength(3);
   expect(repo.state().runs[1]!.agent).toEqual(failed.agent);
   expect(repo.state().work[0]!.status).toBe("done");
+  expect(repo.state().work[0]!.attempts).toBe(2);
   expect(
     repo
       .state()

@@ -355,7 +355,7 @@ try{
  }else{
   command=['muse','exec','--json','--provider','meta','--preset','native-basic','--reasoning-effort',c.reasoningEffort,...(c.model?['--model',c.model]:[]),...(p.images||[]).flatMap(path=>['--image',path]),...(p.metaBaseUrl?['--base-url',p.metaBaseUrl,'--api-key-stdin']:[]),'--prompt-file',dir+'/prompt.txt','--no-foreign-personal-context','--disable-web-tools','--disable-write','--disable-shell','--approval-mode','never','--user-input-auto-resolve','--no-session-log'];if(p.metaBaseUrl)stdin=new Blob(['sprite-connector']);
  }
- const env={...process.env,...(p.anthropicBaseUrl?{ANTHROPIC_BASE_URL:p.anthropicBaseUrl,ANTHROPIC_API_KEY:'sprite-connector'}:{})};const child=Bun.spawn(command,{cwd:dir,env,stdin,stdout:events.fd,stderr:errors.fd});const timer=setTimeout(()=>child.kill(),240000);const code=await child.exited;clearTimeout(timer);await events.close();await errors.close();
+ const env={...process.env,...(p.anthropicBaseUrl?{ANTHROPIC_BASE_URL:p.anthropicBaseUrl,ANTHROPIC_API_KEY:'sprite-connector'}:{})};const child=Bun.spawn(command,{cwd:dir,env,stdin,stdout:events.fd,stderr:errors.fd});const timer=setTimeout(()=>child.kill(),p.research?600000:240000);const code=await child.exited;clearTimeout(timer);await events.close();await errors.close();
  if(code!==0)throw Error((await fs.readFile(dir+'/stderr.log','utf8')).slice(-1600)||'Agent execution failed');
  if(c.provider==='anthropic'){
   const envelope=JSON.parse(await fs.readFile(dir+'/events.jsonl','utf8'));const result=envelope.structured_output||structured(envelope.result||'');await fs.writeFile(dir+'/result.json',JSON.stringify(result));
@@ -388,9 +388,9 @@ try{
         script,
         payload,
         {
-          timeout: 270000,
+          timeout: context.research ? 630000 : 270000,
           maxBuffer: 2 * 1024 * 1024,
-          maxRunAfterDisconnect: "30s",
+          maxRunAfterDisconnect: context.research ? "10m" : "30s",
         },
         configuration.provider,
         context.browser?.worker,
