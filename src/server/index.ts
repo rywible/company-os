@@ -399,7 +399,7 @@ export const server = Bun.serve({
       return json(
         {
           error:
-            "The operation failed. Inspect delivery failures in Work or check server logs.",
+            "The operation failed. Check Status → System checks for details.",
         },
         500,
       );

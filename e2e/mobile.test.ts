@@ -245,14 +245,6 @@ async function nav(view: Bun.WebView, name: string) {
     `[...document.querySelectorAll('nav[aria-label="Workspace navigation"] button')].some(b => b.getAttribute('aria-current') === 'page' && b.getAttribute('aria-label') === ${JSON.stringify("Open " + name)})`,
   );
 }
-async function selectInboxItem(view: Bun.WebView, title: string) {
-  await wait(view, `[...document.querySelectorAll('.inbox-review select option')].some(o => o.textContent.includes(${JSON.stringify(title)}))`);
-  if (await view.evaluate<boolean>(`!!document.querySelector('.inbox-review .operations-picker')?.getClientRects().length`)) {
-    const value = await view.evaluate<string>(`[...document.querySelectorAll('.inbox-review select option')].find(o => o.textContent.includes(${JSON.stringify(title)}))?.value`);
-    await choose(view, ".inbox-review select", value);
-  } else await button(view, title, ".inbox-review .operations-queue", false);
-  await wait(view, `document.querySelector('.inbox-review .operations-focus h2')?.textContent.includes(${JSON.stringify(title)})`);
-}
 async function fits(view: Bun.WebView) {
   expect(
     await view.evaluate<boolean>(
@@ -289,8 +281,7 @@ for (const backend of backends) {
         ]);
         await button(view, "Run Users & workflows now");
         await nav(view, "Inbox");
-        await selectInboxItem(view, "Make navigation clearer");
-        await button(view, "Open conversation", ".inbox-review");
+        await button(view, "Make navigation clearer", ".thread-list", false);
         await wait(
           view,
           `!!document.querySelector('.email-original .markdown')`,
@@ -666,8 +657,7 @@ for (const backend of backends) {
       }, 30000);
       test("email threads, new messages and archive", async () => {
         const { view, repo, errors } = await setup(backend, size);
-        await selectInboxItem(view, "Prove the handoff before expanding");
-        await button(view, "Open conversation", ".inbox-review");
+        await button(view, "Prove the handoff before expanding", "", false);
         expect(
           await view.evaluate<any>(
             `document.querySelectorAll('.thread-list').length`,
@@ -1649,100 +1639,88 @@ test("operating status and paginated history load saved contexts on demand", asy
 },30000);
 
 for (const size of [widths[0]!, widths[4]!]) {
-  test(`Inbox owns detailed reviews and Status stays quiet on ${size.name}`, async () => {
+  test(`Inbox keeps its conversation layout and clears the archived badge despite system failures on ${size.name}`, async () => {
     const { view, repo, errors } = await setup("chrome", size);
     const checkedAt = new Date().toISOString();
-    for (const name of ["backup", "repository", "worker:studio-01", "worker:studio-02"])
-      repo.recordCheck(name, { status: "ok", checkedAt, detail: "Verification passed." });
+    repo.recordCheck("repository", { status: "error", checkedAt, detail: "GitHub authentication failed." });
     const state = repo.state();
-    const request = {
-      id: "playtest-decision", kind: "inbox" as const, subject: "Choose the next playtest", status: "open" as const, unread: false,
+    state.threads = [{
+      id: "playtest-decision", kind: "inbox", subject: "Choose the next playtest", status: "open", unread: true,
       reason: "The first round is playable. The next iteration needs your direction.",
       recommendation: "Play one round and decide whether to improve movement or enemy behavior next.",
       evidence: [], messages: [], proposals: [], createdAt: checkedAt, updatedAt: checkedAt,
-    };
-    state.threads = [request, { ...request, id: "proposal", subject: "First playable build", milestoneId: "playable-build" }];
-    state.planning.milestones.push({ id: "playable-build", version: 1, title: "First playable build", objective: "Deliver a playable game loop.",
-      criteria: "Ryan can finish a complete round.", boundaries: "One level.", maxRuns: 12, maxParallel: 2, status: "proposed",
-      documentIds: [], assignments: [], workIds: [], threadId: "proposal", createdAt: checkedAt, updatedAt: checkedAt, decisionReason: "",
-    });
+    }];
     repo.save(state);
-    await view.reload(); await wait(view, `!!document.querySelector('.inbox-review')`);
-    // The proposal and its discussion occupy one entry, including when already read.
-    expect(await view.evaluate<number>(`document.querySelectorAll('.inbox-review .operations-queue button').length`)).toBe(2);
-    await wait(view, `document.querySelector('.operations-focus h2')?.textContent === 'First playable build'`);
-    expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("Approve milestone");
-    expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("Ryan can finish a complete round.");
-    expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("12 runs allowed");
+    await view.reload(); await wait(view, `!!document.querySelector('.thread-card-grid')`);
+    expect(await view.evaluate<string[]>(`[...document.querySelectorAll('.thread-list .filters button')].map(b => b.textContent)`)).toEqual(["Unread", "Read", "Archived"]);
+    expect(await view.evaluate<string>(`document.querySelector('.thread-list .filters .active')?.textContent`)).toBe("Unread");
+    expect(await view.evaluate<string>(`document.querySelector('nav button[aria-label="Open Inbox"] .count')?.textContent`)).toBe("1");
+    expect(await view.evaluate<boolean>(`document.querySelector('.thread-list')?.textContent.includes('Worker connections')`)).toBe(false);
     await fits(view); await Bun.sleep(250);
-    await Bun.write(`.artifacts/inbox-triage-${size.name}.png`, await view.screenshot());
-    await button(view, "View full plan");
-    await wait(view, `document.querySelector('.milestone-heading')?.textContent.includes('First playable build')`);
-    await nav(view, "Inbox");
-    await selectInboxItem(view, "Choose the next playtest");
+    await Bun.write(`.artifacts/restored-inbox-${size.name}.png`, await view.screenshot());
+    await button(view, "Choose the next playtest", ".thread-list", false);
+    await wait(view, `!!document.querySelector('.conversation-header')`);
+    await button(view, "Archive", ".conversation-header");
+    await wait(view, `!!document.querySelector('.thread-list') && !document.querySelector('nav button[aria-label="Open Inbox"] .count')`);
+    expect(repo.state().threads[0]?.status).toBe("resolved");
+    await button(view, "Archived", ".filters");
+    expect(await view.evaluate<string>(`document.querySelector('.thread-card-grid')?.textContent`)).toContain("Choose the next playtest");
+    // Operational alerts still exist; polling cannot turn them into an Inbox badge.
     await Bun.sleep(3700);
-    expect(await view.evaluate<string>(`document.querySelector('.operations-focus h2')?.textContent`)).toBe("Choose the next playtest");
-    await button(view, "Open conversation", ".inbox-review");
-    await wait(view, `document.querySelector('.conversation-header')?.textContent.includes('Choose the next playtest')`);
-    await button(view, "← Inbox");
-    expect(await view.evaluate<string>(`document.querySelector('.operations-focus h2')?.textContent`)).toBe("Choose the next playtest");
-    await button(view, "Archive", ".inbox-review");
-    await wait(view, `document.querySelector('.operations-focus h2')?.textContent === 'First playable build'`);
-    expect(repo.state().threads.find(t => t.id === request.id)?.status).toBe("resolved");
-    await button(view, "Decline", ".inbox-review");
-    await wait(view, `document.querySelector('.operations-empty')?.textContent.includes('caught up')`);
-    expect(repo.state().planning.milestones[0]?.status).toBe("declined");
+    expect(await view.evaluate<boolean>(`!!document.querySelector('nav button[aria-label="Open Inbox"] .count')`)).toBe(false);
+    await nav(view, "Work");
+    expect(await view.evaluate<boolean>(`!!document.querySelector('.operations-notice')`)).toBe(false);
     await nav(view, "Status");
     expect(await view.evaluate<string[]>(`[...document.querySelectorAll('.operations-tabs button')].map(b => b.textContent)`)).toEqual(["In progress", "System checks"]);
-    expect(await view.evaluate<boolean>(`!!document.querySelector('.inbox-review, .operations-tab-count, nav button[aria-label="Open Status"] .count')`)).toBe(false);
-    await fits(view); await Bun.sleep(250);
-    await Bun.write(`.artifacts/quiet-status-${size.name}.png`, await view.screenshot());
+    expect(await view.evaluate<boolean>(`!!document.querySelector('.operations-tab-count, nav button[aria-label="Open Status"] .count')`)).toBe(false);
+    await fits(view);
     expect(errors).toEqual([]);
   }, 30000);
 }
 
-test("system issues are triaged only in Inbox and disappear when recovered", async () => {
+test("status groups repairs, provides instructions, and keeps Work free of status messages", async () => {
   const { view, repo, errors } = await setup("chrome", widths[1]!);
   for (const name of ["worker:studio-01", "worker:studio-02", "worker:studio-03"])
     repo.recordCheck(name, { status: "ok", checkedAt: new Date(Date.now() - 20 * 60000).toISOString(), detail: "Authentication previously passed." });
   repo.recordCheck("repository", { status: "error", checkedAt: new Date().toISOString(), detail: "GitHub authentication failed." });
-  await view.reload(); await wait(view, `!!document.querySelector('.inbox-review')`);
-  await selectInboxItem(view, "Worker connections");
-  expect(await view.evaluate<number>(`[...document.querySelectorAll('.inbox-review select option')].filter(o => o.textContent === 'Worker connections').length`)).toBe(1);
-  expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("renew its provider sign-in");
+  await view.reload(); await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
   await nav(view, "Work");
   expect(await view.evaluate<boolean>(`!!document.querySelector('.operations-notice')`)).toBe(false);
   await nav(view, "Status");
-  await button(view, "System checks", ".operations-tabs");
+  await button(view, "System checks", ".operations-tabs", false);
+  expect(await view.evaluate<number>(`document.querySelectorAll('.operations-queue button').length`)).toBe(4);
+  expect(await view.evaluate<number>(`document.querySelectorAll('.operations-focus').length`)).toBe(1);
+  expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("renew its provider sign-in");
+  expect(await view.evaluate<boolean>(`document.querySelector('.operations-diagnostics').open`)).toBe(false);
+  await fits(view); await Bun.sleep(250);
+  await Bun.write(".artifacts/status-repair-phone.png", await view.screenshot());
   await choose(view, ".operations-picker select", "repository");
-  expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).not.toContain("What to do");
-  expect(await view.evaluate<boolean>(`!!document.querySelector('[aria-label="Repair brief"]')`)).toBe(false);
-  await button(view, "Review in Inbox");
-  await wait(view, `document.querySelector('.inbox-review .operations-focus h2')?.textContent === 'GitHub connection'`);
+  await wait(view, `document.querySelector('.operations-focus h2')?.textContent === 'GitHub connection'`);
   expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).toContain("organization app approval");
   await click(view, ".operations-diagnostics summary");
   expect(await view.evaluate<string>(`document.querySelector('[aria-label="Repair brief"]').value`)).toContain("GitHub authentication failed.");
-  await fits(view); await Bun.sleep(250);
-  await Bun.write(".artifacts/inbox-system-repair-phone.png", await view.screenshot());
   for (const name of ["backup", "repository", "worker:studio-01", "worker:studio-02", "worker:studio-03"])
     repo.recordCheck(name, { status: "ok", checkedAt: new Date().toISOString(), detail: "Verification passed." });
-  await wait(view, `![...document.querySelectorAll('.inbox-review select option')].some(o => o.value.startsWith('system:'))`);
+  await wait(view, `document.querySelector('.operations-reason')?.textContent === 'Repository access is verified.'`);
+  expect(await view.evaluate<string>(`document.querySelector('.operations-focus')?.textContent`)).not.toContain("What to do");
   expect(errors).toEqual([]);
 }, 30000);
 
-test("Inbox retries a failed delivery and clears its repair item", async () => {
+test("status retries a failed delivery and clears its repair item", async () => {
   const { view, repo, store, errors } = await setup("chrome", widths[1]!);
   const at = new Date().toISOString();
   store.db.query("INSERT INTO deliveries(id,event_json,effect_json,status,error) VALUES(?,?,?,?,?)").run(
-    "retry-from-inbox", JSON.stringify({ id: "fixture-event", at, type: "KnowledgeChanged", payload: {} }),
+    "retry-from-status", JSON.stringify({ id: "fixture-event", at, type: "KnowledgeChanged", payload: {} }),
     JSON.stringify({ type: "IndexKnowledge", documentId: "withdrawn-fixture", version: 1 }), "failed", "Temporary index connection failure",
   );
-  await view.reload(); await wait(view, `!!document.querySelector('.inbox-review')`);
-  await selectInboxItem(view, "Delayed or failed work");
+  await view.reload(); await wait(view, `!!document.querySelector('[data-workspace-ready="true"]')`);
+  await nav(view, "Status");
+  await button(view, "System checks", ".operations-tabs", false);
+  await choose(view, ".operations-picker select", "jobs");
   await wait(view, `document.querySelector('.operations-job')?.textContent.includes('Temporary index connection failure')`);
   await button(view, "Retry delivery", ".operations-job");
   await wait(view, `!document.querySelector('.operations-job')`);
-  expect(repo.deliveryErrors().some(d => d.id === "retry-from-inbox")).toBe(false);
-  expect((store.db.query("SELECT status FROM deliveries WHERE id=?").get("retry-from-inbox") as {status:string}).status).toBe("completed");
+  expect(repo.deliveryErrors().some(d => d.id === "retry-from-status")).toBe(false);
+  expect((store.db.query("SELECT status FROM deliveries WHERE id=?").get("retry-from-status") as {status:string}).status).toBe("completed");
   expect(errors).toEqual([]);
 }, 30000);

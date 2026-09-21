@@ -628,21 +628,6 @@ export class Discovery {
           `work:${work.id}`,
           event.id,
         );
-    } else if (event.type === "RunFailed") {
-      const run = state.runs.find((r) => r.id === event.payload.runId);
-      if (
-        run?.discoveryLensId ||
-        state.work.some((w) => w.id === run?.workId && w.discoveryId)
-      )
-        return;
-      this.signal(
-        state,
-        "Agent run failed",
-        event.payload.error,
-        ["operations", "learning"],
-        `failure:${run?.workId || run?.threadId || "agent"}`,
-        event.id,
-      );
     } else if (event.type === "ReviewCompleted" && !event.payload.approved) {
       const round = state.reviewRounds.find(
         (r) => r.id === event.payload.roundId,

@@ -474,8 +474,9 @@ test("browser work records real port evidence and observations remain attributed
   });
   expect(observation.source).toBe("foreman");
 });
-test("failed agent runs become actionable inbox threads and survive worker recovery", async () => {
+test("failed agent runs stay out of Inbox and survive worker recovery", async () => {
   const r = create();
+  const threads = repo.state().threads;
   company.agent.execute = async () => {
     throw Error("Subscription unavailable");
   };
@@ -484,13 +485,8 @@ test("failed agent runs become actionable inbox threads and survive worker recov
   expect(repo.state().runs.find((x) => x.id === r.runId)!.status).toBe(
     "failed",
   );
-  expect(
-    repo
-      .state()
-      .threads.some(
-        (t) => t.kind === "inbox" && t.reason.includes("Subscription"),
-      ),
-  ).toBe(true);
+  expect(repo.state().threads).toEqual(threads);
+  expect(repo.deliveryErrors().some(d => d.error.includes("Subscription"))).toBe(true);
   company.agent.execute = async () => answer();
   company.execute({ type: "RetryRun", runId: r.runId });
   const job = repo.claim()!;
@@ -791,15 +787,15 @@ test("correction authority can be granted later and the original findings resume
   expect(repo.state().threads[0]!.status).toBe("resolved");
 });
 
-test("failed durable effects surface an inbox request and can be retried without duplicating state", async () => {
+test("failed durable effects stay out of Inbox and can be retried without duplicating state", async () => {
   reviews();
   await linked();
   const d = repo.claim()!;
   repo.reject(d.id, "Connector unavailable", false);
+  const threads = repo.state().threads;
   company.deliveryFailed(d, "Connector unavailable");
-  expect(
-    repo.state().threads.some((t) => t.reason === "Connector unavailable"),
-  ).toBe(true);
+  expect(repo.state().threads).toEqual(threads);
+  expect(repo.deliveryErrors().some(d => d.error === "Connector unavailable")).toBe(true);
   company.execute({ type: "RetryDelivery", deliveryId: d.id });
   const retried = repo.claim()!;
   expect(retried.id).toBe(d.id);
@@ -812,7 +808,11 @@ test("recovered runs leave the active delivery-failure list while retaining the 
   const { runId } = create();
   const d = repo.claim()!;
   repo.reject(d.id, "Interrupted transport", false);
+  const threads = repo.state().threads;
   company.fail(runId, "Interrupted transport");
+  expect(repo.state().threads).toEqual(threads);
+  expect(repo.state().runs.find(r => r.id === runId)?.error).toBe("Interrupted transport");
+  expect(workflows(repo.events().find(e => e.type === "RunFailed")!)).not.toContainEqual({ type: "ObserveDiscovery" });
   expect(repo.deliveryErrors()).toHaveLength(1);
   company.execute({ type: "RetryRun", runId });
   await drain();

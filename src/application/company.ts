@@ -2952,19 +2952,6 @@ export class Company {
       const workId = "workId" in effect ? effect.workId : round?.workId;
       const work = state.work.find((w) => w.id === workId);
       if (work && work.status !== "cancelled") work.status = "blocked";
-      const t = this.inbox(
-        state,
-        {
-          subject: "Workflow delivery failed: " + (work?.title || effect.type),
-          reason: error,
-          recommendation:
-            "Inspect delivery failures in Work and retry after correcting the connection or configuration.",
-          evidence: [],
-          workId,
-        },
-        delivery.event.id,
-      );
-      if (work) work.threadId = t.id;
       this.repo.save(state);
     });
   }
@@ -2980,26 +2967,6 @@ export class Company {
         work.status = "blocked";
         work.updatedAt = this.now();
       }
-      const inbox = this.inbox(
-        state,
-        {
-          subject: work ? `Run failed: ${work.title}` : "Foreman run failed",
-          reason: error,
-          recommendation:
-            "Inspect the run and retry after correcting the problem.",
-          evidence: [],
-          workId: work?.id,
-        },
-        runId,
-      );
-      inbox.messages.push({
-        id: this.ids.next(),
-        role: "system",
-        content: error,
-        at: this.now(),
-        runId,
-      });
-      if (work) work.threadId = inbox.id;
       this.emit(
         { type: "RunFailed", payload: { runId, error } },
         "system",

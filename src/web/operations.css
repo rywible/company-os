@@ -74,8 +74,3 @@
 @media (max-width: 380px) {
   .operations-page .operations-tabs button { font-size: 11px; padding-inline: 7px; }
 }
-
-@media (max-width: 760px) {
-  .inbox .thread-list > .filters { flex-wrap: nowrap; gap: 2px; }
-  .inbox .thread-list > .filters button { padding-inline: 10px; }
-}

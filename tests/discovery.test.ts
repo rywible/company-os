@@ -318,13 +318,10 @@ test("invented discovery citations roll back state and events atomically", async
 });
 test("signals coalesce, replay is idempotent, and discovery does not react to its own learning", async () => {
   await drain();
-  const r = company.execute({
-    type: "StartConversation",
-    subject: "Test",
-    content: "test",
-  }) as { runId: string };
-  company.fail(r.runId, "network down");
-  const event = repo.events().find((e) => e.type === "RunFailed")!;
+  const event = {
+    ...repo.events()[0]!, id: "review-signal", type: "ReviewCompleted" as const,
+    payload: { workId: "reviewed-work", roundId: "review-round", approved: false },
+  };
   const job = {
     id: "signal",
     event,
@@ -334,10 +331,7 @@ test("signals coalesce, replay is idempotent, and discovery does not react to it
   await company.deliver(job);
   await company.deliver(job);
   expect(repo.state().discovery.signals).toHaveLength(1);
-  company.fail(r.runId, "network still down");
-  const again = repo
-    .events()
-    .find((e) => e.type === "RunFailed" && e.id !== event.id)!;
+  const again = { ...event, id: "second-review-signal" };
   await company.deliver({ ...job, event: again });
   expect(repo.state().discovery.signals).toHaveLength(1);
   expect(repo.state().discovery.signals[0]!.count).toBe(2);
@@ -351,6 +345,14 @@ test("signals coalesce, replay is idempotent, and discovery does not react to it
   expect(workflows(knowledge).some((e) => e.type === "ObserveDiscovery")).toBe(
     false,
   );
+});
+test("technical run failures do not become company discovery signals, including replayed observers", async () => {
+  const { runId } = company.execute({ type: "StartConversation", subject: "Direction", content: "Make a playable round" }) as { runId: string };
+  company.fail(runId, "Provider connection unavailable");
+  const event = repo.events().find(e => e.type === "RunFailed")!;
+  expect(workflows(event)).not.toContainEqual({ type: "ObserveDiscovery" });
+  await company.deliver({ id: "legacy-observer", event, effect: { type: "ObserveDiscovery" }, attempts: 1 });
+  expect(repo.state().discovery.signals).toHaveLength(0);
 });
 test("manual scouts respect their own task budget; signals become explicit context", async () => {
   const s = repo.state();

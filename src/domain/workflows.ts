@@ -16,8 +16,9 @@ export function workflows(event: DomainEvent): Effect[] {
     case "MilestoneChanged":
       return [{ type: "ReconcileMilestones" }];
     case "WorkStatusChanged":
-    case "RunFailed":
       return [{ type: "ObserveDiscovery" }, { type: "ReconcileMilestones" }];
+    case "RunFailed":
+      return [{ type: "ReconcileMilestones" }];
     case "LibraryMaintenanceRequested":
     case "DiscoveryScoutRequested":
     case "ConversationStarted":
