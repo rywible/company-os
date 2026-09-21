@@ -1002,6 +1002,37 @@ test("deleting evidence removes it from search and maintenance while retaining r
   );
 });
 
+test("deleting a library document removes it and clears organization links", () => {
+  const page = save("Disposable guidance", "Temporary guidance");
+  const child = save("Dependent guidance", "Child content");
+  company.execute({
+    type: "OrganizeKnowledge",
+    documentId: child.id,
+    location: {
+      collection: "Product",
+      parentId: page.id,
+      relatedIds: [page.id],
+    },
+  });
+
+  company.execute({
+    type: "DeleteKnowledge",
+    documentId: page.id,
+    expectedVersion: page.version,
+  });
+
+  expect(repo.document(page.id)).toBeUndefined();
+  expect(repo.document(page.id, page.version)?.content).toBe(
+    "Temporary guidance",
+  );
+  expect(repo.state().library.pages[page.id]).toBeUndefined();
+  expect(repo.state().library.pages[child.id]?.parentId).toBeNull();
+  expect(repo.state().library.pages[child.id]?.relatedIds).toEqual([]);
+  expect(repo.search("Temporary guidance").map((result) => result.id)).not.toContain(
+    page.id,
+  );
+});
+
 test("human review proposals remain withheld and source changes invalidate pending acceptance", async () => {
   const source = save("Constitution", "Direction", "constitution");
   const page = linked("Manual account", [documentRef(source)], false);

@@ -213,10 +213,41 @@
   background: var(--card);
   box-shadow: none;
 }
-.library-reader > .context-contract {
-  margin: 20px 0 24px;
-  box-shadow: none;
+.revision-entry {
+  border-top: 1px solid var(--line);
+  padding: 2px 0;
 }
+.revision-entry:first-child { margin-top: 10px; }
+.revision-entry > summary { font-size: 12.5px; }
+.revision-note {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin: 8px 0 12px;
+}
+.revision-delta {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 8px 0 12px;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.revision-delta .added,
+.revision-delta .removed {
+  display: block;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.revision-delta .added {
+  color: var(--success);
+  background: var(--success-wash);
+}
+.revision-delta .removed {
+  color: var(--danger);
+  background: var(--danger-wash);
+}
+.revision-title-delta span + span { border-top: 1px solid var(--line); }
+.blank-line { opacity: 0.65; font-style: italic; }
 .document-reader {
   padding: 8px 0 36px;
   max-width: 76ch;

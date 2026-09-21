@@ -378,6 +378,11 @@ export const commandSchema = z.discriminatedUnion("type", [
     expectedVersion: z.number().int().positive(),
   }),
   z.object({
+    type: z.literal("DeleteKnowledge"),
+    documentId: text,
+    expectedVersion: z.number().int().positive(),
+  }),
+  z.object({
     type: z.literal("WithdrawEvidenceReference"),
     reference: text.max(500),
     reason: text.max(1000),

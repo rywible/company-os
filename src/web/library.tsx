@@ -12,12 +12,11 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
+import { RevisionHistory } from "./revision-history";
 import "./library.css";
 type Props = {
   state: CompanyState & { documents: Document[] };
   openId: string | null;
-  preview(d: Document): void;
-  inspect(d: Document): void;
   disabled: boolean;
   command(c: Command): Promise<boolean>;
   edit(d: Document): void;
@@ -28,8 +27,6 @@ type Props = {
 export function KnowledgeLibrary({
   state,
   openId,
-  preview,
-  inspect,
   disabled,
   command,
   edit,
@@ -215,29 +212,6 @@ export function KnowledgeLibrary({
             </aside>
           )}
         <div className="library-body">{markdown(document.content)}</div>
-        <details className="context-contract">
-          <summary>Context & usage</summary>
-          <p>
-            {state.policies[document.id]?.status || "active"} ·{" "}
-            {state.policies[document.id]?.inclusion || "relevant"}
-          </p>
-          <p>
-            {state.policies[document.id]?.status &&
-            state.policies[document.id]?.status !== "active"
-              ? "Excluded from automatic context while " +
-                state.policies[document.id]?.status +
-                "."
-              : state.policies[document.id]?.inclusion === "reference"
-                ? "Only included when explicitly attached to a conversation."
-                : state.policies[document.id]?.inclusion === "always"
-                  ? "Included in agent context, subject to the context limit."
-                  : "Eligible for retrieval when relevant."}
-          </p>
-          <div className="actions">
-            <button onClick={() => preview(document)}>Preview selection</button>
-            <button onClick={() => inspect(document)}>Records & usage</button>
-          </div>
-        </details>
         {meta?.sources.length ? (
           <details className="library-support">
             <summary>Sources ({meta.sources.length})</summary>
@@ -442,14 +416,12 @@ export function KnowledgeLibrary({
           }}
         >
           <summary>Revision history</summary>
-          {history?.map((r) => (
-            <details key={r.version}>
-              <summary>
-                Revision {r.version} · {new Date(r.created_at).toLocaleString()}
-              </summary>
-              {markdown(r.content)}
-            </details>
-          ))}
+          {history && (
+            <RevisionHistory
+              revisions={history}
+              formatDate={(value) => new Date(value).toLocaleString()}
+            />
+          )}
         </details>
         <footer className="evidence-modal-actions library-footer">
           <button onClick={() => discuss(document)}>
@@ -463,6 +435,27 @@ export function KnowledgeLibrary({
               Organize
             </button>
           )}
+          <button
+            className="danger-button"
+            disabled={disabled}
+            onClick={() => {
+              if (
+                !window.confirm(
+                  "Delete this library document? It will be removed from search and automatic context. Its revision history will be retained.",
+                )
+              )
+                return;
+              void command({
+                type: "DeleteKnowledge",
+                documentId: document.id,
+                expectedVersion: document.version,
+              }).then((deleted) => {
+                if (deleted) setSelected(null);
+              });
+            }}
+          >
+            <Trash2 size={15} /> Delete
+          </button>
         </footer>
         {location && (
           <form

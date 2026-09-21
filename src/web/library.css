@@ -157,11 +157,13 @@
 }
 .library-footer {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 28px 0 0;
   padding-top: 18px;
   border-top: 1px solid var(--line);
 }
+.library-footer button { white-space: nowrap; }
 .library-footer button:last-child:not(:first-child) { margin-left: auto; }
 .library-organize {
   display: grid;
@@ -383,4 +385,14 @@
 }
 .library-support li {
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .library-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .library-footer > button:first-child { grid-column: 1 / -1; }
+  .library-footer > button { width: 100%; }
+  .evidence-modal-actions.library-footer .danger-button { margin-left: 0; }
 }
