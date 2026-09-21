@@ -328,7 +328,7 @@ await fs.mkdir(dir,{recursive:true});
 try{console.log(await fs.readFile(dir+'/result.json','utf8'));process.exit(0)}catch{}
 let lock;try{lock=await fs.open(dir+'/running','wx')}catch{throw Error('Previous attempt may still be running. Inspect the Sprite before retrying.')}
 await fs.writeFile(dir+'/schema.json',JSON.stringify(p.schema));
-const prompt=p.configuration.provider==='meta'?p.prompt+'\n\nReturn only one JSON object that satisfies this JSON Schema exactly:\n'+JSON.stringify(p.schema):p.prompt;
+const prompt=p.configuration.provider==='meta'?p.prompt+'\\n\\nReturn only one JSON object that satisfies this JSON Schema exactly:\\n'+JSON.stringify(p.schema):p.prompt;
 await fs.writeFile(dir+'/prompt.txt',prompt);
 const events=await fs.open(dir+'/events.jsonl','w');const errors=await fs.open(dir+'/stderr.log','w');
 function structured(text){let clean=text.trim(),fence=String.fromCharCode(96,96,96);if(clean.startsWith(fence))clean=clean.split('\\n').slice(1).join('\\n');if(clean.endsWith(fence))clean=clean.slice(0,-3).trim();try{return JSON.parse(clean)}catch{}const start=clean.indexOf('{'),end=clean.lastIndexOf('}');if(start>=0&&end>start)return JSON.parse(clean.slice(start,end+1));throw Error('Provider did not return JSON')}

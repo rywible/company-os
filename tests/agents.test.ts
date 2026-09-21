@@ -68,14 +68,15 @@ test("incomplete or malformed cached output cannot turn an execution failure int
   ).rejects.toThrow("Transport");
 });
 test("the selected provider, model and reasoning effort reach the compatible pool", async () => {
-  let selected: unknown, payload: any;
+  let selected: unknown, payload: any, runner = "";
   const instance = new SpriteAgent({
     executePayload: async (
-      _script: string,
+      script: string,
       input: unknown,
       _options: unknown,
       provider: unknown,
     ) => {
+      runner = script;
       selected = provider;
       payload = input;
       return { exitCode: 0, stdout: JSON.stringify(result), stderr: "" };
@@ -97,6 +98,12 @@ test("the selected provider, model and reasoning effort reach the compatible poo
   );
   expect(payload.prompt).toContain(
     "Write in clear, precise, natural English.",
+  );
+  expect(() =>
+    new Bun.Transpiler({ loader: "js" }).transformSync(runner),
+  ).not.toThrow();
+  expect(runner).toContain(
+    "p.prompt+'\\n\\nReturn only one JSON object that satisfies this JSON Schema exactly:\\n'",
   );
 });
 test("model selection uses exact dispatch ids and model-specific reasoning", () => {
