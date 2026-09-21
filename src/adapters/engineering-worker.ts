@@ -4,7 +4,7 @@ export async function engineeringWorker(inputPath: string) {
   const p = await Bun.file(inputPath).json();
   if (!/^[a-zA-Z0-9_-]+$/.test(p.id) ||
       !/^[\w.-]+\/[\w.-]+$/.test(p.repository) ||
-      !/^codex\/[a-zA-Z0-9_/-]+$/.test(p.branch) ||
+      (!p.reviewing && !/^codex\/[a-zA-Z0-9_/-]+$/.test(p.branch)) ||
       !/^[a-f0-9]{40}$/.test(p.base)) throw Error("Invalid engineering assignment.");
   const dir = `${p.root || "/home/sprite/company-os/engineering"}/${p.id}`;
   const cwd = `${dir}/repo`;
@@ -107,14 +107,20 @@ export async function engineeringWorker(inputPath: string) {
     try { return await json("completed.json"); } catch (e: any) { if (e.code !== "ENOENT") throw e; }
     await credentials(false);
     try { await fs.access(`${cwd}/.git`); } catch {
-      await command(["git", "clone", "--single-branch", "--branch", p.branch, "--", remote, cwd]);
+      await command(p.reviewing ? ["git", "clone", "--no-checkout", "--", remote, cwd] : ["git", "clone", "--single-branch", "--branch", p.branch, "--", remote, cwd]);
     }
     await git("config", "user.name", "Company OS");
     await git("config", "user.email", "company-os@users.noreply.github.com");
-    if (await git("branch", "--show-current") !== p.branch) throw Error("Checkout is on a different branch.");
-    await git("merge-base", "--is-ancestor", p.base, "HEAD");
-    const remoteHead = (await git("ls-remote", remote, `refs/heads/${p.branch}`)).split(/\s/)[0];
-    if (remoteHead !== p.base) throw Error("Delegated branch changed before execution.");
+    if (p.reviewing) {
+      await git("fetch", "origin", p.base);
+      await git("checkout", "--detach", p.base);
+      if (await git("rev-parse", "HEAD") !== p.base) throw Error("Review checkout does not match the assigned commit.");
+    } else {
+      if (await git("branch", "--show-current") !== p.branch) throw Error("Checkout is on a different branch.");
+      await git("merge-base", "--is-ancestor", p.base, "HEAD");
+      const remoteHead = (await git("ls-remote", remote, `refs/heads/${p.branch}`)).split(/\s/)[0];
+      if (remoteHead !== p.base) throw Error("Delegated branch changed before execution.");
+    }
     await fs.writeFile(`${dir}/prompt.txt`, p.prompt);
     await save("schema.json", p.schema);
     const stdout = await fs.open(`${dir}/events.jsonl`, "w");
@@ -151,17 +157,18 @@ export async function engineeringWorker(inputPath: string) {
     } else output = await json("result.json");
     if (!output.message || !["completed", "needs_input", "needs_execution"].includes(output.outcome))
       throw Error("Engineering agent did not return a valid outcome.");
-    if (await git("branch", "--show-current") !== p.branch) throw Error("Agent changed the delegated branch.");
+    if (!p.reviewing && await git("branch", "--show-current") !== p.branch) throw Error("Agent changed the delegated branch.");
     const head = await git("rev-parse", "HEAD");
     await git("merge-base", "--is-ancestor", p.base, head);
-    if (output.outcome === "completed" &&
+    if (!p.reviewing && output.outcome === "completed" &&
         (head === p.base || await git("status", "--porcelain")))
       throw Error("Completion requires committed changes and a clean working tree. Checkout and logs were preserved.");
+    if (p.reviewing && head !== p.base) throw Error("Reviewer changed the assigned commit.");
     const result = {
       message: output.message, outcome: output.outcome, requests: output.requests || [],
       contextRequests: output.contextRequests || [], proposals: [], work: [], changes: [], observations: [],
-      discoveries: [], discoveryAssessment: null, discoveryOutcome: null, review: null,
-      ...(output.outcome === "completed" ? { engineering: {
+      discoveries: [], discoveryAssessment: null, discoveryOutcome: null, review: p.reviewing ? output.review : null,
+      ...(!p.reviewing && output.outcome === "completed" ? { engineering: {
         runId: p.id, worker: p.worker, repository: p.repository, branch: p.branch, base: p.base, head,
       }} : {}),
     };

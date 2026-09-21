@@ -1,3 +1,4 @@
+import { OperationsMonitor } from "./operations-monitor";
 import { GitHubResearchSources } from "../adapters/research-sources";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { join, resolve } from "node:path";
@@ -53,6 +54,7 @@ const store = new Store(),
     () => !!process.env.SPRITES_TOKEN,
     Number(process.env.WORKER_CONCURRENCY || integrations.capacity || 1),
   );
+const operations = new OperationsMonitor(repository, integrations, process.env.DATABASE_PATH);
 const port = Number(process.env.PORT || 3000),
   origin = process.env.PUBLIC_ORIGIN;
 const json = (data: unknown, status = 200) =>
@@ -127,6 +129,10 @@ export const server = Bun.serve({
         store.db.query("SELECT 1").get();
         return json({ ok: true });
       }
+      if (path === "/readyz") {
+        const summary = repository.operations();
+        return json({ready:summary.alerts.length === 0}, summary.alerts.length ? 503 : 200);
+      }
       if (path.startsWith("/api/")) {
         if (!["GET", "HEAD"].includes(req.method)) {
           const requestOrigin = req.headers.get("origin");
@@ -178,19 +184,26 @@ export const server = Bun.serve({
           path !== "/api/markdown"
         )
           return json({ error: "Inspection sessions are read-only." }, 403);
-        if (path === "/api/company" && req.method === "GET")
+        if (path === "/api/company" && req.method === "GET") {
+          const state = repository.workspace(url.searchParams.get("thread") || undefined, url.searchParams.get("work") || undefined);
           return json({
-            ...repository.state(),
-            documents: repository.documents().map((d) => ({
-              ...d,
-              policy: repository.state().policies[d.id] || defaultPolicy(d),
-            })),
+            ...state,
+            documents: repository.documents().map(d => ({...d, policy:state.policies[d.id] || defaultPolicy(d)})),
             deliveryErrors: repository.deliveryErrors(),
+            operations: repository.operations(),
             configured: !!process.env.SPRITES_TOKEN,
             agentCatalog: await integrations.agentCatalog(),
             availableAgentProviders: integrations.agentProviders,
             workflows: workflowDefinitions,
           });
+        }
+        if (path === "/api/operations" && req.method === "GET") return json(repository.operations());
+        if (path === "/api/runs" && req.method === "GET") return json(repository.runPage(url.searchParams.get("before") || undefined, 50, url.searchParams.get("work") || undefined));
+        const savedRun = path.match(/^\/api\/run\/([^/]+)$/);
+        if (savedRun && req.method === "GET") {
+          const run = repository.state().runs.find(run => run.id === savedRun[1]);
+          return run ? json(run) : json({error:"Run not found"},404);
+        }
         if (path === "/api/commands" && req.method === "POST")
           return json(
             await company.execute(commandSchema.parse(await body(req))),
@@ -205,7 +218,7 @@ export const server = Bun.serve({
           );
         if (path === "/api/events" && req.method === "GET")
           return json(
-            repository.events(url.searchParams.get("entity") || undefined),
+            repository.events(url.searchParams.get("entity") || undefined, url.searchParams.has("before") ? z.coerce.number().int().positive().parse(url.searchParams.get("before")) : undefined),
           );
         const knowledge = path.match(/^\/api\/knowledge\/([^/]+)$/);
         if (knowledge && req.method === "GET") {
@@ -394,10 +407,12 @@ export const server = Bun.serve({
   },
 });
 worker.start();
+operations.start();
 console.log(`Company OS listening on port ${port}`);
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.on(signal, () => {
     worker.stop();
+    operations.stop();
     server.stop(true);
     store.close();
     process.exit(0);

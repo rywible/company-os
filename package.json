@@ -9,7 +9,9 @@
     "start": "bun src/server/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "test:ui": "bun run build && bun test ./e2e/mobile.test.ts"
+    "test:ui": "bun run build && bun test ./e2e/mobile.test.ts",
+    "postinstall": "bun scripts/prepare-dependencies.ts",
+    "verify:backup": "bun scripts/verify-backup.ts"
   },
   "dependencies": {
     "@fly/sprites": "0.2.3",

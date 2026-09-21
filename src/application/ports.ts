@@ -59,6 +59,7 @@ export interface Repository {
   deliveryErrors(): { id: string; error: string; attempts: number }[];
 }
 export interface AgentPort {
+  reviewCheckout?(runId: string, context: Context, configuration: AgentConfiguration, assigned: (worker: string) => void): Promise<AgentResult>;
   engineer?(
     runId: string,
     context: Context,
@@ -140,6 +141,7 @@ export interface PullRequestPort {
   inspect(
     repository: string,
     number: number,
+    checkout?: boolean,
   ): Promise<{ pullRequest: PullRequest; files: unknown[] }>;
   publishReview(
     pullRequest: PullRequest,

@@ -94,3 +94,14 @@ test("the publisher checks current authority before dispatch and again after wai
     await expect(engine.push(receipt, () => allowed)).rejects.toThrow("revoked"); expect(calls).toBe(1);
   } finally { if (prior === undefined) delete process.env.GITHUB_CONNECTOR_ID; else process.env.GITHUB_CONNECTOR_ID = prior; }
 });
+test("reviewers inspect a pinned local commit and run diagnostics without a publication receipt", async () => {
+  const f = await fixture();
+  const checker = `if(await Bun.file("obsolete.txt").text()!=="remove me")throw Error("Wrong snapshot");
+    const p=Bun.spawn(["git","rev-parse","HEAD"],{stdout:"pipe"});const head=(await new Response(p.stdout).text()).trim();if(head!==${JSON.stringify(f.base)})throw Error("Wrong commit");
+    await Bun.write("scratch.txt","Diagnostic scratch file");await Bun.write(process.argv[1],JSON.stringify({message:"Verified local checkout",outcome:"completed",review:{verdict:"approve",summary:"Read obsolete.txt and verified HEAD",findings:[],issues:[]}}));`;
+  const result = await f.run({reviewing:true,command:[process.execPath,"-e",checker,`${f.dir}/result.json`]});
+  expect(result.review.verdict).toBe("approve");
+  expect(result.engineering).toBeUndefined();
+  await expect(f.run({phase:"push",head:f.base})).rejects.toThrow("Publication receipt");
+  expect(await exec(["git","--git-dir",f.remote,"rev-parse","codex/delegated"],f.root)).toBe(f.base);
+});

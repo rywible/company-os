@@ -930,3 +930,18 @@ test("disabling engineering authority still allows reviews but pauses automatic 
   expect(repo.state().reviewRounds[0]!.status).toBe("approved");
   expect(repo.state().work[0]!.mergedHead).toBeUndefined();
 });
+test("the runner refills a freed worker slot while another job is still running", async () => {
+  let release!: () => void, calls = 0;
+  const gate = new Promise<void>(resolve => {release=resolve;});
+  company.agent.execute = async () => {if(++calls===1) await gate;return answer();};
+  const slow=create("Slow", "Slow");create("Fast", "Fast");
+  const third=create("Third", "Third");
+  const runner=new Runner(company,()=>true,2);
+  const first=runner.tick();
+  try {
+    for(let i=0;i<50&&calls<2;i++)await Bun.sleep(5);
+    await runner.tick();
+    expect(repo.state().runs.find(r=>r.id===third.runId)!.status).toBe("completed");
+    expect(repo.state().runs.find(r=>r.id===slow.runId)!.status).toBe("running");
+  } finally {release();await first;}
+});

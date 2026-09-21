@@ -265,7 +265,10 @@ export class DeliveryWorkflow {
       run.id,
     );
     context.acceptance.verification = verification;
-    if (github.source)
+    if (this.h.agent?.reviewCheckout) context.checkout = {
+      repository: delivery.repository, branch: delivery.branch, head: candidate.head, base: candidate.base,
+    };
+    else if (github.source)
       context.repository = await github.source(
         delivery.repository,
         candidate.head,

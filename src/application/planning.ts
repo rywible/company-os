@@ -240,7 +240,9 @@ export class Planning {
     )
       m.status = "paused";
     else if (cmd.action === "resume" && m.status === "paused") {
-      this.validate(state, m);
+      // Existing approvals keep their original allowance, including legacy
+      // plans that predate minimum-budget validation. Resume may finish a run
+      // already allocated at the limit; it does not grant more runs.
       const allocated = state.runs.filter(
         (r) => r.workId && m.workIds.includes(r.workId),
       );

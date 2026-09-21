@@ -12,7 +12,7 @@ A private workspace for steering a software company through its Foreman. The fir
 - Typed domain events, explicit workflow triggers and a transactional outbox with inspectable failures and retries.
 - Private login, mobile UI, installable PWA, SQLite volume and Litestream backups to Tigris.
 
-General engineering implementation, PR creation, merge and deployment executors are still outside the application. Linked PR review and bounded source corrections are implemented. Agent reviewers currently use the same model and GitHub account; their comments are not GitHub branch-protection approvals. Correction authority defaults off.
+Approved implementation and correction assignments run in real Git clones on leased Sprites. Workers can inspect and edit the full project, install dependencies, run checks, add assets, delete files and commit. The executor pushes the finished commit to the delegated branch. Independent reviewers and code acceptance testers receive pinned local checkouts and tools; their findings are posted to GitHub. Review comments are not GitHub branch-protection approvals. Code authority defaults off; deployment remains separate.
 
 ## Stack and architecture
 
@@ -51,7 +51,7 @@ sprite -s company-os-studio-01 exec -- codex login --device-auth
 sprite -s company-os-studio-01 exec -- codex login status
 ```
 
-Every configured Sprite has the `company-os` label. Google connector access is scoped to company Sprites and `/v1beta/models` plus `/v1beta/models/*`; GitHub access is scoped to `/user` and `rywible/company-os`. Connector IDs are configuration, not provider API keys. Subscription limits still apply; expired authentication appears as a failed run with recovery instructions.
+Every configured Sprite has the `company-os` label. Google connector access is scoped to company Sprites and `/v1beta/models` plus `/v1beta/models/*`; GitHub access is scoped to `/user`, `wrela/wrela`, and historical `rywible/company-os` work. `GITHUB_REPOSITORY` selects the managed product repository. Connector IDs are configuration, not provider API keys. Subscription limits still apply; expired authentication appears as a failed run with recovery instructions.
 
 Set `ANTHROPIC_CONNECTOR_ID` or `META_CONNECTOR_ID` to route those clients
 through Fly’s credential-injecting gateway; the application supplies only a
@@ -75,8 +75,7 @@ sprite -s <sprite> exec -- bash /home/sprite/bootstrap/provision-sprite-v1.sh
 sprite -s <sprite> exec -- bash /home/sprite/bootstrap/verify-sprite-v1.sh
 ```
 
-The baseline intentionally omits Firefox and WebKit for v1. GitHub credentials
-remain in the scoped Fly connector rather than on the Sprite filesystem.
+The baseline intentionally omits Firefox and WebKit for v1. Personal GitHub credentials remain in the scoped Fly connector. Checkout execution creates temporary repository deploy keys: read-only for the agent and write access only in the publication wrapper after the agent exits. Both are revoked on completion.
 The current validated base is `company-os-studio-base-v1` at checkpoint `v2`;
 its earlier `v1` checkpoint is superseded.
 
@@ -124,13 +123,14 @@ To verify a backup without touching the live database:
 
 ```sh
 fly ssh console --app company-os-rywible
-litestream restore -config /etc/litestream.yml -o /tmp/recovery-check.sqlite /data/company.sqlite
-sqlite3 /tmp/recovery-check.sqlite 'SELECT count(*) FROM documents; SELECT count(*) FROM events;'
+bun run verify:backup
 ```
 
 For recovery, stop the writer first and preserve any existing database plus WAL before replacing data. A new empty mounted volume will restore on startup. Don't run two writers against one backup prefix. Codex run output lives separately under `/home/sprite/company-os/v2-runs/<run-id>`; completed responses are reused on retry. If a Sprite dies with a `running` marker but no result, inspect its process/logs before removing that marker and retrying.
 
-Work exposes workflow history, runs and delivery failures; all events and revisions remain in SQLite. Multi-user permissions, workspace configuration, pagination, schema migrations, and automated backup monitoring are future work.
+Work → Operating status shows recent shipments, inbox decisions, blocked work, remaining milestone and daily automation allowances, worker authentication, and recovery checks. Waiting runs warn after five minutes, long-running jobs after 35 minutes, and pending deliveries/CI after 15 minutes. Alerts are deduplicated and retain resolution history. Worker authentication is checked every five minutes. An hourly isolated restore verifies SQLite integrity, documents, revisions, saved run payloads, and a replication heartbeat no more than ten minutes old. Failed restores retry after five minutes; a restore check older than two hours is overdue. `/healthz` remains a process/database liveness check; `/readyz` reports whether operational alerts exist without exposing private details.
+
+Historical run contexts and results live in `run_payloads`, outside the active state JSON. The workspace returns recent run summaries and summaries for the selected conversation/assignment. Full contexts load on demand; run history and workflow events have cursor pagination. Numbered, transactional `schema_migrations` record storage upgrades, and a newer unknown schema blocks an older application from opening it. Migration and restore details are in [Operations](docs/operations.md). Multi-user permissions remain future work.
 
 ## Mobile and installation
 
@@ -157,13 +157,13 @@ Worker browser inspection and correction verification require Chrome on the Spri
 
 ### Milestone planning and delegation
 
-Foreman proposes substantial assignments by role, establishing interfaces before parallel vertical streams. The dependency graph and execution details are optional expansions within each milestone. Roles expose names and capability descriptions to Foreman; provider, model and reasoning settings stay in Settings and are snapshotted when a run is queued. The initial roles are Architect, Implementer, Reviewer and Investigator.
+Foreman proposes substantial assignments by role, establishing interfaces before parallel vertical streams. The dependency graph and execution details are optional expansions within each milestone. Roles expose names and capability descriptions to Foreman; provider, model and reasoning settings stay in Settings and are snapshotted when a run is queued. The initial roles are Architect, Implementer, Reviewer, Adjudicator, Acceptance tester and Investigator.
 
 Milestone planning is a regular automation, initially scheduled every four hours with at most four runs per UTC day and a target of two proposed, active or paused milestones. Its instruction, schedule, execution profile and permissions are edited alongside all other automations under Work → Automations. A full pipeline suppresses planning until capacity opens and its cadence is due. Proposals always need explicit human approval. Run allowances include workers, reviews and failed-run retries; assignment review stops after three unsuccessful worker attempts.
 
 Triage defaults to Monday–Friday, 9am–5pm America/Denver, including daylight saving time. Availability is context for human decisions, not a worker schedule. Approved independent work continues outside those hours; a blocked assignment holds only its descendants. No unanswered proposal becomes approved automatically.
 
-This coordinates the existing analysis, browser inspection and Knowledge authoring capabilities. The Implementer role does not add a general coding executor: unavailable code execution, PR creation, merge and deployment remain explicit blockers. Linked PR correction/review retains its existing separate authority and verification requirements.
+Implementation and correction use the autonomous checkout executor. Default execution time is 30 minutes per invocation (`ENGINEERING_TIMEOUT_MS`, capped at two hours). The Sprite is the isolation boundary; the agent has full development tools inside it. Checkouts, logs and completed receipts stay under `/home/sprite/company-os/engineering/<run-id>` for recovery. Workers are pinned before dispatch so a retry can recover the same completed result. The publisher verifies branch ancestry, clean committed state, current authority and the remote head; it never force-pushes. Independent review and acceptance use separate detached checkouts at the supplied SHA. Branch protections and CI remain enforced. See [Milestone delivery](docs/delivery-workflow.md).
 
 ### Automation permissions
 

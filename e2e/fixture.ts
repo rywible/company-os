@@ -200,8 +200,9 @@ export function fixture(empty = false) {
     }
     throw Error("Fixture workflow did not settle");
   }
-  const snapshot = () => ({
-    ...repo.state(),
+  const snapshot = (thread?: string, work?: string) => ({
+    ...repo.workspace(thread, work),
+    operations:repo.operations(),
     documents: repo.documents().map((d) => ({
       ...d,
       policy: repo.state().policies[d.id] || defaultPolicy(d),

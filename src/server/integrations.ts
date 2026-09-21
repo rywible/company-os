@@ -271,6 +271,40 @@ export class Integrations {
       observedAt: new Date().toISOString(),
     };
   }
+  async repositoryHealth() {
+    const checkedAt = new Date().toISOString();
+    try {
+      if (!process.env.SPRITES_TOKEN || !process.env.GITHUB_CONNECTOR_ID) throw Error("Configure the GitHub connector and worker connection.");
+      const repository = process.env.GITHUB_REPOSITORY || "rywible/company-os";
+      const url = `${gatewayOrigin}/github/${process.env.GITHUB_CONNECTOR_ID}/repos/${repository}/keys?per_page=1`;
+      const result = await this.pool.primary.execFile("bun", ["-e", `const r=await fetch(${JSON.stringify(url)},{signal:AbortSignal.timeout(20000)});console.log(r.status);process.exit(r.ok?0:1)`], {timeout:30000});
+      if (result.exitCode !== 0) throw Error(`GitHub repository access is unavailable (${String(result.stdout).trim()}). Check organization approval for the Sprites app and deploy-key permissions.`);
+      return {status:"ok" as const,checkedAt,detail:`${repository}: repository and deploy-key access verified.`};
+    } catch (error) { return {status:"error" as const,checkedAt,detail:error instanceof Error ? error.message.slice(0,400) : "Repository access check failed."}; }
+  }
+  async workerHealth() {
+    if (!process.env.SPRITES_TOKEN) return [{name:"configuration",status:"error" as const,checkedAt:new Date().toISOString(),detail:"Configure the worker connection."}];
+    return Promise.all(this.pool.workers.map(async worker => {
+      const checkedAt = new Date().toISOString();
+      try {
+        const sprite = this.pool.sprite(worker.name);
+        for (const provider of worker.providers) {
+          if (provider === "openai") {
+            const result = await sprite.execFile("codex", ["login", "status"], {timeout:30000});
+            if (result.exitCode !== 0) throw Error("Codex authentication needs attention on this worker.");
+          } else {
+            const connector = provider === "anthropic" ? process.env.ANTHROPIC_CONNECTOR_ID : process.env.META_CONNECTOR_ID;
+            if (!connector) return {name:worker.name,status:"unknown" as const,checkedAt,detail:`${provider} subscription authentication has not been verified.`};
+            const result = await sprite.execFile("bun", ["-e", `const r=await fetch(${JSON.stringify(gatewayOrigin)}+"/${provider}/${connector}/v1/models",{signal:AbortSignal.timeout(20000)});process.exit(r.ok?0:1)`], {timeout:30000});
+            if (result.exitCode !== 0) throw Error(`${provider} connector authentication needs attention.`);
+          }
+        }
+        return {name:worker.name,status:"ok" as const,checkedAt,detail:"Worker reached; configured provider authentication verified."};
+      } catch (error) {
+        return {name:worker.name,status:"error" as const,checkedAt,detail:error instanceof Error ? error.message.slice(0,400) : "Worker could not be reached."};
+      }
+    }));
+  }
   async authStatus() {
     const r = await this.pool.use("openai", (sprite) =>
       sprite.execFile("codex", ["login", "status"], { timeout: 30000 }),

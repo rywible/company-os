@@ -324,3 +324,42 @@ test("failed CI includes repository diagnostics for the correction agent", async
   expect(result.checks[0]!.output).toContain("src/level.ts:12");
   expect(result.checks[0]!.output).toContain("The win condition never becomes true");
 });
+test("protected integration uses a PR for the tested head and keeps strict branch protections", async () => {
+  const writes: {path:string;body:any;method?:string}[]=[];
+  let strict=true, main="base", mergeCount=0, squash=false;
+  const branch=`codex/integration-12-${pr.head}-base`;
+  const gateway=async (_p:string,_c:unknown,path:string,body?:any,method?:string):Promise<any> => {
+    if(body)writes.push({path,body,method});
+    if(path === `repos/${pr.repository}/`)return {allow_merge_commit:true,allow_squash_merge:squash};
+    if(path.includes("/check-runs?"))return {check_runs:[{head_sha:"tested",name:"test",status:"completed",conclusion:"success"}]};
+    if(path.includes("/check-suites?"))return {check_suites:[]};
+    if(path.includes("/status?"))return {statuses:[]};
+    if(path.endsWith("commits/main"))return {sha:main};
+    if(path.includes("compare/"))return {status:squash && path.includes("compare/tested...") ? "diverged" : "ahead"};
+    if(path.endsWith("branches/main/protection"))return {required_status_checks:{strict},enforce_admins:{enabled:true}};
+    if(path.endsWith("git/refs/heads/main"))throw Error("Changes must be made through a pull request");
+    if(path.includes("commits/codex%2Fintegration"))return {sha:"tested"};
+    if(path.includes("/pulls?state=closed"))return [{merged_at:"now",head:{sha:"tested"},base:{ref:"main"},merge_commit_sha:"published"}];
+    if(path.includes("/pulls?"))return [];
+    if(path.endsWith("/pulls") && body)return {number:13};
+    if(path.endsWith("pulls/13/merge")){mergeCount++;main="published";return {merged:true,sha:"published"};}
+    if(path.endsWith("git/commits/published"))return {tree:{sha:"same-tree"},parents:squash?[{sha:"base"}]:[{sha:"base"},{sha:"tested"}]};
+    if(path.endsWith("git/commits/tested"))return {tree:{sha:"same-tree"}};
+    if(path.endsWith("pulls/12") || path.endsWith("pulls/13")) {
+      const integration=path.endsWith("13");
+      return {state:"open",head:{sha:integration?"tested":pr.head,ref:integration?branch:pr.branch,repo:{full_name:pr.repository}},base:{ref:"main"},html_url:pr.url};
+    }
+    throw Error(path);
+  };
+  const adapter=new GitHubPullRequests({gateway} as unknown as Integrations);
+  const candidate={pullRequest:{...pr,base:"main"},head:"tested",base:"base"};
+  strict=false;await expect(adapter.merge(candidate)).rejects.toThrow("pull request");expect(mergeCount).toBe(0);
+  strict=true;expect(await adapter.merge(candidate)).toBe("published");expect(mergeCount).toBe(1);
+  expect(writes.find(w=>w.path.endsWith("pulls/13/merge"))).toMatchObject({method:"PUT",body:{sha:"tested",merge_method:"merge"}});
+  expect(writes.filter(w=>w.path.endsWith("/protection"))).toEqual([]);
+  expect(await adapter.merge(candidate)).toBe("tested");expect(mergeCount).toBe(1);
+  main="base";squash=true;
+  expect(await adapter.merge(candidate)).toBe("published");expect(mergeCount).toBe(2);
+  expect(writes.filter(w=>w.path.endsWith("pulls/13/merge")).at(-1)!.body.merge_method).toBe("squash");
+  expect(await adapter.merge(candidate)).toBe("published");expect(mergeCount).toBe(2);
+});

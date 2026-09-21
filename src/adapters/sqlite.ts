@@ -1,3 +1,4 @@
+import { operatingSummary, type OperationalCheck } from "../application/operations";
 import { RunStorage } from "./run-storage";
 import { migrateDeliveryPolicy } from "../domain/delivery";
 import {
@@ -35,6 +36,14 @@ export class SQLiteRepository implements Repository {
    CREATE TABLE IF NOT EXISTS deliveries(id TEXT PRIMARY KEY,event_json TEXT NOT NULL,effect_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,available_at INTEGER NOT NULL DEFAULT 0,error TEXT);
    CREATE INDEX IF NOT EXISTS delivery_ready ON deliveries(status,available_at);`);
     this.runStorage = new RunStorage(store.db);
+    this.transaction(() => {
+      const latest = store.db.query("SELECT max(version) AS version FROM schema_migrations").get() as {version:number};
+      if (latest.version > 2) throw Error("Database schema is newer than this application. Restore the matching release.");
+      if (!store.db.query("SELECT 1 FROM schema_migrations WHERE version=2").get()) {
+        store.db.exec("CREATE TABLE IF NOT EXISTS operational_checks(name TEXT PRIMARY KEY,json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS operational_alerts(id TEXT PRIMARY KEY,message TEXT NOT NULL,first_seen TEXT NOT NULL,last_seen TEXT NOT NULL,resolved_at TEXT);");
+        store.db.query("INSERT INTO schema_migrations VALUES(2,?,?)").run("Operating checks and alert history", now);
+      }
+    });
     if (!store.db.query("SELECT 1 FROM company_state").get())
       this.transaction(() => {
         const state = initialState(now),
@@ -277,9 +286,31 @@ export class SQLiteRepository implements Repository {
         .run(JSON.stringify({...state, runs}));
     });
   }
-  workspace() {
+  workspace(threadId?: string, workId?: string) {
     const state = this.state();
-    return {...state, runs: state.runs.map(run => this.runStorage.summary(run))};
+    const recent = new Set(state.runs.slice(-50).map(run => run.id));
+    return {...state, runs: state.runs.filter(run => recent.has(run.id) || ["running","queued"].includes(run.status) ||
+      (threadId && run.threadId === threadId) || (workId && run.workId === workId)).map(run => this.runStorage.summary(run))};
+  }
+  recordCheck(name: string, check: OperationalCheck) {
+    this.store.db.query("INSERT INTO operational_checks VALUES(?,?) ON CONFLICT(name) DO UPDATE SET json=excluded.json").run(name, JSON.stringify(check));
+  }
+  operations(now = Date.now()) {
+    const checks = Object.fromEntries((this.store.db.query("SELECT name,json FROM operational_checks WHERE name!='replication-heartbeat'").all() as {name:string;json:string}[]).map(row => [row.name, JSON.parse(row.json)]));
+    const unresolved = new Set(this.deliveryErrors().map(error => error.id));
+    const deliveries = (this.store.db.query("SELECT id,status,error,json_extract(event_json,'$.at') AS at,json_extract(effect_json,'$.type') AS type FROM deliveries WHERE status IN ('pending','running','failed')").all() as any[]).filter(job => job.status !== "failed" || unresolved.has(job.id));
+    return operatingSummary(this.state(), deliveries, checks, now);
+  }
+  recordAlerts(now = Date.now()) {
+    const summary = this.operations(now), at = new Date(now).toISOString();
+    this.transaction(() => {
+      const current = new Set(summary.alerts.map(alert => alert.id));
+      const previous = this.store.db.query("SELECT id FROM operational_alerts WHERE resolved_at IS NULL").all() as {id:string}[];
+      for (const alert of summary.alerts) this.store.db.query(`INSERT INTO operational_alerts VALUES(?,?,?,?,NULL)
+        ON CONFLICT(id) DO UPDATE SET message=excluded.message,last_seen=excluded.last_seen,resolved_at=NULL`).run(alert.id,alert.message,at,at);
+      for (const alert of previous) if (!current.has(alert.id)) this.store.db.query("UPDATE operational_alerts SET resolved_at=? WHERE id=?").run(at,alert.id);
+    });
+    return summary;
   }
   runPage(before?: string, limit = 50, workId?: string) {
     const runs = this.state().runs.filter(run => !workId || run.workId === workId);

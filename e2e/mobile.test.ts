@@ -43,7 +43,9 @@ async function setup(
       if (path.startsWith("/api/")) {
         let data: unknown;
         if (path === "/api/session") data = { authenticated: true };
-        else if (path === "/api/company") data = f.snapshot();
+        else if (path === "/api/company") data = f.snapshot(url.searchParams.get("thread") || undefined,url.searchParams.get("work") || undefined);
+        else if (path === "/api/runs") data = f.repo.runPage(url.searchParams.get("before") || undefined);
+        else if (path.startsWith("/api/run/")) data = f.repo.state().runs.find(run => run.id === path.split("/").at(-1));
         else if (path === "/api/commands") {
           data = await f.company.execute(commandSchema.parse(await req.json()));
           await f.drain();
@@ -1617,3 +1619,21 @@ test("library documents can be deleted from their reading modal", async () => {
   expect(repo.document(document.id)).toBeUndefined();
   expect(errors).toEqual([]);
 }, 30000);
+test("operating status and paginated history load saved contexts on demand", async () => {
+  const {view,repo,company,drain,errors}=await setup("chrome",widths[1]!);
+  company.execute({type:"StartConversation",subject:"History fixture",content:"Explain the current direction"});await drain();
+  const state=repo.state(),sample=state.runs[0]!;
+  for(let i=0;i<60;i++)state.runs.push({...sample,id:`history-${i}`,context:{...sample.context!,query:`Historical briefing ${i}`}});
+  repo.save(state);
+  await view.reload();await wait(view,`!!document.querySelector('[data-workspace-ready="true"]')`);
+  await nav(view,"Work");
+  await view.evaluate(`document.querySelector('.operating-status').open=true`);
+  await button(view,"Run history");
+  await wait(view,`document.querySelector('dialog')?.textContent.includes('Older runs')`);
+  expect(await view.evaluate<number>(`document.querySelectorAll('dialog .run-row').length`)).toBe(50);
+  await button(view,"Older runs","dialog");
+  await wait(view,`document.querySelectorAll('dialog .run-row').length > 50`);
+  await button(view,"Context & evidence","dialog",false);
+  await wait(view,`document.querySelector('.context-view')?.textContent.includes('Historical briefing')`);
+  expect(errors).toEqual([]);
+},30000);

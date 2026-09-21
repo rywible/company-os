@@ -1,6 +1,7 @@
 FROM oven/bun:1.4.2-debian AS build
 WORKDIR /app
 COPY package.json bun.lock ./
+COPY scripts/prepare-dependencies.ts ./scripts/prepare-dependencies.ts
 RUN bun install --frozen-lockfile
 COPY tsconfig.json index.html ./
 COPY scripts ./scripts
@@ -15,11 +16,11 @@ RUN curl -fsSL https://github.com/benbjohnson/litestream/releases/download/v0.5.
     && tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin litestream && rm /tmp/litestream.tar.gz
 WORKDIR /app
 COPY package.json bun.lock ./
+COPY scripts/prepare-dependencies.ts ./scripts/prepare-dependencies.ts
 RUN bun install --frozen-lockfile --production
-# Bun's production install omits this SDK's bundled file: dependency.
-COPY --from=build /app/node_modules/@fly/sprites/vendor/client-signals ./node_modules/@fly/sprites/node_modules/@fly/client-signals
 COPY --from=build /app/dist ./dist
 COPY src ./src
+COPY scripts/verify-backup.ts ./scripts/verify-backup.ts
 RUN bun -e 'await import("@fly/sprites"); const { Store } = await import("./src/server/store.ts"); const db = new Store(":memory:"); db.close();'
 COPY deploy/litestream.yml /etc/litestream.yml
 COPY deploy/start.sh /app/start.sh

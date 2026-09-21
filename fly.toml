@@ -14,7 +14,7 @@ kill_timeout = "30s"
   SPRITE_NAME = "company-os-worker"
   SPRITE_POOL = "company-os-studio-01=openai,company-os-studio-02=openai,company-os-studio-03=openai"
   WORKER_CONCURRENCY = "3"
-  GITHUB_REPOSITORY = "rywible/company-os"
+  GITHUB_REPOSITORY = "wrela/wrela"
   EMBEDDING_MODEL = "gemini-embedding-001"
 
 [[mounts]]

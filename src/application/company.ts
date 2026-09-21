@@ -1299,6 +1299,7 @@ export class Company {
       const snapshot = await this.pullRequests.inspect(
         round.pullRequest.repository,
         round.pullRequest.number,
+        !!this.agent.reviewCheckout,
       );
       if (snapshot.pullRequest.head !== round.pullRequest.head) {
         this.supersede(round.id, snapshot.pullRequest.head);
@@ -1314,6 +1315,11 @@ export class Company {
       context.evidenceRefs.push(
         `github:${round.pullRequest.repository}#${round.pullRequest.number}@${round.pullRequest.head}`,
       );
+      if (this.agent.reviewCheckout && ["review", "adjudication"].includes(run.trigger)) {
+        context.checkout = { repository: round.pullRequest.repository, branch: round.pullRequest.branch,
+          head: round.pullRequest.head, base: (snapshot.files[0] as any)?.base || round.pullRequest.base,
+          worker: context.checkout?.worker };
+      }
       context.review = {
         roundId: round.id,
         reviewId: run.reviewId,
@@ -1322,7 +1328,7 @@ export class Company {
         instructions:
           run.trigger === "review"
             ? "Review this exact commit. Block only concrete correctness, security, failing-check or unmet-acceptance defects. Return structured review.issues with stable IDs, evidence, verification and status. Style and optional improvements are suggestions. In later rounds explicitly resolve or retain prior blockers, focus on fixes and regressions, and justify any newly discovered material blocker."
-            : "You are the original worker, resumed by ReviewCompleted. Address the combined findings with complete replacement source files in changes. Never claim a correction was tested; repository CI checks the published changes before integration.",
+            : "You are the original worker, resumed by ReviewCompleted. Address the combined findings in your delegated local checkout, run relevant checks, and commit the correction. Report only checks actually run; repository CI also checks the published commit before integration.",
         ...(run.trigger !== "review"
           ? {
               findings: round.reviews.flatMap((r) => r.findings),
@@ -1373,6 +1379,7 @@ export class Company {
         );
       run.context = context;
       run.status = "running";
+      run.startedAt ||= this.now();
       run.error = null;
       const w = state.work.find((w) => w.id === run!.workId);
       if (
@@ -1431,6 +1438,7 @@ export class Company {
         };
       }
     }
+    const reviewing = !!this.agent.reviewCheckout && !!context.checkout && !engineering;
     let output =
       run!.pendingOutput ||
       (engineering ? await this.agent.engineer!(
@@ -1442,6 +1450,13 @@ export class Company {
           r.context = context;
           r.executionId ||= r.id;
           this.repo.save(s);
+        }),
+      ) : reviewing ? await this.agent.reviewCheckout!(
+        run!.executionId || run!.id, context, run!.agent || state.settings.foremanAgent || defaultAgentConfiguration(),
+        worker => this.repo.transaction(() => {
+          context!.checkout!.worker = worker;
+          const s = this.repo.state(), r = s.runs.find(r => r.id === run!.id)!;
+          r.context = context; r.executionId ||= r.id; this.repo.save(s);
         }),
       ) : await this.agent.execute(
         run!.id,
@@ -2104,7 +2119,7 @@ export class Company {
   async linkPullRequest(workId: string, repository: string, number: number) {
     if (!this.pullRequests)
       throw new DomainError("GitHub review adapter is unavailable.");
-    const snapshot = await this.pullRequests.inspect(repository, number);
+    const snapshot = await this.pullRequests.inspect(repository, number, !!this.agent.reviewCheckout);
     return this.repo.transaction(() => {
       const state = this.repo.state(),
         work = state.work.find((w) => w.id === workId);
@@ -2165,6 +2180,7 @@ export class Company {
     const snapshot = await this.pullRequests.inspect(
       work.pullRequest.repository,
       work.pullRequest.number,
+      !!this.agent.reviewCheckout,
     );
     this.repo.transaction(() => {
       const state = this.repo.state();
@@ -2380,6 +2396,7 @@ export class Company {
     const snapshot = await this.pullRequests.inspect(
       round.pullRequest.repository,
       round.pullRequest.number,
+      !!this.agent.reviewCheckout,
     );
     if (snapshot.pullRequest.head !== round.pullRequest.head) {
       this.supersede(roundId, snapshot.pullRequest.head);

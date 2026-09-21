@@ -272,13 +272,17 @@ test("autonomous checkout receipts enter the complete review and acceptance work
     return receipt.head;
   };
   f.adapter.source = async () => { throw Error("A real checkout must not download a source snapshot."); };
-  // Acceptance still reads integrated source; this check only covers workers.
-  const source = f.adapter.source;
-  f.adapter.source = async (repo, ref) => ref.startsWith("merge-") ? { head: ref, files: [] } : source(repo, ref);
+  f.company.agent.reviewCheckout = async (_id, context, _configuration, assigned) => {
+    expect(context.checkout?.head).toBeTruthy();
+    assigned("review-worker");
+    return approve();
+  };
   f.start(); await f.drain();
   expect(f.repo.state().planning.milestones[0]!.status).toBe("completed");
   expect(f.actions.filter(a => a === "native-push")).toHaveLength(2);
   expect(f.actions.some(a => a.startsWith("implement:"))).toBe(false);
+  expect(f.actions.filter(a => a.startsWith("review:"))).toHaveLength(4);
+  expect(f.repo.state().runs.filter(r => ["review","acceptance"].includes(r.trigger)).every(r => r.context?.checkout?.worker === "review-worker")).toBe(true);
   expect(f.repo.state().runs.filter(r => r.result?.engineering).every(r => r.context?.implementation?.worker === "worker")).toBe(true);
 });
 test("approved DAG creates assignment PRs, reviews and merges before dependencies, then accepts the exact integrated milestone", async () => {
@@ -425,8 +429,8 @@ test("engineering requires authority and approval keeps a fixed policy while all
 
 test("an incomplete review quorum cannot spend past the milestone allowance", async () => {
   const f = fixture();
-  f.plan.maxRuns = 4;
   f.start();
+  const legacy = f.repo.state(); legacy.planning.milestones[0]!.maxRuns=4; f.repo.save(legacy); // Historical approval
   await f.drain();
   const state = f.repo.state(),
     m = state.planning.milestones[0]!;

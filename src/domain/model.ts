@@ -137,6 +137,7 @@ export type ContextEntry = {
   indexedVersion: number | null;
 };
 export type Context = {
+  checkout?: { repository: string; branch: string; head: string; base?: string; worker?: string };
   automation?: {
     milestoneSlots?: number;
     id: string;
@@ -271,6 +272,7 @@ export type BrowserEvidence = {
   errors: string[];
 };
 export type Run = {
+  startedAt?: string;
   hasContext?: boolean;
   contextSourceCount?: number;
   executionId?: string;

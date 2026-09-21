@@ -801,9 +801,24 @@ export function ContextUsed({
   markdown(s: string): React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState<Run>();
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   if (!run) return null;
-  const context = run.context;
-  if (!context) return null;
+  const full = loaded?.id === run.id ? loaded : run;
+  const context = full.context;
+  if (!context && !run.hasContext) return null;
+  async function show() {
+    setOpen(true);
+    if (context || loading) return;
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/run/" + encodeURIComponent(run!.id), {cache:"no-store"});
+      if (!response.ok) throw Error("Saved context could not be loaded. Reopen to retry.");
+      setLoaded(await response.json());
+    } catch (error) { setError(error instanceof Error ? error.message : "Context unavailable."); }
+    finally { setLoading(false); }
+  }
   function snapshot(c: Context) {
     return (
       <div className="briefing-snapshot">
@@ -896,13 +911,13 @@ export function ContextUsed({
       </div>
     );
   }
-  const sourceCount = context.documents.length;
+  const sourceCount = context?.documents.length ?? run.contextSourceCount ?? 0;
   return (
     <div className="context-used">
       <button
         className="context-used-trigger"
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => void show()}
       >
         <Layers3 size={14} aria-hidden="true" />
         Context
@@ -916,11 +931,11 @@ export function ContextUsed({
           title="Context used"
           close={() => setOpen(false)}
         >
-          {snapshot(context)}
-          {(run.contextHistory?.length || 0) > 1 && (
+          {context ? snapshot(context) : <p role={error ? "alert" : "status"}>{error || "Loading saved context…"}</p>}
+          {(full.contextHistory?.length || 0) > 1 && (
             <details className="context-history">
               <summary>Initial briefing before additional context</summary>
-              {snapshot(run.contextHistory![0]!)}
+              {snapshot(full.contextHistory![0]!)}
             </details>
           )}
         </Modal>

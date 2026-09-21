@@ -1,3 +1,5 @@
+import { OperatingStatus } from "./operations";
+import type { OperatingSummary } from "../application/operations";
 import { KnowledgeLibrary, ContextUsed } from "./library";
 import { RevisionHistory } from "./revision-history";
 import { MarkdownEditor } from "./markdown-editor";
@@ -50,6 +52,7 @@ import type {
 import type { AgentCatalog, AgentProvider } from "../domain/agents";
 type Knowledge = Document & { policy: Policy };
 type Workspace = CompanyState & {
+  operations?: OperatingSummary;
   documents: Knowledge[];
   configured: boolean;
   agentCatalog: AgentCatalog;
@@ -339,6 +342,29 @@ function App() {
       null,
     ),
     [history, setHistory] = useState<any[] | null>(null);
+  const [runHistory, setRunHistory] = useState<{runs:Run[];nextCursor:string|null} | null>(null);
+  const [historyBusy,setHistoryBusy] = useState(false);
+  async function loadRuns(before?: string) {
+    setHistoryBusy(true);
+    try {
+      const page = await api<{runs:Run[];nextCursor:string|null}>("/runs" + (before ? "?before=" + encodeURIComponent(before) : ""));
+      setRunHistory(old => ({...page,runs:before && old ? [...old.runs,...page.runs] : page.runs}));
+    } catch (error) { setError(error instanceof Error ? error.message : "History unavailable."); }
+    finally { setHistoryBusy(false); }
+  }
+  async function inspectRun(run: Run) {
+    try { setContext(run.context || (await api<Run>("/run/" + encodeURIComponent(run.id))).context); }
+    catch (error) { setError(error instanceof Error ? error.message : "Context unavailable."); }
+  }
+  const [eventEntity,setEventEntity] = useState("");
+  const [eventsMore,setEventsMore] = useState(false);
+  async function loadEvents(entity: string, before?: number) {
+    try {
+      const page = await api<any[]>("/events?" + new URLSearchParams({entity,...(before ? {before:String(before)} : {})}));
+      setEventEntity(entity);setEventsMore(page.length===100);
+      setHistory(old => before && old ? [...old,...page] : page);
+    } catch (error) {setError(error instanceof Error ? error.message : "History unavailable.");}
+  }
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const currentThread = state?.threads.find((t) => t.id === threadId),
     currentDoc = state?.documents.find((d) => d.level === "constitution"),
@@ -355,7 +381,7 @@ function App() {
         "knowledge" && !state.library.pages[id],
     );
   const refresh = async () => {
-    setState(await api<Workspace>("/company"));
+    setState(await api<Workspace>("/company?" + new URLSearchParams({...(threadId ? {thread:threadId} : {}), ...(selectedWork ? {work:selectedWork} : {})})));
     setStale(false);
   };
   useEffect(() => {
@@ -390,7 +416,7 @@ function App() {
       clearInterval(timer);
       window.removeEventListener("online", sync);
     };
-  }, [session, foremanResponding]);
+  }, [session, foremanResponding, threadId, selectedWork]);
   useEffect(() => {
     const sync = () => {
       const next = route(location.hash.slice(1));
@@ -689,6 +715,7 @@ function App() {
             </button>
           </div>
         )}
+        {!!state?.operations?.alerts.length && page !== "Work" && <button className="operations-notice" onClick={() => navigate("Work")}>Operating status: {state.operations.alerts.length} need attention</button>}
         {readOnly && <p className="inspection-notice">Read-only inspection</p>}
         {!state ? (
           <p className="loading">Loading workspace…</p>
@@ -717,6 +744,7 @@ function App() {
                 ))}
               </div>
             )}
+            {page === "Work" && state.operations && <OperatingStatus summary={state.operations} history={() => void loadRuns()} />}
             {page === "Work" && inboxView === "milestones" && (
               <MilestonesPage
                 state={state}
@@ -1383,7 +1411,7 @@ function App() {
                       )}
                       <button
                         onClick={() =>
-                          void api("/events?entity=" + work.id).then(setHistory)
+                          void loadEvents(work.id)
                         }
                       >
                         Workflow history
@@ -1395,7 +1423,7 @@ function App() {
                         <RunRow
                           key={r.id}
                           run={r}
-                          inspect={() => setContext(r.context)}
+                          inspect={() => void inspectRun(r)}
                           retry={() =>
                             void perform(async () => {
                               await act({ type: "RetryRun", runId: r.id });
@@ -1457,7 +1485,7 @@ function App() {
                     <RunRow
                       key={r.id}
                       run={r}
-                      inspect={() => setContext(r.context)}
+                      inspect={() => void inspectRun(r)}
                       retry={() =>
                         void perform(async () => {
                           await act({ type: "RetryRun", runId: r.id });
@@ -1976,6 +2004,11 @@ function App() {
           <ContextView context={context} />
         </Modal>
       )}
+      {runHistory && <Modal title="Run history" close={() => setRunHistory(null)}>
+        {runHistory.runs.map(run => <RunRow key={run.id} run={run} inspect={() => void inspectRun(run)} retry={() => void perform(async () => { await act({type:"RetryRun",runId:run.id}); })} />)}
+        {!runHistory.runs.length && <p>No runs recorded.</p>}
+        {runHistory.nextCursor && <button disabled={historyBusy} onClick={() => void loadRuns(runHistory.nextCursor!)}>{historyBusy ? "Loading…" : "Older runs"}</button>}
+      </Modal>}
       {history && (
         <Modal title="Workflow history" close={() => setHistory(null)}>
           {history.length ? (
@@ -1990,6 +2023,7 @@ function App() {
           ) : (
             <p>No events yet.</p>
           )}
+          {eventsMore && <button onClick={() => void loadEvents(eventEntity,history.at(-1)?.sequence)}>Older events</button>}
         </Modal>
       )}
     </div>
@@ -2043,6 +2077,17 @@ function RunRow({
   inspect: () => void;
   retry: () => void;
 }) {
+  const [saved,setSaved] = useState<Run>();
+  const [resultError,setResultError] = useState("");
+  const [loading,setLoading] = useState(false);
+  const result = saved?.result || run.result;
+  async function loadResult() {
+    if(saved || loading || !run.hasContext) return;
+    setLoading(true);setResultError("");
+    try {setSaved(await api<Run>("/run/" + encodeURIComponent(run.id)));}
+    catch(error) {setResultError(error instanceof Error ? error.message : "Saved result unavailable.");}
+    finally {setLoading(false);}
+  }
   return (
     <div className="run-row">
       <span>{run.trigger}</span>
@@ -2051,13 +2096,15 @@ function RunRow({
         {run.status}
       </span>
       <time>{date(run.createdAt)}</time>
-      {run.context && <button onClick={inspect}>Context & evidence</button>}
+      {(run.context || run.hasContext) && <button onClick={inspect}>Context & evidence</button>}
       {run.status === "failed" && <button onClick={retry}>Retry</button>}
-      {run.result && (
-        <details className="run-result">
+      {result && (
+        <details className="run-result" onToggle={e => {if(e.currentTarget.open) void loadResult();}}>
           <summary>Worker result</summary>
-          <Markdown>{run.result.message}</Markdown>
-          {run.result.changes.map((f) => (
+          {resultError && <p role="alert">{resultError}</p>}
+          {loading && <p>Loading full result…</p>}
+          <Markdown>{result.message}</Markdown>
+          {result.changes.map((f) => (
             <details key={f.path}>
               <summary>{f.path}</summary>
               <pre>{f.content}</pre>

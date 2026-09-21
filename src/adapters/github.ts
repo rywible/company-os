@@ -44,11 +44,16 @@ export class GitHubPullRequests implements PullRequestPort {
       description: String(p.body || "").slice(0, 12000),
     };
   }
-  async inspect(repo: string, number: number) {
+  async inspect(repo: string, number: number, checkout = false) {
     const p = await this.request(repo, `pulls/${number}`);
     if (p.state !== "open") throw Error("Pull request is not open.");
     if (p.head.repo?.full_name !== repo)
       throw Error("Only same-repository branches can enter autonomous review.");
+    if (checkout) return {
+      pullRequest: { repository: repo, number, head: p.head.sha, branch: p.head.ref,
+        url: p.html_url, base: p.base?.ref, description: String(p.body || "").slice(0, 12000) },
+      files: [{ source: "local-checkout", head: p.head.sha, base: p.base.sha }],
+    };
     if (p.changed_files > 100)
       throw Error(
         "PR exceeds the 100-file review limit. Split the work before review.",
@@ -506,6 +511,64 @@ export class GitHubPullRequests implements PullRequestPort {
       checks,
     };
   }
+  private async protectedMerge(candidate: IntegrationCandidate, originalError: unknown) {
+    const pr = candidate.pullRequest;
+    let protection: any;
+    try { protection = await this.request(pr.repository, `branches/${encodeURIComponent(pr.base!)}/protection`); }
+    catch { throw originalError; }
+    // GitHub's atomic merge must enforce an up-to-date tested head, including
+    // for the connector's administrator identity. Never weaken protection.
+    if (!protection.required_status_checks?.strict || !protection.enforce_admins?.enabled)
+      throw originalError;
+    const branch = `codex/integration-${pr.number}-${pr.head}-${candidate.base}`;
+    if (await this.branchHead(pr.repository, branch) !== candidate.head)
+      throw new IntegrationChanged("Tested integration branch changed before protected merge.");
+    const integration = await this.open(pr.repository, branch, pr.base!, `Integrate PR #${pr.number}`,
+      `Publish tested integration commit ${candidate.head} from ${pr.url}.\n\nCompany OS completed independent review and repository CI. GitHub must enforce all target branch protections.`);
+    if (integration.head !== candidate.head || integration.base !== pr.base)
+      throw new IntegrationChanged("Protected integration PR changed.");
+    const current = await this.request(pr.repository, `commits/${encodeURIComponent(pr.base!)}`);
+    if (current.sha !== candidate.base) throw new IntegrationChanged("Target advanced before protected merge.");
+    const repository = await this.request(pr.repository, "");
+    const method = repository.allow_squash_merge ? "squash" : repository.allow_merge_commit !== false ? "merge" : null;
+    if (!method) throw Error("Protected integration requires merge or squash merging enabled by the repository.");
+    let merged: any;
+    try {
+      merged = await this.request(pr.repository, `pulls/${integration.number}/merge`,
+        {sha:candidate.head,merge_method:method}, "PUT");
+    } catch (error) {
+      const latest = await this.request(pr.repository, `commits/${encodeURIComponent(pr.base!)}`);
+      if (latest.sha !== candidate.base) throw new IntegrationChanged("Target changed during protected merge; recheck integration.");
+      throw new ChecksPending(`Protected integration PR ${integration.url} is waiting for required checks or approvals. ${error instanceof Error ? error.message : "GitHub rejected the merge."}`);
+    }
+    if (!merged.merged) throw new ChecksPending(`GitHub has not merged ${integration.url}.`);
+    const [published, tested] = await Promise.all([
+      this.request(pr.repository, `git/commits/${merged.sha}`),
+      this.request(pr.repository, `git/commits/${candidate.head}`),
+    ]);
+    if (published.tree.sha !== tested.tree.sha || published.parents[0]?.sha !== candidate.base ||
+        (method === "merge" && !published.parents.some((parent:any) => parent.sha === candidate.head)))
+      throw Error("Protected merge did not preserve the tested tree and commit. Inspect GitHub before continuing.");
+    // Squash repositories publish a new commit with the identical tested tree.
+    // Close the superseded source PR; the integration PR records the merge.
+    if (method === "squash") await this.request(pr.repository, `pulls/${pr.number}`, {state:"closed"}, "PATCH");
+    return merged.sha;
+  }
+  private async recoveredProtectedMerge(candidate: IntegrationCandidate, target: string): Promise<string | undefined> {
+    const pr = candidate.pullRequest, branch = `codex/integration-${pr.number}-${pr.head}-${candidate.base}`;
+    const closed = await this.request(pr.repository, `pulls?state=closed&head=${encodeURIComponent(pr.repository.split("/")[0] + ":" + branch)}&base=${encodeURIComponent(pr.base!)}&per_page=100`);
+    const merged = closed.find((p:any) => p.merged_at && p.head.sha === candidate.head && p.base.ref === pr.base);
+    if (!merged) return;
+    const [commit, tested, comparison] = await Promise.all([
+      this.request(pr.repository, `git/commits/${merged.merge_commit_sha}`),
+      this.request(pr.repository, `git/commits/${candidate.head}`),
+      this.request(pr.repository, `compare/${merged.merge_commit_sha}...${target}`),
+    ]);
+    if (commit.tree.sha === tested.tree.sha && commit.parents[0]?.sha === candidate.base && ["ahead","identical"].includes(comparison.status)) {
+      await this.request(pr.repository, `pulls/${pr.number}`, {state:"closed"}, "PATCH");
+      return merged.merge_commit_sha;
+    }
+  }
   async merge(candidate: IntegrationCandidate) {
     const pr = candidate.pullRequest;
     if (!pr.base) throw Error("PR target is missing.");
@@ -521,6 +584,8 @@ export class GitHubPullRequests implements PullRequestPort {
       );
       if (["ahead", "identical"].includes(comparison.status))
         return candidate.head;
+      const recovered = await this.recoveredProtectedMerge(candidate, base.sha).catch(() => undefined);
+      if (recovered) return recovered;
       throw new IntegrationChanged(
         "Integration target advanced; a new candidate must be tested.",
       );
@@ -561,7 +626,7 @@ export class GitHubPullRequests implements PullRequestPort {
         throw new IntegrationChanged(
           "Integration target changed during merge.",
         );
-      throw error;
+      return this.protectedMerge(candidate, error);
     }
     return candidate.head;
   }

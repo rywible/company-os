@@ -501,9 +501,10 @@ test("Foreman cannot bypass milestone approval through the legacy work output", 
 test("a pause can resume its final already-allocated review at the run limit", async () => {
   const p = plan();
   p.assignments = p.assignments.slice(0, 1);
-  p.maxRuns = 2;
+  p.maxRuns = 3;
   const m = propose(p);
   decide(m.id, "approve");
+  const legacy = repo.state(); legacy.planning.milestones[0]!.maxRuns=2; repo.save(legacy); // Historical approval
   for (let i = 0; i < 30 && repo.state().runs.length < 2; i++) {
     const job = repo.claim()!;
     await company.deliver(job);
@@ -831,4 +832,13 @@ test("automation milestone capacity is enforced on the whole result without part
   company.execute({ type: "ExploreDiscovery", lensId: task.id });
   await expect(drain()).rejects.toThrow("upcoming milestone limit");
   expect(repo.state().planning.milestones).toHaveLength(0);
+});
+
+test("planning includes the configured review quorum and milestone acceptance in the minimum allowance", () => {
+  const p=plan();p.assignments=[{...p.assignments[0]!,mode:"implementation"}];p.maxRuns=2;
+  expect(()=>validatePlan(p,initialRoles())).toThrow("at least 4 runs");
+  p.maxRuns=4;expect(()=>validatePlan(p,initialRoles())).not.toThrow();
+  expect(()=>validatePlan(p,initialRoles(),3)).toThrow("at least 5 runs");
+  const m=propose(p), state=repo.state();state.settings.requiredReviews=3;repo.save(state);
+  expect(()=>decide(m.id,"approve")).toThrow("at least 5 runs");
 });

@@ -831,3 +831,8 @@ details[open] > summary { margin-bottom: 10px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.operating-status { margin: 12px 0 24px; padding: 12px 0; border-block: 1px solid var(--border, #ddd); overflow-wrap: anywhere; }
+.operating-status summary { cursor: pointer; min-height: 44px; align-content: center; }
+.operating-status time { display: block; font-size: .85em; opacity: .7; }
+.operations-notice { margin: 8px 16px; text-align: left; }
