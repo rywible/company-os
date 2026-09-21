@@ -172,7 +172,11 @@ export function triageAvailable(
     time < availability.end
   );
 }
-export function validatePlan(plan: MilestonePlan, roles: AgentRole[]): void {
+export function minimumPlanRuns(plan: MilestonePlan, requiredReviews = 2): number {
+  return plan.assignments.reduce((sum, assignment) =>
+    sum + 1 + (assignment.mode === "implementation" ? requiredReviews : 1), 0) + 1;
+}
+export function validatePlan(plan: MilestonePlan, roles: AgentRole[], requiredReviews = 2): void {
   const byKey = new Map(plan.assignments.map((a) => [a.key, a]));
   if (byKey.size !== plan.assignments.length)
     throw Error("Assignment keys must be unique.");
@@ -199,8 +203,11 @@ export function validatePlan(plan: MilestonePlan, roles: AgentRole[]): void {
   plan.assignments.forEach((a) => visit(a.key));
   if (!roles.some((r) => r.id === "reviewer" && r.enabled))
     throw Error("Enable the Reviewer role before planning work.");
-  if (plan.maxRuns < plan.assignments.length * 2)
-    throw Error("Allow at least one worker run and one review per assignment.");
+  if (!roles.some((r) => r.id === "acceptance" && r.enabled))
+    throw Error("Enable the Acceptance tester role before planning work.");
+  const minimum = minimumPlanRuns(plan, requiredReviews);
+  if (plan.maxRuns < minimum)
+    throw Error(`Allow at least ${minimum} runs for implementation, required reviews, and milestone acceptance. Corrections need additional runs.`);
 }
 export const planningCommands = [
   z.object({ type: z.literal("SaveRole"), role: roleSchema }),

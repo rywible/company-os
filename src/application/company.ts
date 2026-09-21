@@ -63,6 +63,7 @@ export class Company {
     this.deliveryWorkflow = new DeliveryWorkflow({
       repo: this.repo,
       github: this.pullRequests,
+      agent: this.agent,
       id: () => this.ids.next(),
       now: () => this.now(),
       emit: (...args) => this.emit(...args),
@@ -1250,9 +1251,11 @@ export class Company {
         );
       }
       try {
+        if (!(this.agent.engineer && (work?.mode === "implementation" || run.trigger === "revision"))) {
         context.repository = await this.agent.repository();
         const ref = (context.repository as { ref?: string })?.ref;
         if (ref) context.evidenceRefs.push(ref);
+        }
       } catch (e) {
         context.repositoryError =
           e instanceof Error ? e.message : "Repository unavailable";
@@ -1398,9 +1401,34 @@ export class Company {
       r.contextHistory ||= [structuredClone(context!)];
       this.repo.save(s);
     });
+    const engineering = !!this.agent.engineer && (
+      (run!.trigger === "work" && work?.mode === "implementation") ||
+      (run!.trigger === "revision" && !!context.review && !context.review.approved)
+    );
+    if (engineering) {
+      if (!this.repo.state().settings.allowCodeChanges)
+        throw new Deferred("Engineering authority is paused.");
+      if (run!.trigger === "revision") {
+        const pr = context.review!.pullRequest;
+        context.implementation = {
+          repository: pr.repository, branch: pr.branch, head: pr.head, files: [],
+          worker: context.implementation?.worker,
+        };
+      }
+    }
     let output =
       run!.pendingOutput ||
-      (await this.agent.execute(
+      (engineering ? await this.agent.engineer!(
+        run!.executionId || run!.id, context, run!.agent || state.settings.foremanAgent || defaultAgentConfiguration(),
+        (worker) => this.repo.transaction(() => {
+          context!.implementation!.worker = worker;
+          const s = this.repo.state();
+          const r = s.runs.find((r) => r.id === run!.id)!;
+          r.context = context;
+          r.executionId ||= r.id;
+          this.repo.save(s);
+        }),
+      ) : await this.agent.execute(
         run!.id,
         context,
         run!.trigger === "heartbeat",
@@ -1408,6 +1436,8 @@ export class Company {
           state.settings.foremanAgent ||
           defaultAgentConfiguration(),
       ));
+    if (output.engineering && !engineering)
+      throw new DomainError("Only the engineering executor can supply a checkout receipt.");
     if (output.contextRequests?.length) {
       const requests = output.contextRequests.slice(0, 3);
       const savedExpansion = this.repo
@@ -1586,7 +1616,7 @@ export class Company {
         "cancelled"
     )
       return this.complete(run!.id, output, delivery.event.id);
-    if (run!.trigger === "revision" && output.changes.length) {
+    if (run!.trigger === "revision" && (output.changes.length || output.engineering)) {
       const latestState = this.repo.state();
       const milestone = latestState.planning.milestones.find(
         (m) => m.id === work?.milestoneId,
@@ -1608,11 +1638,7 @@ export class Company {
           throw new DomainError("PR publishing is unavailable.");
         let updated: import("../domain/model").PullRequest;
         try {
-          updated = await this.pullRequests.revise(
-            context.review!.pullRequest,
-            run!.executionId || run!.id,
-            output.changes,
-            () => {
+          const authorize = () => {
               const s = this.repo.state();
               return (
                 s.settings.allowCodeChanges &&
@@ -1621,7 +1647,18 @@ export class Company {
                     ?.status === "active") &&
                 s.work.find((w) => w.id === work!.id)?.status !== "cancelled"
               );
-            },
+          };
+          if (output.engineering) {
+            const receipt = output.engineering, pr = context.review!.pullRequest;
+            if (!this.agent.pushEngineering || receipt.repository !== pr.repository ||
+                receipt.branch !== pr.branch || receipt.base !== pr.head)
+              throw new DomainError("Correction receipt does not match the reviewed branch.");
+            const head = await this.agent.pushEngineering(receipt, authorize);
+            updated = await this.pullRequests.head(pr.repository, pr.number);
+            if (updated.head !== head || updated.branch !== pr.branch || updated.base !== pr.base)
+              throw new DomainError("Published correction does not match the reviewed PR.");
+          } else updated = await this.pullRequests.revise(
+            context.review!.pullRequest, run!.executionId || run!.id, output.changes, authorize,
           );
         } catch (error) {
           if (!(error instanceof VerificationFailed)) throw error;
@@ -1640,7 +1677,7 @@ export class Company {
         });
         output.outcome = "completed";
         output.message +=
-          "\n\nCorrections passed the configured engineering checks and were pushed to " +
+          "\n\nCorrections were pushed for repository CI and independent review at " +
           updated.head;
       }
     }

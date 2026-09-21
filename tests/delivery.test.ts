@@ -54,6 +54,7 @@ function fixture() {
     losePublication = false;
   const verificationResults = new Map<string, boolean>();
   const adapter: Required<PullRequestPort> = {
+    branchHead: async (_repo, branch) => branches.get(branch)!,
     ensureBranch: async (_repo, branch, from) => {
       if (!branches.has(branch)) {
         branches.set(branch, branches.get(from) || from);
@@ -254,6 +255,32 @@ function fixture() {
     },
   };
 }
+test("autonomous checkout receipts enter the complete review and acceptance workflow without replacement files", async () => {
+  const f = fixture();
+  f.company.agent.engineer = async (id, context, _profile, assigned) => {
+    assigned("worker");
+    expect(context.implementation!.files).toEqual([]);
+    return answer({ engineering: {
+      runId: id, worker: "worker", repository: context.implementation!.repository,
+      branch: context.implementation!.branch, base: context.implementation!.head, head: `native-${id}`,
+    }});
+  };
+  f.company.agent.pushEngineering = async (receipt, authorize) => {
+    expect(authorize()).toBe(true);
+    f.branches.set(receipt.branch, receipt.head);
+    f.actions.push("native-push");
+    return receipt.head;
+  };
+  f.adapter.source = async () => { throw Error("A real checkout must not download a source snapshot."); };
+  // Acceptance still reads integrated source; this check only covers workers.
+  const source = f.adapter.source;
+  f.adapter.source = async (repo, ref) => ref.startsWith("merge-") ? { head: ref, files: [] } : source(repo, ref);
+  f.start(); await f.drain();
+  expect(f.repo.state().planning.milestones[0]!.status).toBe("completed");
+  expect(f.actions.filter(a => a === "native-push")).toHaveLength(2);
+  expect(f.actions.some(a => a.startsWith("implement:"))).toBe(false);
+  expect(f.repo.state().runs.filter(r => r.result?.engineering).every(r => r.context?.implementation?.worker === "worker")).toBe(true);
+});
 test("approved DAG creates assignment PRs, reviews and merges before dependencies, then accepts the exact integrated milestone", async () => {
   const f = fixture();
   f.start();

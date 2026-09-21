@@ -160,10 +160,12 @@ export class Integrations {
     },
     provider?: AgentProvider,
     preferred?: string,
+    assigned?: (worker: string) => void,
   ) {
     return this.pool.use(
       provider,
       async (sprite, spriteName) => {
+        assigned?.(spriteName);
         const fs = sprite.filesystem("/home/sprite/company-os");
         await fs.mkdir("inputs", { recursive: true });
         const path =

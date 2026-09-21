@@ -59,6 +59,16 @@ export interface Repository {
   deliveryErrors(): { id: string; error: string; attempts: number }[];
 }
 export interface AgentPort {
+  engineer?(
+    runId: string,
+    context: Context,
+    configuration: AgentConfiguration,
+    assigned: (worker: string) => void,
+  ): Promise<AgentResult>;
+  pushEngineering?(
+    receipt: NonNullable<AgentResult["engineering"]>,
+    authorize: () => boolean,
+  ): Promise<string>;
   execute(
     runId: string,
     context: Context,
@@ -89,6 +99,7 @@ export interface Ids {
 }
 
 export interface PullRequestPort {
+  branchHead?(repository: string, branch: string): Promise<string>;
   ensureBranch?(
     repository: string,
     branch: string,

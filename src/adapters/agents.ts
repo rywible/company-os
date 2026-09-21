@@ -7,6 +7,7 @@ import {
 } from "../domain/model";
 import type { AgentPort, EmbeddingPort } from "../application/ports";
 import { Integrations, model } from "../server/integrations";
+import { SpriteEngineering } from "./engineering";
 import {
   defaultAgentConfiguration,
   type AgentConfiguration,
@@ -214,7 +215,7 @@ Before returning prose, silently check:
 * Does the prose sound natural when read aloud?`;
 // Local parsing accepts older stored results; the provider's strict schema requires every property.
 export function agentOutputSchema() {
-  const schema = z.toJSONSchema(agentResultSchema);
+  const schema = z.toJSONSchema(agentResultSchema.omit({ engineering: true }));
   function requiredFields(node: any) {
     if (!node || typeof node !== "object") return;
     if (node.type === "object" && node.properties)
@@ -230,6 +231,12 @@ export function agentOutputSchema() {
 export class SpriteAgent implements AgentPort, EmbeddingPort {
   model = model;
   constructor(public integrations: Integrations) {}
+  engineer(runId: string, context: Context, configuration: AgentConfiguration, assigned: (worker: string) => void) {
+    return new SpriteEngineering(this.integrations).run(runId, context, configuration, assigned);
+  }
+  pushEngineering(receipt: NonNullable<AgentResult["engineering"]>, authorize: () => boolean) {
+    return new SpriteEngineering(this.integrations).push(receipt, authorize);
+  }
   embed(text: string, task: "RETRIEVAL_QUERY" | "RETRIEVAL_DOCUMENT") {
     return this.integrations.embed(text, task);
   }

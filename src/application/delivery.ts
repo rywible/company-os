@@ -15,10 +15,11 @@ import {
   milestoneCriteria,
 } from "../domain/delivery";
 import type { DomainEvent, EventInput } from "../domain/events";
-import type { PullRequestPort, Repository } from "./ports";
+import type { AgentPort, PullRequestPort, Repository } from "./ports";
 type Hooks = {
   repo: Repository;
   github?: PullRequestPort;
+  agent?: AgentPort;
   id(): string;
   now(): string;
   run(state: CompanyState, input: Pick<Run, "trigger" | "workId">): Run;
@@ -77,8 +78,16 @@ export class DeliveryWorkflow {
   }
   async implementationContext(work: Work, context: Context) {
     const m = this.milestone(this.h.repo.state(), work);
-    if (!m?.delivery || !work.branch || !this.h.github?.source)
+    if (!m?.delivery || !work.branch)
       throw new DomainError("Assignment checkout is unavailable.");
+    if (this.h.agent?.engineer) {
+      context.implementation = {
+        repository: m.delivery.repository, branch: work.branch, head: work.branchHead!, files: [],
+      };
+      context.repository = context.implementation;
+      return;
+    }
+    if (!this.h.github?.source) throw new DomainError("Assignment checkout is unavailable.");
     const source = await this.h.github.source(
       m.delivery.repository,
       work.branchHead!,
@@ -97,28 +106,39 @@ export class DeliveryWorkflow {
       github = this.h.github;
     if (m?.status !== "active" || !state.settings.allowCodeChanges)
       throw new DomainError("Engineering authority is paused.");
-    if (!m.delivery || !current.branch || !github?.implement || !github.open)
+    if (!m.delivery || !current.branch || !github?.open)
       throw new DomainError("Engineering publisher unavailable.");
-    if (!output.changes.length)
+    if (!output.engineering && !output.changes.length)
       throw new DomainError(
         "Implementation completion requires actual changes and a GitHub PR.",
       );
-    const head = await github.implement(
+    const authorize = () => {
+      const s = this.h.repo.state();
+      return s.settings.allowCodeChanges &&
+        s.planning.milestones.find((n) => n.id === m.id)?.status === "active" &&
+        s.work.find((w) => w.id === work.id)?.status !== "cancelled";
+    };
+    let head: string;
+    if (output.engineering) {
+      const receipt = output.engineering;
+      if (!this.h.agent?.pushEngineering || receipt.repository !== m.delivery.repository ||
+          receipt.branch !== current.branch || receipt.base !== run.context!.implementation!.head)
+        throw new DomainError("Engineering receipt does not match the delegated assignment.");
+      head = await this.h.agent.pushEngineering(receipt, authorize);
+      if (!github.branchHead || await github.branchHead(receipt.repository, receipt.branch) !== head)
+        throw new DomainError("GitHub does not match the published engineering commit.");
+    } else {
+      // Compatibility for already-saved replacement-file outputs.
+      if (!github.implement) throw new DomainError("Legacy engineering publisher unavailable.");
+      head = await github.implement(
       m.delivery.repository,
       current.branch,
       run.context!.implementation!.head,
       run.executionId || run.id,
       output.changes,
-      () => {
-        const s = this.h.repo.state();
-        return (
-          s.settings.allowCodeChanges &&
-          s.planning.milestones.find((n) => n.id === m.id)?.status ===
-            "active" &&
-          s.work.find((w) => w.id === work.id)?.status !== "cancelled"
-        );
-      },
+      authorize,
     );
+    }
     const pr = await github.open(
       m.delivery.repository,
       current.branch,

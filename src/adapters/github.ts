@@ -9,6 +9,10 @@ import type { PullRequest } from "../domain/model";
 import { Integrations } from "../server/integrations";
 export class GitHubPullRequests implements PullRequestPort {
   constructor(private integrations: Integrations) {}
+  async branchHead(repository: string, branch: string) {
+    const commit = await this.request(repository, `commits/${encodeURIComponent(branch)}`);
+    return String(commit.sha);
+  }
   private check(repo: string) {
     if (repo !== (process.env.GITHUB_REPOSITORY || "rywible/company-os"))
       throw Error("Repository is outside the configured connector scope.");
@@ -56,19 +60,26 @@ export class GitHubPullRequests implements PullRequestPort {
       files = [];
     let total = 0;
     for (const f of changed) {
-      if (!f.patch)
-        throw Error(
-          "Review diff unavailable for " +
-            f.filename +
-            ". A partial review cannot approve this PR.",
-        );
+      const blob = f.status !== "removed" || !f.patch
+        ? await this.request(repo, `git/blobs/${f.sha}`) : undefined;
+      let content: string | undefined, binary = false;
+      if (blob) {
+        const bytes = Buffer.from(blob.content, "base64");
+        try { content = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+        catch { binary = true; }
+        binary ||= bytes.includes(0);
+      }
+      // GitHub omits binary patches and unchanged-content renames. Record those
+      // explicitly; missing/truncated text diffs still fail closed.
+      if (!f.patch && !binary && (f.additions || f.deletions || f.status === "modified"))
+        throw Error("Review diff unavailable for " + f.filename + ". A partial review cannot approve this PR.");
       const patchLines = String(f.patch).split("\n");
-      if (
+      if (f.patch && (
         patchLines.filter((line: string) => line.startsWith("+")).length !==
           f.additions ||
         patchLines.filter((line: string) => line.startsWith("-")).length !==
           f.deletions
-      )
+      ))
         throw Error("Incomplete review diff for " + f.filename);
       const file: any = {
         path: f.filename,
@@ -76,17 +87,17 @@ export class GitHubPullRequests implements PullRequestPort {
         additions: f.additions,
         deletions: f.deletions,
         patch: f.patch,
+        previousPath: f.previous_filename,
+        sha: f.sha,
+        ...(binary ? { binary: true, size: blob.size,
+          evidence: "Binary identity and size only. Require recorded tests/playtest evidence; visual/audio contents have not been inspected." } : {}),
       };
-      if (
-        f.status !== "removed" &&
-        /^(src|tests|e2e)\/.*\.(ts|tsx|css)$/.test(f.filename)
-      ) {
-        const blob = await this.request(repo, `git/blobs/${f.sha}`);
+      if (f.status !== "removed" && !binary && blob) {
         if (blob.size > 100000)
           throw Error(
             "Review source exceeds the per-file limit: " + f.filename,
           );
-        file.content = Buffer.from(blob.content, "base64").toString();
+        file.content = content;
       }
       total += JSON.stringify(file).length;
       if (total > 320000)

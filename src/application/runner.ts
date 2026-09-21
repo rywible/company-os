@@ -8,6 +8,7 @@ export class Runner {
   private inFlight = 0;
   private claiming = false;
   private polledAt = 0;
+  private polling?: Promise<void>;
   constructor(
     private company: Company,
     private enabled: () => boolean,
@@ -31,7 +32,9 @@ export class Runner {
     try {
       if (Date.now() - this.polledAt > 60000) {
         this.polledAt = Date.now();
-        await this.company.pollPullRequests();
+        if (!this.polling) this.polling = this.company.pollPullRequests()
+          .catch((error) => console.error("Pull request polling:", error))
+          .finally(() => { this.polling = undefined; });
       }
       this.company.heartbeat();
       while (this.inFlight < Math.max(1, this.concurrency)) {
@@ -44,10 +47,10 @@ export class Runner {
           }),
         );
       }
-      await Promise.all(work);
     } finally {
       this.claiming = false;
     }
+    await Promise.all(work);
   }
   private async process(
     job: NonNullable<ReturnType<Company["repo"]["claim"]>>,

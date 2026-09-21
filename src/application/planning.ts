@@ -49,7 +49,7 @@ export class Planning {
   constructor(private h: Hooks) {}
   private validate(state: CompanyState, plan: MilestonePlan) {
     try {
-      validatePlan(plan, state.settings.roles);
+      validatePlan(plan, state.settings.roles, (plan as Milestone).delivery?.requiredReviews ?? state.settings.requiredReviews);
     } catch (error) {
       throw new DomainError(
         error instanceof Error

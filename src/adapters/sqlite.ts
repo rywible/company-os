@@ -1,3 +1,4 @@
+import { RunStorage } from "./run-storage";
 import { migrateDeliveryPolicy } from "../domain/delivery";
 import {
   initialPlanning,
@@ -23,6 +24,7 @@ import {
 import { workflows } from "../domain/workflows";
 import type { Repository } from "../application/ports";
 export class SQLiteRepository implements Repository {
+  private runStorage: RunStorage;
   constructor(
     public store: Store,
     now = new Date().toISOString(),
@@ -32,6 +34,7 @@ export class SQLiteRepository implements Repository {
    CREATE TABLE IF NOT EXISTS domain_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,json TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS deliveries(id TEXT PRIMARY KEY,event_json TEXT NOT NULL,effect_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,available_at INTEGER NOT NULL DEFAULT 0,error TEXT);
    CREATE INDEX IF NOT EXISTS delivery_ready ON deliveries(status,available_at);`);
+    this.runStorage = new RunStorage(store.db);
     if (!store.db.query("SELECT 1 FROM company_state").get())
       this.transaction(() => {
         const state = initialState(now),
@@ -114,6 +117,7 @@ export class SQLiteRepository implements Repository {
           .get() as { json: string }
       ).json,
     );
+    for (const run of s.runs) this.runStorage.attach(run);
     // Ignore removed policy metadata in existing workspaces; historical run snapshots remain intact.
     s.policies = Object.fromEntries(
       Object.entries(s.policies || {}).map(([id, policy]) => [
@@ -267,11 +271,23 @@ export class SQLiteRepository implements Repository {
     return s;
   }
   save(state: CompanyState) {
-    this.store.db
-      .query(
-        "INSERT INTO company_state VALUES(1,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json",
-      )
-      .run(JSON.stringify(state));
+    this.transaction(() => {
+      const runs = state.runs.map(run => this.runStorage.serialize(run));
+      this.store.db.query("INSERT INTO company_state VALUES(1,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json")
+        .run(JSON.stringify({...state, runs}));
+    });
+  }
+  workspace() {
+    const state = this.state();
+    return {...state, runs: state.runs.map(run => this.runStorage.summary(run))};
+  }
+  runPage(before?: string, limit = 50, workId?: string) {
+    const runs = this.state().runs.filter(run => !workId || run.workId === workId);
+    const end = before ? runs.findIndex(run => run.id === before) : runs.length;
+    if (end < 0) throw Error("Unknown run history cursor.");
+    const start = Math.max(0, end - limit);
+    return {runs: runs.slice(start, end).reverse().map(run => this.runStorage.summary(run)),
+      nextCursor: start > 0 ? runs[start]!.id : null};
   }
   publish(
     input: EventInput,
@@ -305,21 +321,12 @@ export class SQLiteRepository implements Repository {
         .run(`${event.id}:${i}`, JSON.stringify(event), JSON.stringify(effect)),
     );
   }
-  events(entityId?: string) {
-    const events = (
-      this.store.db
-        .query(
-          "SELECT json FROM domain_events ORDER BY sequence DESC LIMIT 500",
-        )
-        .all() as { json: string }[]
-    ).map((r) => JSON.parse(r.json) as DomainEvent);
-    return entityId
-      ? events.filter(
-          (e) =>
-            Object.values(e.payload).includes(entityId) ||
-            e.correlationId === entityId,
-        )
-      : events;
+  events(entityId?: string, before = Number.MAX_SAFE_INTEGER) {
+    return (this.store.db.query(`SELECT json,sequence FROM domain_events
+      WHERE sequence < ? AND (? IS NULL OR json_extract(json,'$.correlationId')=? OR
+        EXISTS (SELECT 1 FROM json_each(domain_events.json,'$.payload') WHERE value=?))
+      ORDER BY sequence DESC LIMIT 100`).all(before, entityId || null, entityId || null, entityId || null) as {json:string;sequence:number}[])
+      .map(row => ({...JSON.parse(row.json), sequence:row.sequence}) as DomainEvent);
   }
   claim(): Delivery | null {
     return this.transaction(() => {

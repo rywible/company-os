@@ -171,6 +171,7 @@ export type Context = {
     branch: string;
     head: string;
     files: unknown[];
+    worker?: string;
   };
   acceptance?: {
     criteria: string;
@@ -270,6 +271,8 @@ export type BrowserEvidence = {
   errors: string[];
 };
 export type Run = {
+  hasContext?: boolean;
+  contextSourceCount?: number;
   executionId?: string;
   pendingOutput?: AgentResult;
   automationPermissions?: import("./permissions").AutomationPermission[];
@@ -491,6 +494,15 @@ export const commandSchema = z.discriminatedUnion("type", [
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export const agentResultSchema = z.object({
+  // Executor receipt, never a model-authored claim. Older saved results omit it.
+  engineering: z.object({
+    runId: text,
+    worker: text,
+    repository: text,
+    branch: text,
+    base: text,
+    head: text,
+  }).optional(),
   milestones: z.array(milestonePlanSchema).max(2).optional(),
   milestoneRevisions: z
     .array(
