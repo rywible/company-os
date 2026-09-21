@@ -2,6 +2,8 @@
 
 A private workspace for steering a software company through its Foreman. The first working loop is **direction → contextual recommendation → proposal → human acceptance → versioned understanding**.
 
+The proposed replacement is described in the [Company OS v2 design](docs/V2-DESIGN.md). The rest of this README describes the current application.
+
 ## What works
 
 - One inbox for conversations with Foreman, questions, blockers and document proposals. New message starts a thread; replies stay in that thread.
