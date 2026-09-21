@@ -1188,6 +1188,38 @@ test("Foreman creates an indexed architecture document with Mermaid directly fro
   expect(repo.state().runs[0]!.status).toBe("completed");
 });
 
+test("conversation page creation ignores evidence IDs used as related subjects", async () => {
+  const constitution = save("Constitution", "Human direction", "constitution");
+  const related = save("Rendering constraints", "Measure ordinary hardware");
+  await drain();
+  execute = (context) => {
+    const created = update(
+      "Proposed engine architecture",
+      "A discussion draft",
+      `message:${context.messages[0]!.id}`,
+    );
+    created.relatedIds = [constitution.id, related.id, related.id];
+    return answer({ libraryUpdates: [created] });
+  };
+  company.execute({
+    type: "StartConversation",
+    subject: "Architecture",
+    content: "Draft the engine architecture.",
+  });
+
+  await drain();
+
+  const created = repo
+    .documents()
+    .find((d) => d.title === "Proposed engine architecture")!;
+  expect(repo.state().library.pages[created.id]!.relatedIds).toEqual([
+    related.id,
+  ]);
+  expect(repo.state().runs.findLast((run) => run.trigger === "message")!.status).toBe(
+    "completed",
+  );
+});
+
 test("conversation document changes still require approval for human-edited pages", async () => {
   const doc = save("Architecture", "Original human architecture");
   await drain();

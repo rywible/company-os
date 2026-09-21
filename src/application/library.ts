@@ -352,7 +352,21 @@ export class Library {
   applyUpdates(state: CompanyState, run: Run, output: AgentResult) {
     const context = run.context!;
     const ids: string[] = [];
-    for (const update of output.libraryUpdates || []) {
+    for (const proposed of output.libraryUpdates || []) {
+      // Relationships are optional organization hints. Agent briefings also contain
+      // IDs for governing documents and raw evidence, which are valid sources but
+      // cannot be library relationships. Do not discard a substantive page update
+      // when the agent mistakes one of those IDs for a related subject.
+      const update = {
+        ...proposed,
+        relatedIds: [
+          ...new Set(
+            proposed.relatedIds.filter(
+              (ref) => ref !== proposed.documentId && !!state.library.pages[ref],
+            ),
+          ),
+        ],
+      };
       const old = this.validate(state, update, context);
       if (
         update.needsApproval ||
