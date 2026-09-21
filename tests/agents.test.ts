@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { SpriteAgent } from "../src/adapters/agents";
+import { agentOutputSchema, SpriteAgent } from "../src/adapters/agents";
 import type { Integrations } from "../src/server/integrations";
 import type { Context, AgentResult } from "../src/domain/model";
 import {
@@ -137,6 +137,9 @@ test("research mode enables hosted search and requires an OpenAI-backed worker",
   expect(payload.research).toBe(true);
   expect(payload.prompt).toContain("hosted web search is enabled");
   expect(payload.prompt).toContain("researchSources");
+  expect(
+    JSON.stringify(agentOutputSchema()).includes('"format":"uri"'),
+  ).toBe(false);
   await expect(
     instance.execute(
       "unsupported-research",

@@ -540,7 +540,7 @@ export const agentResultSchema = z.object({
   researchSources: z
     .array(
       z.object({
-        url: z.string().url().max(2000),
+        url: text.max(2000).regex(/^https?:\/\//),
         title: text.max(300),
         evidence: text.max(4000),
       }),
