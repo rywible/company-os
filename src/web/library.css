@@ -187,26 +187,41 @@
   width: 18px;
 }
 .context-used {
-  margin: 18px 0 0;
+  margin: 12px 0 0;
+}
+.context-used-trigger {
+  min-height: 30px;
+  padding: 5px 9px;
+  border-color: var(--line);
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.context-used-trigger:hover {
+  background: var(--wash);
+  border-color: var(--line-strong);
+  transform: none;
+}
+.context-used-trigger span {
+  padding-left: 7px;
+  border-left: 1px solid var(--line-strong);
   color: var(--muted);
-  font-size: 13px;
+  font-weight: 500;
 }
-.context-used > summary {
-  display: list-item;
-  cursor: pointer;
-  width: fit-content;
-}
-.context-used > summary > span {
-  margin-left: 8px;
-}
+.context-dialog { width: min(720px, calc(100vw - 28px)); }
+.context-dialog .modal-body { padding: 22px 24px 28px; }
 .briefing-snapshot {
   color: var(--ink);
-  max-width: 70ch;
-  padding: 18px 0 0;
+  max-width: none;
+  padding: 0;
   overflow-wrap: anywhere;
 }
+.briefing-snapshot > .muted:first-child { margin-top: 0; }
 .briefing-snapshot > section {
-  margin: 16px 0;
+  margin: 20px 0;
 }
 .briefing-snapshot h4 {
   font-size: 13px;
@@ -214,11 +229,14 @@
   font-weight: 600;
 }
 .briefing-snapshot details {
-  margin: 12px 0;
+  margin: 10px 0;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
 }
 .briefing-page {
-  border-left: 2px solid var(--line);
-  padding-left: 14px;
+  border-left: 2px solid var(--ink) !important;
 }
 .briefing-page summary span {
   color: var(--muted);
@@ -232,6 +250,11 @@
 .briefing-pending {
   color: var(--muted);
   font-size: 12px;
+}
+.context-history {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
 }
 .library-reader pre,
 .briefing-snapshot pre {

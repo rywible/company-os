@@ -715,14 +715,14 @@ for (const backend of backends) {
         expect(
           repo.state().threads.find((t) => t.kind === "conversation")!.subject,
         ).toBe("Product direction");
-        await click(view, ".context-used > summary");
+        await button(view, "Context", ".context-used", false);
         await wait(
           view,
-          "document.querySelector('.context-used[open]')?.textContent.includes('Relevant knowledge')",
+          `document.querySelector('dialog[aria-label="Context used"]')?.textContent.includes('Relevant knowledge')`,
         );
         expect(
           await view.evaluate<boolean>(
-            "document.querySelector('.context-used[open]').textContent.includes('Assignment')",
+            `document.querySelector('dialog[aria-label="Context used"]').textContent.includes('Assignment')`,
           ),
         ).toBe(true);
         await fits(view);
@@ -730,7 +730,11 @@ for (const backend of backends) {
           `.artifacts/inbox-context-${size.name}.png`,
           await view.screenshot(),
         );
-        await click(view, ".context-used > summary");
+        await button(
+          view,
+          "Close dialog",
+          'dialog[aria-label="Context used"]',
+        );
         await fill(
           view,
           '[aria-label="Message Foreman"]',
@@ -783,6 +787,36 @@ for (const backend of backends) {
           `.artifacts/mail-list-${size.name}.png`,
           await view.screenshot(),
         );
+        const pendingState = repo.state();
+        const pendingThread = pendingState.threads.find(
+          (thread) => thread.subject === "Product direction",
+        )!;
+        pendingThread.status = "open";
+        pendingThread.unread = false;
+        pendingState.runs.push({
+          id: "pending-foreman-response",
+          automatic: false,
+          trigger: "message",
+          status: "running",
+          threadId: pendingThread.id,
+          context: null,
+          error: null,
+          createdAt: new Date().toISOString(),
+        });
+        repo.save(pendingState);
+        await view.reload();
+        await button(view, "Read", ".filters");
+        await button(view, "Product direction", ".thread-list", false);
+        await wait(
+          view,
+          `document.querySelector('.foreman-pending')?.textContent.includes('Reviewing your message')`,
+        );
+        expect(
+          await view.evaluate<boolean>(
+            `!!document.querySelector('.foreman-pending[role="status"] .thinking-spinner')`,
+          ),
+        ).toBe(true);
+        await fits(view);
         expect(errors).toEqual([]);
       }, 30000);
       test("work, PR review count and complete event-driven round", async () => {
@@ -1260,10 +1294,10 @@ test("library maintenance produces browsable subjects with versioned sources", a
   );
   await button(view, "Send", "dialog");
   await wait(view, "!!document.querySelector('.context-used')");
-  await click(view, ".context-used > summary");
+  await button(view, "Context", ".context-used", false);
   await wait(
     view,
-    "document.querySelector('.context-used[open]')?.textContent.includes('Working principles')",
+    `document.querySelector('dialog[aria-label="Context used"]')?.textContent.includes('Working principles')`,
   );
   await fits(view);
   expect(errors).toEqual([]);

@@ -338,9 +338,16 @@ function App() {
       null,
     ),
     [history, setHistory] = useState<any[] | null>(null);
+  const conversationEndRef = useRef<HTMLDivElement>(null);
   const currentThread = state?.threads.find((t) => t.id === threadId),
     currentDoc = state?.documents.find((d) => d.level === "constitution"),
     work = state?.work.find((w) => w.id === selectedWork);
+  const latestConversationRun = threadId
+    ? state?.runs.filter((run) => run.threadId === threadId).at(-1)
+    : undefined;
+  const foremanResponding = ["queued", "running"].includes(
+    latestConversationRun?.status || "",
+  );
   const isSourceEvidence = (id: string) =>
     Boolean(
       state?.documents.find((document) => document.id === id)?.level ===
@@ -376,13 +383,13 @@ function App() {
         void refresh().catch(() => setStale(true));
     };
     sync();
-    const timer = setInterval(sync, 3500);
+    const timer = setInterval(sync, foremanResponding ? 1250 : 3500);
     window.addEventListener("online", sync);
     return () => {
       clearInterval(timer);
       window.removeEventListener("online", sync);
     };
-  }, [session]);
+  }, [session, foremanResponding]);
   useEffect(() => {
     const sync = () => {
       const next = route(location.hash.slice(1));
@@ -392,6 +399,17 @@ function App() {
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
+  useEffect(() => {
+    if (!threadId) return;
+    const frame = requestAnimationFrame(() =>
+      conversationEndRef.current?.scrollIntoView({ block: "end" }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [
+    threadId,
+    currentThread?.messages.length,
+    latestConversationRun?.status,
+  ]);
   function navigate(name: string) {
     const next = route(name);
     setInboxView(next.view);
@@ -526,7 +544,7 @@ function App() {
       />
     ) : null;
   const pageActions =
-    page === "Inbox" && inboxView === "requests" ? (
+    page === "Inbox" && inboxView === "requests" && !currentThread ? (
       <div className="page-actions">
         <button
           className="primary"
@@ -813,7 +831,7 @@ function App() {
                   </section>
                 )}
                 {currentThread && (
-                  <section className="conversation" aria-label="Email thread">
+                  <section className="conversation" aria-label="Conversation">
                     <div className="conversation-header">
                       <div>
                         {currentThread && (
@@ -828,6 +846,12 @@ function App() {
                       </div>
                       {currentThread && (
                         <div className="actions">
+                          <button
+                            disabled={disabled}
+                            onClick={() => setComposeOpen(true)}
+                          >
+                            <Plus size={14} /> New message
+                          </button>
                           <button
                             disabled={disabled}
                             onClick={() =>
@@ -852,22 +876,6 @@ function App() {
                       )}
                     </div>
                     <div className="conversation-messages">
-                      {state.runs
-                        .filter(
-                          (r) =>
-                            r.threadId === currentThread.id &&
-                            ["queued", "running"].includes(r.status),
-                        )
-                        .map((r) => (
-                          <ContextUsed
-                            key={r.id}
-                            run={r}
-                            documents={state.documents}
-                            markdown={(content) => (
-                              <Markdown>{content}</Markdown>
-                            )}
-                          />
-                        ))}
                       {currentThread.milestoneId &&
                         (() => {
                           const m = state.planning.milestones.find(
@@ -1021,36 +1029,62 @@ function App() {
                             </button>
                           </div>
                         )}
-                      {state.runs
-                        .filter((r) => r.threadId === threadId)
-                        .slice(-4)
-                        .map((r) => (
-                          <div className="run-status" key={r.id}>
-                            {r.status === "queued" || r.status === "running" ? (
-                              <span>
-                                Foreman{" "}
-                                {r.status === "queued" ? "queued" : "working"}…
-                              </span>
-                            ) : r.status === "failed" ? (
-                              <>
-                                <span role="alert">{r.error}</span>
-                                <button
-                                  disabled={disabled}
-                                  onClick={() =>
-                                    void perform(async () => {
-                                      await act({
-                                        type: "RetryRun",
-                                        runId: r.id,
-                                      });
-                                    })
-                                  }
-                                >
-                                  Retry
-                                </button>
-                              </>
-                            ) : null}
+                      {latestConversationRun && foremanResponding && (
+                        <article
+                          className="message foreman foreman-pending"
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <div className="message-meta">
+                            <span className="avatar" aria-hidden="true">
+                              F
+                            </span>
+                            <b>Foreman</b>
                           </div>
-                        ))}
+                          <div className="thinking-line">
+                            <Loader2
+                              className="thinking-spinner"
+                              size={16}
+                              aria-hidden="true"
+                            />
+                            <span>
+                              {latestConversationRun.status === "queued"
+                                ? "Waiting to start"
+                                : latestConversationRun.context
+                                  ? "Working with the selected context"
+                                  : "Reviewing your message"}
+                            </span>
+                          </div>
+                          {latestConversationRun.context && (
+                            <ContextUsed
+                              run={latestConversationRun}
+                              documents={state.documents}
+                              markdown={(content) => (
+                                <Markdown>{content}</Markdown>
+                              )}
+                            />
+                          )}
+                        </article>
+                      )}
+                      {latestConversationRun?.status === "failed" && (
+                        <div className="run-status run-failed">
+                          <span role="alert">{latestConversationRun.error}</span>
+                          <button
+                            disabled={disabled}
+                            onClick={() =>
+                              void perform(async () => {
+                                await act({
+                                  type: "RetryRun",
+                                  runId: latestConversationRun.id,
+                                });
+                              })
+                            }
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
+                      <div ref={conversationEndRef} aria-hidden="true" />
                     </div>
                     {currentThread && (
                       <form

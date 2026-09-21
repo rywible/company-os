@@ -5,7 +5,13 @@ import { parseDocumentRef, type LibraryPage } from "../domain/library";
 import { libraryFreshness } from "../domain/freshness";
 import { documentRef } from "../domain/library";
 import { Modal } from "./modal";
-import { ChevronRight, MessageCircle, Pencil, Trash2 } from "lucide-react";
+import {
+  ChevronRight,
+  Layers3,
+  MessageCircle,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import "./library.css";
 type Props = {
   state: CompanyState & { documents: Document[] };
@@ -801,14 +807,10 @@ export function ContextUsed({
   documents: Document[];
   markdown(s: string): React.ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
   if (!run) return null;
   const context = run.context;
-  if (!context)
-    return (
-      <p className="briefing-pending">
-        Context will be assembled when this run starts.
-      </p>
-    );
+  if (!context) return null;
   function snapshot(c: Context) {
     return (
       <div className="briefing-snapshot">
@@ -901,22 +903,35 @@ export function ContextUsed({
       </div>
     );
   }
+  const sourceCount = context.documents.length;
   return (
-    <details className="context-used">
-      <summary>
-        Context used{" "}
+    <div className="context-used">
+      <button
+        className="context-used-trigger"
+        type="button"
+        onClick={() => setOpen(true)}
+      >
+        <Layers3 size={14} aria-hidden="true" />
+        Context
         <span>
-          {context.documents.length}{" "}
-          {context.documents.length === 1 ? "page" : "pages"}
+          {sourceCount} saved {sourceCount === 1 ? "source" : "sources"}
         </span>
-      </summary>
-      {snapshot(context)}
-      {(run.contextHistory?.length || 0) > 1 && (
-        <details>
-          <summary>Initial briefing before additional context</summary>
-          {snapshot(run.contextHistory![0]!)}
-        </details>
+      </button>
+      {open && (
+        <Modal
+          className="context-dialog"
+          title="Context used"
+          close={() => setOpen(false)}
+        >
+          {snapshot(context)}
+          {(run.contextHistory?.length || 0) > 1 && (
+            <details className="context-history">
+              <summary>Initial briefing before additional context</summary>
+              {snapshot(run.contextHistory![0]!)}
+            </details>
+          )}
+        </Modal>
       )}
-    </details>
+    </div>
   );
 }
