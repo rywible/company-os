@@ -848,12 +848,7 @@ function App() {
                       {currentThread && (
                         <div className="actions">
                           <button
-                            disabled={disabled}
-                            onClick={() => setComposeOpen(true)}
-                          >
-                            <Plus size={14} /> New message
-                          </button>
-                          <button
+                            className="primary"
                             disabled={disabled}
                             onClick={() =>
                               void perform(async () => {

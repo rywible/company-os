@@ -673,6 +673,7 @@ for (const backend of backends) {
           '[aria-label="Message Foreman"]',
           "Keep this reply separate",
         );
+        await button(view, "← Inbox");
         await button(view, "New message");
         await fill(view, "dialog input", "Product direction");
         await fill(
@@ -682,6 +683,13 @@ for (const backend of backends) {
         );
         await fits(view);
         await button(view, "Close dialog");
+        await button(view, "Read", ".filters");
+        await button(
+          view,
+          "Prove the handoff before expanding",
+          ".thread-list",
+          false,
+        );
         expect(
           await view.evaluate<any>(
             `document.querySelector('[aria-label="Message Foreman"]').value`,
