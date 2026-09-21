@@ -204,7 +204,12 @@ export async function assembleContext(
       continue;
     }
     if (d.level !== "constitution") {
-      const selection = selectDocumentSections(d.content, queries.join("\n") + "\n" + (hits.get(d.id)?.excerpt || ""));
+      const request = requested.find(r => r.subject === d!.title || r.subject === d!.id);
+      const selection = selectDocumentSections(
+        d.content,
+        queries.join("\n") + "\n" + (hits.get(d.id)?.excerpt || ""),
+        request && !request.headingPath?.length ? 60000 : 16000,
+      );
       (context.documentSections ||= {})[d.id] = { partial: selection.partial, outline: selection.outline };
       d = { ...d, content: selection.content };
     }

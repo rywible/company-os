@@ -190,6 +190,17 @@ test("collecting intake stays outside normal retrieval and does not trigger cura
   expect(repo.document(d.id)).toBeUndefined();
 });
 
+test("an explicit full-page request expands a large subject within the briefing budget", async () => {
+  const content = structuredKnowledge("Complete material. ".repeat(2200));
+  const page = company.execute({type:"SaveKnowledge",title:"Large renderer subject",content,level:"knowledge",policy:{inclusion:"relevant",status:"active"}}) as {id:string};
+  handler = c => c.additionalRequests?.length ? result() : result({contextRequests:[{subject:"Large renderer subject",headingPath:[],reason:"Read the whole subject before restructuring"}]});
+  company.execute({type:"StartConversation",subject:"Large renderer subject",content:"Review the whole subject"});
+  await drain();
+  expect(contexts[0]!.documentSections?.[page.id]?.partial).toBe(true);
+  expect(contexts.at(-1)!.documents.find(d=>d.id===page.id)?.content).toBe(content);
+  expect(contexts.at(-1)!.documentSections?.[page.id]?.partial).toBe(false);
+});
+
 test("several ready events coalesce; a discarded item needs an explicit resolution", async () => {
   intake();
   intake("Duplicate finding");
